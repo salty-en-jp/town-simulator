@@ -4,8 +4,19 @@ export const TICKS_PER_DAY = 60;
 export const DAYS_PER_MONTH = 30; // 表示は実カレンダー、経済処理は30日ごと
 export const START_YEAR = 1960;
 
-export type Cargo = 'passengers' | 'logs' | 'lumber';
-export const CARGOS: readonly Cargo[] = ['passengers', 'logs', 'lumber'];
+export type Cargo =
+  | 'passengers'
+  | 'logs'
+  | 'lumber'
+  | 'grain'
+  | 'food'
+  | 'ore'
+  | 'coal'
+  | 'steel'
+  | 'materials';
+export const CARGOS: readonly Cargo[] = ['passengers', 'logs', 'lumber', 'grain', 'food', 'ore', 'coal', 'steel', 'materials'];
+/** 町が受け入れる貨物（旅客以外） */
+export const TOWN_GOODS: readonly Cargo[] = ['lumber', 'food', 'materials'];
 
 export interface CargoSpec {
   name: string;
@@ -23,9 +34,26 @@ export const CARGO_SPECS: Record<Cargo, CargoSpec> = {
   passengers: { name: '旅客', unit: '人', rate: 160, days1: 4, days2: 20, color: 0x3d7a5a },
   logs: { name: '原木', unit: 't', rate: 420, days1: 30, days2: 60, color: 0x8b5a2b },
   lumber: { name: '木材', unit: 't', rate: 620, days1: 20, days2: 40, color: 0xc69c6d },
+  grain: { name: '穀物', unit: 't', rate: 380, days1: 16, days2: 40, color: 0xe0b84a },
+  food: { name: '食料品', unit: 't', rate: 720, days1: 6, days2: 20, color: 0xe9e4d6 },
+  ore: { name: '鉄鉱石', unit: 't', rate: 360, days1: 40, days2: 80, color: 0xa0543c },
+  coal: { name: '石炭', unit: 't', rate: 340, days1: 40, days2: 80, color: 0x2b2b2e },
+  steel: { name: '鋼材', unit: 't', rate: 620, days1: 30, days2: 60, color: 0x8d9aa8 },
+  materials: { name: '建設資材', unit: 't', rate: 820, days1: 20, days2: 40, color: 0xd88a3c },
 };
 
-export type WagonType = 'coach' | 'logcar' | 'lumbercar' | 'biglogcar' | 'biglumbercar';
+export type WagonType =
+  | 'coach'
+  | 'logcar'
+  | 'lumbercar'
+  | 'graincar'
+  | 'foodcar'
+  | 'orecar'
+  | 'coalcar'
+  | 'steelcar'
+  | 'materialcar'
+  | 'biglogcar'
+  | 'biglumbercar';
 export type EngineType = 'steam' | 'express';
 export type VehicleType = EngineType | WagonType;
 
@@ -52,6 +80,12 @@ export const WAGON_SPECS: Record<WagonType, WagonSpec> = {
   coach: { name: '客車', cargo: 'passengers', capacity: 40, cost: 1_500_000 },
   logcar: { name: '原木車', cargo: 'logs', capacity: 30, cost: 1_500_000 },
   lumbercar: { name: '木材車', cargo: 'lumber', capacity: 30, cost: 1_500_000 },
+  graincar: { name: '穀物車', cargo: 'grain', capacity: 30, cost: 1_500_000 },
+  foodcar: { name: '冷蔵車', cargo: 'food', capacity: 25, cost: 1_800_000 },
+  orecar: { name: '鉱石車', cargo: 'ore', capacity: 35, cost: 1_600_000 },
+  coalcar: { name: '石炭車', cargo: 'coal', capacity: 35, cost: 1_600_000 },
+  steelcar: { name: '鋼材車', cargo: 'steel', capacity: 30, cost: 1_700_000 },
+  materialcar: { name: '資材車', cargo: 'materials', capacity: 25, cost: 1_800_000 },
   biglogcar: { name: '大型原木車', cargo: 'logs', capacity: 45, cost: 2_200_000, locked: true },
   biglumbercar: { name: '大型木材車', cargo: 'lumber', capacity: 45, cost: 2_200_000, locked: true },
 };
@@ -118,15 +152,71 @@ export const STATION = {
 };
 
 export const INDUSTRY = {
-  forestStartRate: 72, // t/月
-  sawmillRate: 120, // 1か月に加工できる最大量
+  /** 入力・出力の在庫の上限（t） */
   stockCap: 500,
 };
+
+export type IndustryType =
+  | 'forest'
+  | 'farm'
+  | 'ironmine'
+  | 'coalmine'
+  | 'sawmill'
+  | 'foodplant'
+  | 'steelmill'
+  | 'materialsplant';
+
+export interface IndustrySpec {
+  /** 名前の後ろ（「桜川」＋「製材所」） */
+  suffix: string;
+  /** 受け入れる貨物。2つ以上あるときは、全部そろって初めてフル生産 */
+  inputs: Cargo[];
+  output: Cargo;
+  /** 一次産業：1か月の生産量。加工：1か月に加工できる最大量 */
+  rate: number;
+  w: number;
+  h: number;
+  desc: string;
+}
+
+export const INDUSTRY_SPECS: Record<IndustryType, IndustrySpec> = {
+  forest: { suffix: 'の森', inputs: [], output: 'logs', rate: 72, w: 3, h: 3, desc: '原木を生産する森です。' },
+  farm: { suffix: '農場', inputs: [], output: 'grain', rate: 80, w: 3, h: 3, desc: '穀物を生産する農場です。' },
+  ironmine: { suffix: '鉄鉱山', inputs: [], output: 'ore', rate: 90, w: 2, h: 2, desc: '鉄鉱石を掘り出す鉱山です。' },
+  coalmine: { suffix: '炭鉱', inputs: [], output: 'coal', rate: 90, w: 2, h: 2, desc: '石炭を掘り出す炭鉱です。' },
+  sawmill: { suffix: '製材所', inputs: ['logs'], output: 'lumber', rate: 120, w: 3, h: 2, desc: '原木を木材に加工します。' },
+  foodplant: { suffix: '食品工場', inputs: ['grain'], output: 'food', rate: 120, w: 3, h: 2, desc: '穀物を食料品に加工します。食料品を町に届けると、町が早く育ちます。' },
+  steelmill: {
+    suffix: '製鉄所',
+    inputs: ['ore', 'coal'],
+    output: 'steel',
+    rate: 120,
+    w: 3,
+    h: 3,
+    desc: '鉄鉱石と石炭から鋼材をつくります。両方がそろわないと動きません。',
+  },
+  materialsplant: {
+    suffix: '建材工場',
+    inputs: ['lumber', 'steel'],
+    output: 'materials',
+    rate: 100,
+    w: 3,
+    h: 2,
+    desc: '木材と鋼材から建設資材をつくります。建設資材を町に届けると高層ビルが建ちます。',
+  },
+};
+
+export const INDUSTRY_TYPES = Object.keys(INDUSTRY_SPECS) as IndustryType[];
 
 export const TOWN = {
   lumberPerHouse: 10,
   lumberPerUpgrade2: 10,
-  lumberPerUpgrade3: 25,
+  /** 高層ビル（ランク3）への建て替えに使う建設資材 */
+  materialsPerUpgrade3: 20,
+  /** 町が貯めておける貨物の量（多いほど買取価格が下がる） */
+  stockCap: 300,
+  /** 1日に人口1,000人あたりで食べる食料品（t） */
+  foodPerThousand: 3,
 };
 
 export const HOUSE_POP = [0, 8, 30, 80] as const;

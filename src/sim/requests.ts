@@ -8,17 +8,24 @@
 import { formatYen } from './commands';
 import {
   CARGO_SPECS,
+  INDUSTRY_SPECS,
   isEngine,
+  TOWN_GOODS,
   vehicleCost,
   vehicleName,
+  WAGON_SPECS,
+  WAGON_TYPES,
+  type Cargo,
   type VehicleType,
 } from './constants';
 import { findPath } from './track';
 import {
   earn,
   idx,
+  isPrimary,
   newCar,
   newId,
+  recvOf,
   pushEvent,
   rectContains,
   stationCatchment,
@@ -28,7 +35,7 @@ import {
   type World,
 } from './world';
 
-export type RequestKind = 'deliver_lumber' | 'haul_logs' | 'carry_pax' | 'population' | 'connect' | 'rating' | 'income';
+export type RequestKind = 'deliver' | 'haul' | 'carry_pax' | 'population' | 'connect' | 'rating' | 'income';
 
 export type Reward =
   | { kind: 'money'; amount: number }
@@ -43,6 +50,8 @@ export interface Request {
   desc: string;
   target: number;
   target2: number;
+  /** 運ぶ貨物（haul・deliver のとき） */
+  cargo?: Cargo;
   goal: number;
   /** 依頼を受けたときの累計（ここからの増えた分を数える） */
   base: number;
@@ -106,11 +115,15 @@ function bestRating(world: World): number {
 
 function counter(world: World, r: Request): number {
   switch (r.kind) {
-    case 'deliver_lumber':
-      return world.towns.get(r.target)?.lumberTotal ?? 0;
-    case 'carry_pax':
-      return world.towns.get(r.target)?.paxTotal ?? 0;
-    case 'haul_logs':
+    case 'deliver': {
+      const t = world.towns.get(r.target);
+      return t && r.cargo ? recvOf(t, r.cargo).total : 0;
+    }
+    case 'carry_pax': {
+      const t = world.towns.get(r.target);
+      return t ? recvOf(t, 'passengers').total : 0;
+    }
+    case 'haul':
       return world.industries.get(r.target)?.transportedTotal ?? 0;
     case 'income':
       return world.requestState.incomeTotal;
@@ -139,14 +152,11 @@ function pick<T>(world: World, arr: T[]): T | undefined {
 }
 
 /** 報酬を決める。まだ解禁されていない車両があれば、それが出やすい */
-function makeReward(world: World, kind: RequestKind, scale: number, money: number): Reward {
-  const lockedFor: Partial<Record<RequestKind, VehicleType>> = {
-    haul_logs: 'biglogcar',
-    deliver_lumber: 'biglumbercar',
-    connect: 'express',
-    income: 'express',
-  };
-  const lock = lockedFor[kind];
+function makeReward(world: World, kind: RequestKind, scale: number, money: number, cargo?: Cargo): Reward {
+  let lock: VehicleType | undefined;
+  if (kind === 'haul' && cargo === 'logs') lock = 'biglogcar';
+  if (kind === 'deliver' && cargo === 'lumber') lock = 'biglumbercar';
+  if (kind === 'connect' || kind === 'income') lock = 'express';
   const offered = new Set(
     world.requests.flatMap((r) => (r.reward.kind === 'vehicle' && r.reward.unlock ? [r.reward.vehicle] : [])),
   );
@@ -154,25 +164,34 @@ function makeReward(world: World, kind: RequestKind, scale: number, money: numbe
     return { kind: 'vehicle', vehicle: lock, count: isEngine(lock) ? 1 : 2, unlock: true };
   }
   if (world.depots.size > 0 && world.rng.chance(0.35)) {
-    const v: VehicleType = kind === 'carry_pax' ? 'coach' : kind === 'haul_logs' ? 'logcar' : kind === 'deliver_lumber' ? 'lumbercar' : world.rng.pick(['logcar', 'lumbercar', 'coach'] as const);
+    // その依頼で使う貨物の貨車
+    const forCargo = cargo ? WAGON_TYPES.find((w) => !WAGON_SPECS[w].locked && WAGON_SPECS[w].cargo === cargo) : undefined;
+    const v: VehicleType = kind === 'carry_pax' ? 'coach' : (forCargo ?? world.rng.pick(['logcar', 'lumbercar', 'coach'] as const));
     return { kind: 'vehicle', vehicle: v, count: Math.min(4, 1 + Math.floor(scale)), unlock: false };
   }
   return { kind: 'money', amount: round(money * scale, 500_000) };
 }
 
+const DELIVER_TEXT: Partial<Record<Cargo, { goal: number; why: string; money: number }>> = {
+  lumber: { goal: 60, why: '新しい家を建てたいそうです。', money: 6_000_000 },
+  food: { goal: 50, why: '町の人が食べる食料品が足りないそうです。', money: 7_000_000 },
+  materials: { goal: 40, why: '高いビルを建てたいそうです。', money: 9_000_000 },
+};
+
 function makeRequest(world: World): Request | null {
   const st = world.requestState;
   const scale = 1 + st.completed * 0.35;
   const towns = [...world.towns.values()];
-  const forests = [...world.industries.values()].filter((i) => i.type === 'forest');
-  const active = new Set(world.requests.map((r) => `${r.kind}:${r.target}:${r.target2}`));
+  const primaries = [...world.industries.values()].filter((i) => isPrimary(i.type));
+  const active = new Set(world.requests.map((r) => `${r.kind}:${r.target}:${r.target2}:${r.cargo ?? ''}`));
   const hasVisited = [...world.stations.values()].some((s) => Object.values(s.goods).some((g) => g.visited));
-  const kinds: RequestKind[] = ['haul_logs', 'deliver_lumber', 'carry_pax', 'population'];
+  const kinds: RequestKind[] = ['haul', 'deliver', 'carry_pax', 'population'];
   if (towns.length >= 2) kinds.push('connect');
   if (hasVisited) kinds.push('rating');
   if (st.incomeTotal > 0) kinds.push('income');
-  // 最初の依頼はいちばんわかりやすいものに
-  const kind: RequestKind = st.completed === 0 && st.expired === 0 && world.requests.length === 0 ? 'haul_logs' : world.rng.pick(kinds);
+  // 最初の依頼はいちばんわかりやすいもの（最初の森から原木を運び出す）
+  const first = st.completed === 0 && st.expired === 0 && world.requests.length === 0;
+  const kind: RequestKind = first ? 'haul' : world.rng.pick(kinds);
 
   const base = {
     id: newId(world),
@@ -186,36 +205,43 @@ function makeRequest(world: World): Request | null {
   };
   let r: Request | null = null;
   switch (kind) {
-    case 'haul_logs': {
-      const f = pick(world, forests);
+    case 'haul': {
+      const f = first ? primaries.find((i) => i.type === 'forest') : pick(world, primaries);
       if (!f) return null;
+      const cargo = INDUSTRY_SPECS[f.type].output;
+      const cname = CARGO_SPECS[cargo].name;
       const goal = round(120 * scale, 10);
       r = {
         ...base,
         from: f.name,
-        title: `${f.name}の原木を運び出して`,
-        desc: `原木を${goal}t運び出してください。木がたまって困っているそうです。`,
+        title: `${f.name}の${cname}を運び出して`,
+        desc: `${cname}を${goal}t運び出してください。たまって困っているそうです。`,
         target: f.id,
+        cargo,
         goal,
         deadlineDay: world.day + 365,
-        reward: makeReward(world, kind, scale, 4_000_000),
+        reward: makeReward(world, kind, scale, 4_000_000, cargo),
         tile: idx(world, f.x + 1, f.y + 1),
       };
       break;
     }
-    case 'deliver_lumber': {
+    case 'deliver': {
       const t = pick(world, towns);
       if (!t) return null;
-      const goal = round(60 * scale, 10);
+      const cargo = world.rng.pick(TOWN_GOODS);
+      const info = DELIVER_TEXT[cargo]!;
+      const cname = CARGO_SPECS[cargo].name;
+      const goal = round(info.goal * scale, 10);
       r = {
         ...base,
         from: `${t.name}町`,
-        title: `${t.name}町に木材を届けて`,
-        desc: `木材を${goal}t、${t.name}町に届けてください。新しい家を建てたいそうです。`,
+        title: `${t.name}町に${cname}を届けて`,
+        desc: `${cname}を${goal}t、${t.name}町に届けてください。${info.why}`,
         target: t.id,
+        cargo,
         goal,
         deadlineDay: world.day + 365,
-        reward: makeReward(world, kind, scale, 6_000_000),
+        reward: makeReward(world, kind, scale, info.money, cargo),
         tile: idx(world, t.cx, t.cy),
       };
       break;
@@ -302,7 +328,7 @@ function makeRequest(world: World): Request | null {
     }
   }
   if (!r) return null;
-  if (active.has(`${r.kind}:${r.target}:${r.target2}`)) return null;
+  if (active.has(`${r.kind}:${r.target}:${r.target2}:${r.cargo ?? ''}`)) return null;
   r.base = counter(world, r);
   r.progress = Math.min(r.goal, Math.max(0, measure(world, r)));
   return r;

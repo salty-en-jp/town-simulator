@@ -1878,3 +1878,105 @@ body.picking .map-label.station:hover {
 body.picking #labels.far .map-label.station {
   display: block;
 }
+
+/* ───────────── 新しい貨物・貨車の色 ───────────── */
+
+.cargo-dot.grain,
+.car-dot.graincar,
+.chip.graincar {
+  background: #c9a13e;
+}
+
+.cargo-dot.food {
+  background: #e9e4d6;
+  box-shadow: inset 0 0 0 1px #b8b2a2;
+}
+
+.car-dot.foodcar,
+.chip.foodcar {
+  background: #aab3bc;
+}
+
+.cargo-dot.ore,
+.car-dot.orecar,
+.chip.orecar {
+  background: #8e4a35;
+}
+
+.cargo-dot.coal,
+.car-dot.coalcar,
+.chip.coalcar {
+  background: #2b2b2e;
+}
+
+.cargo-dot.steel,
+.car-dot.steelcar,
+.chip.steelcar {
+  background: #6f7c8a;
+}
+
+.cargo-dot.materials,
+.car-dot.materialcar,
+.chip.materialcar {
+  background: #d88a3c;
+}
+
+/* ───────────── 相場表・産業 ───────────── */
+
+.mtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.mtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mtab.on {
+  background: var(--accent);
+  border-color: #c99a2a;
+}
+
+.list.market li {
+  gap: 8px;
+}
+
+.list.market .gauge {
+  width: 60px;
+}
+
+.mname {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.served {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: #e5f1e3;
+  color: #24502f;
+  font-size: 10px;
+}
+
+.chain {
+  margin: 0 0 4px;
+}
+
+.indent {
+  margin: -2px 0 6px 6.5em !important;
+}
+
+body.touch .mtab {
+  padding: 7px 11px;
+}

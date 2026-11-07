@@ -7,9 +7,11 @@ import {
   HOUSE_PAX_PER_DAY,
   HOUSE_POP,
   INDUSTRY,
+  INDUSTRY_SPECS,
   STATION,
   TICKS_PER_DAY,
   TOWN,
+  TOWN_GOODS,
   type Cargo,
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
@@ -26,8 +28,10 @@ import {
   emptyFinance,
   idx,
   inBounds,
+  isPrimary,
   manhattan,
   pushEvent,
+  recvOf,
   rectContains,
   rectOverlapsIndustry,
   spend,
@@ -38,6 +42,7 @@ import {
   trainEngine,
   tx,
   ty,
+  type Dest,
   type Industry,
   type Rect,
   type Station,
@@ -48,15 +53,18 @@ import {
 
 // ───────────────────────── 受け入れ判定（キャッシュ付き） ─────────────────────────
 
+/** 貨物の受け入れ先（産業か町）。dist は駅の看板からの距離 */
+export interface Acceptor {
+  kind: 'industry' | 'town';
+  id: number;
+  dist: number;
+}
+
 export interface Acceptance {
-  passengers: boolean;
-  logs: boolean;
-  lumber: boolean;
-  /** 原木を届ける製材所 */
-  sawmill: number;
-  /** 旅客・木材を届ける町 */
-  town: number;
+  /** 集客範囲にある家の数 */
   houses: number;
+  /** 貨物ごとの受け入れ先（近い順） */
+  by: Partial<Record<Cargo, Acceptor[]>>;
 }
 
 const acceptCache = new WeakMap<World, { version: number; map: Map<number, Acceptance> }>();
@@ -71,41 +79,58 @@ export function acceptance(world: World, st: Station): Acceptance {
   if (hit) return hit;
   const r = stationCatchment(world, st);
   const sign = stationSign(st);
+  const sx = tx(world, sign),
+    sy = ty(world, sign);
   let houses = 0;
-  let town = -1;
-  let townDist = Infinity;
+  const towns = new Map<number, { n: number; dist: number }>();
   for (let y = r.y0; y <= r.y1; y++) {
     for (let x = r.x0; x <= r.x1; x++) {
       const o = world.occ[idx(world, x, y)];
       if (o?.k !== 'house') continue;
       houses++;
-      const d = Math.abs(x - tx(world, sign)) + Math.abs(y - ty(world, sign));
-      if (d < townDist) {
-        townDist = d;
-        town = o.town;
-      }
+      const d = Math.abs(x - sx) + Math.abs(y - sy);
+      const e = towns.get(o.town) ?? { n: 0, dist: Infinity };
+      e.n++;
+      e.dist = Math.min(e.dist, d);
+      towns.set(o.town, e);
     }
   }
-  let sawmill = -1;
-  let sawDist = Infinity;
+  const by: Partial<Record<Cargo, Acceptor[]>> = {};
+  const add = (cargo: Cargo, a: Acceptor) => (by[cargo] ??= []).push(a);
   for (const ind of world.industries.values()) {
-    if (ind.type !== 'sawmill' || !rectOverlapsIndustry(r, ind)) continue;
-    const d = Math.abs(ind.x + 1 - tx(world, sign)) + Math.abs(ind.y + 1 - ty(world, sign));
-    if (d < sawDist) {
-      sawDist = d;
-      sawmill = ind.id;
-    }
+    const inputs = INDUSTRY_SPECS[ind.type].inputs;
+    if (!inputs.length || !rectOverlapsIndustry(r, ind)) continue;
+    const d = Math.abs(ind.x + (ind.w - 1) / 2 - sx) + Math.abs(ind.y + (ind.h - 1) / 2 - sy);
+    for (const cargo of inputs) add(cargo, { kind: 'industry', id: ind.id, dist: d });
   }
-  const acc: Acceptance = {
-    passengers: houses >= 2,
-    lumber: houses >= 1,
-    logs: sawmill >= 0,
-    sawmill,
-    town,
-    houses,
-  };
+  for (const [id, e] of towns) {
+    if (e.n >= 2) add('passengers', { kind: 'town', id, dist: e.dist });
+    for (const cargo of TOWN_GOODS) add(cargo, { kind: 'town', id, dist: e.dist });
+  }
+  for (const list of Object.values(by)) list!.sort((p, q) => p.dist - q.dist);
+  const acc: Acceptance = { houses, by };
   c.map.set(st.id, acc);
   return acc;
+}
+
+export function acceptors(world: World, st: Station, cargo: Cargo): Acceptor[] {
+  return acceptance(world, st).by[cargo] ?? [];
+}
+
+export function acceptorName(world: World, a: { kind: 'industry' | 'town'; id: number }): string {
+  return a.kind === 'industry' ? (world.industries.get(a.id)?.name ?? '?') : `${world.towns.get(a.id)?.name ?? '?'}町`;
+}
+
+/** 受け入れ先の今の在庫（多いほど安く買う） */
+export function acceptorStock(world: World, a: { kind: 'industry' | 'town'; id: number }, cargo: Cargo): number {
+  if (a.kind === 'industry') return world.industries.get(a.id)?.inputs[cargo] ?? 0;
+  return world.towns.get(a.id)?.stock[cargo] ?? 0;
+}
+
+/** 受け入れ先の買取係数（在庫が少ないほど高い。旅客は 1） */
+export function acceptorDemand(world: World, a: { kind: 'industry' | 'town'; id: number }, cargo: Cargo): number {
+  if (cargo === 'passengers') return 1;
+  return demandFactor(acceptorStock(world, a, cargo), a.kind === 'industry' ? INDUSTRY.stockCap : TOWN.stockCap);
 }
 
 // ───────────────────────── 列車 ─────────────────────────
@@ -191,22 +216,29 @@ function arrive(world: World, t: Train) {
   t.trackVersion = -1; // 行き先に着いていない（経路が変わった等）→ 探し直し
 }
 
-function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: number): number {
-  const acc = acceptance(world, st);
-  if (!acc[cargo]) return 0;
-  let limit = maxAmount;
-  let demand = 1;
-  let sawmill: Industry | undefined;
-  let town: Town | undefined;
-  if (cargo === 'logs') {
-    sawmill = world.industries.get(acc.sawmill);
-    if (!sawmill) return 0;
-    limit = Math.min(limit, INDUSTRY.stockCap - sawmill.inStock);
-    demand = demandFactor(sawmill.inStock);
-    if (limit <= 0.001) return 0;
-  } else {
-    town = world.towns.get(acc.town);
+/** 指令で選んだ届け先（なければいちばん近い受け入れ先） */
+export function chooseAcceptor(world: World, st: Station, cargo: Cargo, dest?: Dest | null): Acceptor | null {
+  const list = acceptors(world, st, cargo);
+  if (!list.length) return null;
+  if (dest) {
+    const hit = list.find((a) => a.kind === dest.kind && a.id === dest.id);
+    if (hit) return hit;
   }
+  return list[0];
+}
+
+function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: number, dest?: Dest | null): number {
+  const target = chooseAcceptor(world, st, cargo, dest);
+  if (!target) return 0;
+  let limit = maxAmount;
+  const ind = target.kind === 'industry' ? world.industries.get(target.id) : undefined;
+  const town = target.kind === 'town' ? world.towns.get(target.id) : undefined;
+  if (!ind && !town) return 0;
+  if (ind) {
+    limit = Math.min(limit, INDUSTRY.stockCap - (ind.inputs[cargo] ?? 0));
+    if (limit <= 0.001) return 0;
+  }
+  const demand = acceptorDemand(world, target, cargo);
   let delivered = 0;
   const sign = stationSign(st);
   for (const car of t.cars) {
@@ -227,19 +259,15 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
     if (delivered >= limit) break;
   }
   if (delivered > 0) {
-    if (sawmill) {
-      sawmill.inStock += delivered;
-      sawmill.receivedThisMonth += delivered;
-      sawmill.receivedTotal += delivered;
+    if (ind) {
+      ind.inputs[cargo] = (ind.inputs[cargo] ?? 0) + delivered;
+      ind.receivedThisMonth += delivered;
+      ind.receivedTotal += delivered;
     } else if (town) {
-      if (cargo === 'lumber') {
-        town.lumber += delivered;
-        town.lumberReceivedThisMonth += delivered;
-        town.lumberTotal += delivered;
-      } else {
-        town.paxReceivedThisMonth += delivered;
-        town.paxTotal += delivered;
-      }
+      if (cargo !== 'passengers') town.stock[cargo] = (town.stock[cargo] ?? 0) + delivered;
+      const rc = recvOf(town, cargo);
+      rc.m += delivered;
+      rc.total += delivered;
     }
   }
   return delivered;
@@ -273,7 +301,7 @@ function loadingTick(world: World, t: Train, dt: number) {
   if (order.unload === 'if_accepted') {
     for (const cargo of cargoesOf(t)) {
       const nCars = t.cars.filter((c) => carCargo(c) === cargo).length;
-      if (deliver(world, t, st, cargo, perCar * nCars) > 0) busy = true;
+      if (deliver(world, t, st, cargo, perCar * nCars, order.dest) > 0) busy = true;
     }
   }
 
@@ -377,18 +405,22 @@ function handToStations(cands: Station[], cargo: Cargo, amount: number): number 
 
 function industriesDaily(world: World, ctx: DayContext) {
   for (const ind of world.industries.values()) {
+    const spec = INDUSTRY_SPECS[ind.type];
     const perDay = ind.prodRate / 30;
-    if (ind.type === 'forest') {
-      const p = Math.max(0, Math.min(perDay, INDUSTRY.stockCap - ind.outStock));
+    const room = Math.max(0, INDUSTRY.stockCap - ind.outStock);
+    if (spec.inputs.length === 0) {
+      const p = Math.min(perDay, room);
       ind.outStock += p;
       ind.producedThisMonth += p;
     } else {
-      const conv = Math.max(0, Math.min(ind.inStock, perDay, INDUSTRY.stockCap - ind.outStock));
-      ind.inStock -= conv;
+      // 材料が2つ以上いる工場は、いちばん少ない材料の分しか作れない（全部そろってフル生産）
+      const have = Math.min(...spec.inputs.map((c) => ind.inputs[c] ?? 0));
+      const conv = Math.max(0, Math.min(have, perDay, room));
+      for (const c of spec.inputs) ind.inputs[c] = (ind.inputs[c] ?? 0) - conv;
       ind.outStock += conv;
       ind.producedThisMonth += conv;
     }
-    const cargo: Cargo = ind.type === 'forest' ? 'logs' : 'lumber';
+    const cargo = spec.output;
     const cands = bestStations(world, ctx, cargo, (r) => rectOverlapsIndustry(r, ind));
     const moved = handToStations(cands, cargo, ind.outStock);
     ind.outStock -= moved;
@@ -496,24 +528,36 @@ function townsDaily(world: World, ctx: DayContext) {
     town.activeStations = active;
     const before = town.population;
 
-    // 木材が届いていれば家を建てる・建て替える
-    if (town.lumber >= TOWN.lumberPerHouse) {
-      const pop = town.population;
-      if (pop > 300 && town.lumber >= TOWN.lumberPerUpgrade3 && world.rng.chance(0.3) && upgradeHouse(world, town, houses, 3)) {
-        town.lumber -= TOWN.lumberPerUpgrade3;
-      } else if (world.rng.chance(0.5) && upgradeHouse(world, town, houses, 2)) {
-        town.lumber -= TOWN.lumberPerUpgrade2;
+    const stock = town.stock;
+    const has = (c: Cargo, n: number) => (stock[c] ?? 0) >= n;
+    const use = (c: Cargo, n: number) => (stock[c] = (stock[c] ?? 0) - n);
+
+    // 建設資材が届いていれば、高層ビルに建て替える
+    if (has('materials', TOWN.materialsPerUpgrade3) && town.population > 200 && upgradeHouse(world, town, houses, 3)) {
+      use('materials', TOWN.materialsPerUpgrade3);
+    }
+
+    // 木材が届いていれば家を建てる・アパートに建て替える
+    if (has('lumber', TOWN.lumberPerHouse)) {
+      if (world.rng.chance(0.5) && upgradeHouse(world, town, houses, 2)) {
+        use('lumber', TOWN.lumberPerUpgrade2);
       } else {
         const t = growHouse(world, town, houses, stationRects);
         if (t >= 0) {
           houses.push(t);
-          town.lumber -= TOWN.lumberPerHouse;
+          use('lumber', TOWN.lumberPerHouse);
         }
       }
     }
 
-    // ふだんの成長（使われている駅が多いほど速い）
-    town.growthTimer -= 1;
+    // 食料品：人口に応じて毎日食べる。足りていると町が早く育つ
+    const eat = (town.population / 1000) * TOWN.foodPerThousand;
+    const food = stock.food ?? 0;
+    town.fed = food > 0 && food >= eat * 0.5;
+    stock.food = Math.max(0, food - eat);
+
+    // ふだんの成長（使われている駅が多いほど速い。食料品が足りているとさらに速い）
+    town.growthTimer -= town.fed ? 2 : 1;
     if (town.growthTimer <= 0) {
       town.growthTimer = active === 0 ? 60 : active === 1 ? 20 : active === 2 ? 14 : 9;
       if (active > 0 || world.rng.chance(1 / 3)) {
@@ -609,12 +653,13 @@ function monthly(world: World) {
     ind.transportedLastMonth = ind.transportedThisMonth;
     ind.receivedLastMonth = ind.receivedThisMonth;
     ind.producedThisMonth = ind.transportedThisMonth = ind.receivedThisMonth = 0;
-    if (ind.type === 'forest') changeProduction(world, ind);
+    if (isPrimary(ind.type)) changeProduction(world, ind);
   }
   for (const town of world.towns.values()) {
-    town.lumberReceivedLastMonth = town.lumberReceivedThisMonth;
-    town.paxReceivedLastMonth = town.paxReceivedThisMonth;
-    town.lumberReceivedThisMonth = town.paxReceivedThisMonth = 0;
+    for (const r of Object.values(town.recv)) {
+      r!.lm = r!.m;
+      r!.m = 0;
+    }
   }
 }
 
@@ -673,5 +718,5 @@ export function refreshStats(world: World) {
 
 export function stationAccepts(world: World, st: Station): Cargo[] {
   const a = acceptance(world, st);
-  return CARGOS.filter((c) => a[c]);
+  return CARGOS.filter((c) => (a.by[c]?.length ?? 0) > 0);
 }

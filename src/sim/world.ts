@@ -4,11 +4,13 @@ import {
   CARGOS,
   ENGINE_SPECS,
   FINANCE,
+  INDUSTRY_SPECS,
   isEngine,
   STATION,
   WAGON_SPECS,
   type Cargo,
   type EngineType,
+  type IndustryType,
   type VehicleType,
 } from './constants';
 import type { Request, RequestState } from './requests';
@@ -67,7 +69,7 @@ export interface Depot {
   stored: Car[];
 }
 
-export type IndustryType = 'forest' | 'sawmill';
+export type { IndustryType };
 
 export interface Industry {
   id: number;
@@ -77,11 +79,11 @@ export interface Industry {
   y: number;
   w: number;
   h: number;
-  /** 入力在庫（製材所の原木） */
-  inStock: number;
+  /** 入力在庫（受け入れる貨物ごと） */
+  inputs: Partial<Record<Cargo, number>>;
   /** 出力在庫 */
   outStock: number;
-  /** 森林：1か月の生産量。製材所：1か月に加工できる最大量 */
+  /** 一次産業：1か月の生産量。加工：1か月に加工できる最大量 */
   prodRate: number;
   producedThisMonth: number;
   transportedThisMonth: number;
@@ -94,19 +96,25 @@ export interface Industry {
   receivedTotal: number;
 }
 
+/** 届いた量の記録（今月・先月・はじめからの累計） */
+export interface Received {
+  m: number;
+  lm: number;
+  total: number;
+}
+
 export interface Town {
   id: number;
   name: string;
   cx: number;
   cy: number;
-  lumber: number;
+  /** 町が貯めている貨物（木材・食料品・建設資材） */
+  stock: Partial<Record<Cargo, number>>;
+  /** 届いた量（旅客も含む） */
+  recv: Partial<Record<Cargo, Received>>;
   growthTimer: number;
-  lumberReceivedThisMonth: number;
-  lumberReceivedLastMonth: number;
-  paxReceivedThisMonth: number;
-  paxReceivedLastMonth: number;
-  lumberTotal: number;
-  paxTotal: number;
+  /** 食料品が足りているか（足りていると早く育つ） */
+  fed: boolean;
   /** 日次処理で集計 */
   population: number;
   houses: number;
@@ -116,10 +124,18 @@ export interface Town {
 export type LoadMode = 'if_available' | 'full_any' | 'full_all' | 'none';
 export type UnloadMode = 'if_accepted' | 'none';
 
+/** 届け先（駅の集客範囲に受け入れ先が複数あるとき、指令で選べる） */
+export interface Dest {
+  kind: 'industry' | 'town';
+  id: number;
+}
+
 export interface Order {
   station: number;
   load: LoadMode;
   unload: UnloadMode;
+  /** 届け先。なければいちばん近い受け入れ先 */
+  dest?: Dest | null;
 }
 
 export interface OrderList {
@@ -369,12 +385,22 @@ export function rectOverlapsIndustry(r: Rect, ind: Industry): boolean {
   return !(ind.x + ind.w - 1 < r.x0 || ind.x > r.x1 || ind.y + ind.h - 1 < r.y0 || ind.y > r.y1);
 }
 
-export function industryAccepts(type: IndustryType): Cargo | null {
-  return type === 'sawmill' ? 'logs' : null;
+export function industryAccepts(type: IndustryType): readonly Cargo[] {
+  return INDUSTRY_SPECS[type].inputs;
 }
 
 export function industryProduces(type: IndustryType): Cargo {
-  return type === 'forest' ? 'logs' : 'lumber';
+  return INDUSTRY_SPECS[type].output;
+}
+
+export function isPrimary(type: IndustryType): boolean {
+  return INDUSTRY_SPECS[type].inputs.length === 0;
+}
+
+export function recvOf(town: Town, c: Cargo): Received {
+  let r = town.recv[c];
+  if (!r) town.recv[c] = r = { m: 0, lm: 0, total: 0 };
+  return r;
 }
 
 export function trainEngine(train: Train): EngineType {

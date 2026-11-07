@@ -37,6 +37,7 @@ import {
   type Axis,
   type Car,
   type Depot,
+  type Dest,
   type LoadMode,
   type Occupant,
   type Order,
@@ -939,6 +940,14 @@ export function skipOrder(world: World, trainId: number, to?: number): CmdResult
     t.state = 'running';
     t.stoppedAt = -1;
   }
+  return { ok: true, cost: 0 };
+}
+
+/** 届け先を選ぶ（null ならいちばん近い受け入れ先） */
+export function setOrderDest(world: World, trainId: number, index: number, dest: Dest | null): CmdResult {
+  const o = getOrder(world, trainId, index);
+  if (!o) return fail('指令がありません');
+  o.dest = dest;
   return { ok: true, cost: 0 };
 }
 

@@ -1,7 +1,7 @@
 // PixiJS による描画。シミュレーションの状態を読むだけで、変更はしない。
 
 import { Application, Container, Graphics } from 'pixi.js';
-import { isEngine, WAGON_SPECS } from '../sim/constants';
+import { CARGO_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
 import {
   carLoad,
   DIRS,
@@ -13,6 +13,7 @@ import {
   tx,
   ty,
   type Car,
+  type Industry,
   type Rect,
   type Train,
   type World,
@@ -341,8 +342,7 @@ export class Renderer {
           doneIndustry.add(o.id);
           const ind = w.industries.get(o.id)!;
           const depth = ind.x + ind.w - 1 + ind.y + ind.h - 1;
-          if (ind.type === 'forest') items.push({ depth, draw: () => drawForest(g, ind.x, ind.y, ind.w, ind.h) });
-          else items.push({ depth, draw: () => drawSawmill(g, ind.x, ind.y, ind.w, ind.h, ind.inStock, ind.outStock) });
+          items.push({ depth, draw: () => drawIndustry(g, ind) });
           break;
         }
       }
@@ -899,6 +899,138 @@ function drawSawmill(g: Graphics, x0: number, y0: number, w: number, h: number, 
   }
 }
 
+/** 産業の種類ごとに描き分ける */
+function drawIndustry(g: Graphics, ind: Industry) {
+  const { x, y, w, h } = ind;
+  const pile = (c: number, cap = 500) => Math.min(1, c / cap);
+  switch (ind.type) {
+    case 'forest':
+      return drawForest(g, x, y, w, h);
+    case 'sawmill':
+      return drawSawmill(g, x, y, w, h, ind.inputs.logs ?? 0, ind.outStock);
+    case 'farm':
+      return drawFarm(g, x, y, w, h);
+    case 'ironmine':
+      return drawMine(g, x, y, w, h, 0xa0543c, pile(ind.outStock));
+    case 'coalmine':
+      return drawMine(g, x, y, w, h, 0x2b2b2e, pile(ind.outStock));
+    case 'foodplant':
+      return drawFoodPlant(g, x, y, w, h);
+    case 'steelmill':
+      return drawSteelMill(g, x, y, w, h, ind.producedThisMonth + ind.producedLastMonth > 0);
+    case 'materialsplant':
+      return drawMaterialsPlant(g, x, y, w, h, pile(ind.outStock));
+  }
+}
+
+function lot(g: Graphics, x0: number, y0: number, w: number, h: number, color: number) {
+  g.poly(
+    groundPoly([
+      [x0 - 0.5, y0 - 0.5],
+      [x0 + w - 0.5, y0 - 0.5],
+      [x0 + w - 0.5, y0 + h - 0.5],
+      [x0 - 0.5, y0 + h - 0.5],
+    ]),
+  ).fill(color);
+}
+
+/** 円柱（タンク・サイロ） */
+function cylinder(g: Graphics, x: number, y: number, r: number, h: number, color: number, base = 0) {
+  const sx = isoX(x, y),
+    sy = isoY(x, y) - base;
+  const rx = r * TW * 0.7,
+    ry = rx / 2;
+  g.rect(sx - rx, sy - h, rx * 2, h).fill(shade(color, 0.8));
+  g.ellipse(sx, sy, rx, ry).fill(shade(color, 0.8));
+  g.rect(sx - rx, sy - h, rx, h).fill(shade(color, 0.9));
+  g.ellipse(sx, sy - h, rx, ry).fill(color);
+}
+
+/** 円すいの山（鉱石・石炭） */
+function heap(g: Graphics, x: number, y: number, r: number, hgt: number, color: number) {
+  const sx = isoX(x, y),
+    sy = isoY(x, y);
+  const rx = r * TW * 0.7;
+  g.poly([sx - rx, sy, sx + rx, sy, sx, sy - hgt]).fill(color);
+  g.poly([sx, sy - hgt, sx + rx, sy, sx, sy + rx / 4]).fill(shade(color, 0.75));
+}
+
+function drawFarm(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  lot(g, x0, y0, w, h, 0xc9b25a);
+  // 畑のうね
+  for (let k = 0; k < w * 4; k++) {
+    const xx = x0 - 0.5 + (k + 0.5) / 4;
+    const a = groundPoly([[xx, y0 - 0.45]]),
+      b = groundPoly([[xx, y0 + h - 1.55]]);
+    g.moveTo(a[0], a[1]).lineTo(b[0], b[1]);
+  }
+  g.stroke({ width: 2, color: 0x9c8a3c, alpha: 0.8 });
+  // 納屋とサイロ
+  const bx = x0 + w - 1,
+    by = y0 + h - 1;
+  box(g, bx - 0.35, by - 0.3, bx + 0.25, by + 0.3, 13, 0xb5433a);
+  hipRoof(g, bx - 0.38, by - 0.33, bx + 0.28, by + 0.33, 13, 9, 0x6b3a2c);
+  cylinder(g, x0 + 0.3, y0 + h - 1, 0.14, 26, 0xd6d8d2);
+}
+
+function drawMine(g: Graphics, x0: number, y0: number, w: number, h: number, color: number, fill: number) {
+  lot(g, x0, y0, w, h, 0x8b7a62);
+  // やぐら
+  const tx0 = x0 + 0.1,
+    ty0 = y0 + 0.1;
+  box(g, tx0 - 0.25, ty0 - 0.25, tx0 - 0.15, ty0 + 0.25, 34, 0x5a4a3a);
+  box(g, tx0 + 0.15, ty0 - 0.25, tx0 + 0.25, ty0 + 0.25, 34, 0x5a4a3a);
+  box(g, tx0 - 0.28, ty0 - 0.28, tx0 + 0.28, ty0 + 0.28, 3, 0x3d3229, 34);
+  g.circle(isoX(tx0, ty0), isoY(tx0, ty0) - 40, 5).fill(0x2a2420).stroke({ width: 1.5, color: 0x8a7a68 });
+  // 小屋
+  box(g, x0 + 0.6, y0 + 0.55, x0 + 1.2, y0 + 1.25, 10, 0x9a8a74);
+  // 掘り出したものの山（在庫が多いほど大きい）
+  heap(g, x0 + w - 0.75, y0 - 0.1, 0.22, 6 + 16 * fill, color);
+  if (fill > 0.4) heap(g, x0 + w - 0.95, y0 + 0.35, 0.18, 4 + 10 * fill, color);
+}
+
+function drawFoodPlant(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  lot(g, x0, y0, w, h, 0xc8c4b8);
+  box(g, x0 - 0.2, y0 - 0.35, x0 + w - 1.2, y0 + h - 0.6, 20, 0xf1eee6);
+  box(g, x0 - 0.22, y0 - 0.37, x0 + w - 1.18, y0 + h - 0.58, 2, 0x4f7d9a, 20);
+  cylinder(g, x0 + w - 0.85, y0 - 0.1, 0.16, 30, 0xe6e9ec);
+  cylinder(g, x0 + w - 0.85, y0 + 0.55, 0.16, 30, 0xe6e9ec);
+}
+
+function drawSteelMill(g: Graphics, x0: number, y0: number, w: number, h: number, working: boolean) {
+  lot(g, x0, y0, w, h, 0x77726c);
+  box(g, x0 - 0.3, y0 + 0.3, x0 + w - 1.4, y0 + h - 0.6, 26, 0x4a4e55);
+  box(g, x0 - 0.32, y0 + 0.28, x0 + w - 1.38, y0 + h - 0.58, 3, 0x353a40, 26);
+  // 高炉
+  cylinder(g, x0 + w - 1.0, y0 + 0.1, 0.22, 46, 0x5d5853);
+  if (working) g.circle(isoX(x0 + w - 1.0, y0 + 0.1), isoY(x0 + w - 1.0, y0 + 0.1) - 14, 4).fill({ color: 0xff8a3a, alpha: 0.9 });
+  // 煙突
+  box(g, x0 - 0.1, y0 - 0.35, x0 + 0.08, y0 - 0.17, 58, 0x6a6058);
+  box(g, x0 + 0.4, y0 - 0.35, x0 + 0.58, y0 - 0.17, 50, 0x6a6058);
+  if (working) {
+    for (const [cx, hh] of [
+      [x0, 62],
+      [x0 + 0.5, 54],
+    ] as const) {
+      g.circle(isoX(cx, y0 - 0.26), isoY(cx, y0 - 0.26) - hh, 6).fill({ color: 0xdedede, alpha: 0.55 });
+    }
+  }
+}
+
+function drawMaterialsPlant(g: Graphics, x0: number, y0: number, w: number, h: number, fill: number) {
+  lot(g, x0, y0, w, h, 0xb8b0a2);
+  box(g, x0 - 0.3, y0 - 0.35, x0 + 1.3, y0 + h - 0.6, 22, 0x9aa3ab);
+  box(g, x0 - 0.32, y0 - 0.37, x0 + 1.32, y0 + h - 0.58, 2, 0xd88a3c, 22);
+  // 建設資材のパレット（在庫が多いほど高い）
+  const layers = Math.max(1, Math.round(fill * 4));
+  for (let k = 0; k < layers; k++) {
+    box(g, x0 + w - 1.3, y0 - 0.3, x0 + w - 0.7, y0 + 0.3, 3, k % 2 ? 0xd88a3c : 0xc07a30, k * 3.2);
+  }
+  // クレーン
+  box(g, x0 + w - 0.6, y0 + h - 1.2, x0 + w - 0.5, y0 + h - 1.1, 40, 0xe2b13c);
+  box(g, x0 + w - 1.6, y0 + h - 1.2, x0 + w - 0.5, y0 + h - 1.1, 2, 0xe2b13c, 40);
+}
+
 // 列車の描画
 
 function trainPolyline(w: World, t: Train): { x: number; y: number }[] {
@@ -940,6 +1072,12 @@ const CAR_COLORS: Record<string, number> = {
   lumbercar: 0x9a7a52,
   biglogcar: 0x6a4020,
   biglumbercar: 0x8a6a42,
+  graincar: 0xb08a2e,
+  foodcar: 0xd9dde2,
+  orecar: 0x6e3a2a,
+  coalcar: 0x3a3a3e,
+  steelcar: 0x55606c,
+  materialcar: 0xa8622a,
 };
 
 function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car: Car, selected: boolean) {
@@ -992,9 +1130,9 @@ function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car:
     if (fill > 0.02) {
       const ch = 2 + fill * 5;
       const inner = corners.map(([cx, cy]) => [x + (cx - x) * 0.85, y + (cy - y) * 0.75] as [number, number]);
-      const logs = spec.cargo === 'logs';
-      g.poly(groundPoly(inner, base + h + ch)).fill(logs ? C.logEnd : C.plank);
-      g.poly(groundPoly(inner, base + h + ch)).stroke({ width: 1, color: logs ? C.log : 0x9a7a52, alpha: 0.8 });
+      const top = CARGO_SPECS[spec.cargo].color;
+      g.poly(groundPoly(inner, base + h + ch)).fill(spec.cargo === 'logs' ? C.logEnd : spec.cargo === 'lumber' ? C.plank : top);
+      g.poly(groundPoly(inner, base + h + ch)).stroke({ width: 1, color: shade(top, 0.7), alpha: 0.8 });
     }
   }
 }

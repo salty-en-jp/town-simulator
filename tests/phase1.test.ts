@@ -153,7 +153,8 @@ describe('依頼', () => {
     const depot = buildDepot(w, idx(w, 8, 8)).id!;
     const req: Request = {
       id: 999,
-      kind: 'haul_logs',
+      kind: 'haul',
+      cargo: 'logs',
       from: forest.name,
       title: 'テスト',
       desc: '',
@@ -185,7 +186,8 @@ describe('依頼', () => {
     w.requests = [
       {
         id: 1,
-        kind: 'deliver_lumber',
+        kind: 'deliver',
+        cargo: 'lumber',
         from: '町',
         title: 'x',
         desc: '',
