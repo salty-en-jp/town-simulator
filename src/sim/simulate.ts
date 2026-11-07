@@ -137,8 +137,9 @@ export function acceptorDemand(world: World, a: { kind: 'industry' | 'town'; id:
 
 function goalsFor(world: World, t: Train): Set<number> | null {
   if (t.heading === 'depot') {
-    const d = world.depots.get(t.depotId);
-    return d ? new Set([d.tile]) : null;
+    // いちばん近い車庫へ（OpenTTD と同じ）。買った車庫が撤去されていても帰れる
+    if (world.depots.size === 0) return null;
+    return new Set([...world.depots.values()].map((d) => d.tile));
   }
   const orders = world.orderLists.get(t.orderList)!.orders;
   if (orders.length === 0) return null;
@@ -184,8 +185,11 @@ function ensurePath(world: World, t: Train) {
 function arrive(world: World, t: Train) {
   const tile = t.path[0];
   if (t.heading === 'depot') {
-    const d = world.depots.get(t.depotId);
-    if (d && d.tile === tile) {
+    const o = world.occ[tile];
+    const d = o?.k === 'depot' ? world.depots.get(o.id) : undefined;
+    if (d) {
+      // 入った車庫を、この列車の車庫にする
+      t.depotId = d.id;
       t.state = 'in_depot';
       t.heading = 'order';
       t.trail = [];

@@ -1286,8 +1286,10 @@ body.touch:has(.win:not(.behind)) #guide {
   position: fixed;
   inset: 0;
   z-index: 100;
-  display: grid;
-  place-items: center;
+  /* 入りきらないときはスクロールできるように（中央寄せで上が切れないよう margin:auto で寄せる） */
+  display: flex;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background:
     repeating-linear-gradient(30deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 34px),
     repeating-linear-gradient(-30deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 34px),
@@ -1302,8 +1304,9 @@ body.touch:has(.win:not(.behind)) #guide {
 }
 
 .title-inner {
+  margin: auto;
   text-align: center;
-  padding: 24px;
+  padding: calc(var(--safe-t) + 16px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 16px) calc(var(--safe-l) + 16px);
 }
 
 .title-kicker {
@@ -1406,12 +1409,38 @@ body.touch:has(.win:not(.behind)) #guide {
   }
 }
 
+/* 横持ちのスマホ（高さが低い）：タイトル画面を詰めて、全部が1画面に入るように */
 @media (max-height: 430px) {
+  .title-kicker {
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+  .logo {
+    font-size: clamp(36px, 15vh, 72px);
+  }
   .logo-rail {
-    margin: 12px auto 18px;
+    margin: 8px auto 12px;
+  }
+  .start-btn {
+    height: 44px;
+    font-size: 18px;
+  }
+  .continue-meta {
+    margin-top: 6px;
+    font-size: 12px;
+  }
+  .title-sub {
+    margin-top: 8px;
+  }
+  .sub-btn {
+    height: 34px;
   }
   .title-note {
-    margin-top: 12px;
+    margin: 8px 0 2px;
+    font-size: 12px;
+  }
+  .title-hint {
+    font-size: 12px;
   }
 }
 

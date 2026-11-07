@@ -12,6 +12,7 @@ import {
   disbandTrain,
   makeTrain,
   sellVehicle,
+  sendToDepot,
   startStop,
 } from '../src/sim/commands';
 import { TICKS_PER_DAY, vehicleCost } from '../src/sim/constants';
@@ -262,5 +263,48 @@ describe('セーブ', () => {
     expect(() => deserializeWorld('not json')).toThrow(SaveError);
     expect(() => deserializeWorld('{"format":"other"}')).toThrow(SaveError);
     expect(() => deserializeWorld(JSON.stringify({ format: 'tsunagumachi', version: 999 }))).toThrow(/新しい版/);
+  });
+});
+
+describe('車庫の撤去と「車庫へ送る」', () => {
+  it('買った車庫を撤去しても、いちばん近い車庫に帰れる', () => {
+    const w = createEmptyWorld(40, 12, 5);
+    w.money = 500_000_000;
+    buildTrack(w, idx(w, 1, 5), idx(w, 35, 5));
+    const s1 = buildStation(w, idx(w, 2, 5), idx(w, 3, 5)).id!;
+    const s2 = buildStation(w, idx(w, 30, 5), idx(w, 31, 5)).id!;
+    const d1 = buildDepot(w, idx(w, 10, 6)).id!;
+    const tr = buyTrain(w, d1, ['coach']).id!;
+    addOrder(w, tr, s1);
+    addOrder(w, tr, s2);
+    startStop(w, tr);
+    days(w, 2);
+    const t1 = w.depots.get(d1)!.tile;
+    expect(demolish(w, t1, t1).ok).toBe(true);
+    const d2 = buildDepot(w, idx(w, 20, 4)).id!;
+    expect(sendToDepot(w, tr).ok).toBe(true);
+    days(w, 30);
+    const t = w.trains.get(tr)!;
+    expect(t.state).toBe('in_depot');
+    expect(t.depotId).toBe(d2);
+    // 新しい車庫で編成を変えられる
+    expect(buyVehicle(w, d2, 'coach', { attachTo: tr }).ok).toBe(true);
+  });
+
+  it('車庫がひとつもなければ送れない', () => {
+    const w = createEmptyWorld(40, 12, 5);
+    w.money = 500_000_000;
+    buildTrack(w, idx(w, 1, 5), idx(w, 35, 5));
+    const s1 = buildStation(w, idx(w, 2, 5), idx(w, 3, 5)).id!;
+    const s2 = buildStation(w, idx(w, 30, 5), idx(w, 31, 5)).id!;
+    const d1 = buildDepot(w, idx(w, 10, 6)).id!;
+    const tr = buyTrain(w, d1, ['coach']).id!;
+    addOrder(w, tr, s1);
+    addOrder(w, tr, s2);
+    startStop(w, tr);
+    days(w, 2);
+    const t1 = w.depots.get(d1)!.tile;
+    demolish(w, t1, t1);
+    expect(sendToDepot(w, tr).ok).toBe(false);
   });
 });
