@@ -857,7 +857,7 @@ export function sendToDepot(world: World, id: number): CmdResult {
   const t = world.trains.get(id);
   if (!t) return fail('列車がありません');
   if (t.state === 'in_depot') return fail('もう車庫にいます');
-  if (!world.depots.has(t.depotId)) return fail('車庫がありません');
+  if (world.depots.size === 0) return fail('車庫がありません（線路の隣に車庫を建ててください）');
   t.heading = t.heading === 'depot' ? 'order' : 'depot';
   t.trackVersion = -1;
   if (t.state === 'loading') {
