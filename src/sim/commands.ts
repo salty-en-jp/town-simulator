@@ -1,7 +1,19 @@
 // プレイヤーの操作（コマンド）。
 // すべて「見積もりだけ（dry）」でも呼べる。見積もりなら世界を変えずに費用とエラーだけ返す。
 
-import { COSTS, ENGINE, FINANCE, MAX_WAGONS, STATION, WAGON_SPECS, type WagonType } from './constants';
+import {
+  COSTS,
+  FINANCE,
+  isEngine,
+  MAX_WAGONS,
+  STATION,
+  vehicleCost,
+  vehicleName,
+  vehicleValue,
+  type EngineType,
+  type VehicleType,
+  type WagonType,
+} from './constants';
 import { dragLine, polyLine, rectTiles, straightLine } from './track';
 import {
   AXIS_BITS,
@@ -20,7 +32,10 @@ import {
   tx,
   ty,
   W,
+  canBuy,
+  newCar,
   type Axis,
+  type Car,
   type Depot,
   type LoadMode,
   type Occupant,
@@ -106,7 +121,7 @@ class Recorder {
   depot(id: number) {
     if (this.depotsBefore.has(id)) return;
     const d = this.world.depots.get(id);
-    this.depotsBefore.set(id, d ? { ...d } : null);
+    this.depotsBefore.set(id, d ? { ...d, stored: [...d.stored] } : null);
   }
   finish(label: string, cost: number): UndoRecord {
     return {
@@ -278,7 +293,7 @@ function removeTrackPath(world: World, path: number[], dry: boolean): CmdResult 
 
 // ───────────────────────── 駅 ─────────────────────────
 
-function guessAxis(world: World, t: number): Axis {
+export function guessAxis(world: World, t: number): Axis {
   const bits = world.track[t];
   if (bits && (bits & ~AXIS_BITS.y) === 0) return 'y';
   if (bits && (bits & ~AXIS_BITS.x) === 0) return 'x';
@@ -327,10 +342,20 @@ export function makeName(world: World, t: number, suffix: string, taken: Set<str
   }
 }
 
-export function buildStation(world: World, a: number, b: number, opts: { dry?: boolean } = {}): CmdResult {
+/** 1マスの駅の向き：指定がなければ、まわりの線路から推測する */
+export function stationAxisFor(world: World, tiles: number[], axis?: Axis): Axis {
+  if (tiles.length > 1) return ty(world, tiles[0]) === ty(world, tiles[1]) ? 'x' : 'y';
+  return axis ?? guessAxis(world, tiles[0]);
+}
+
+export function buildStation(
+  world: World,
+  a: number,
+  b: number,
+  opts: { dry?: boolean; axis?: Axis } = {},
+): CmdResult {
   const tiles = straightLine(world, a, b, STATION.maxLength);
-  const axis: Axis =
-    tiles.length > 1 ? (ty(world, tiles[0]) === ty(world, tiles[1]) ? 'x' : 'y') : guessAxis(world, tiles[0]);
+  const axis = stationAxisFor(world, tiles, opts.axis);
   let cost = 0;
   for (const t of tiles) {
     if (world.terrain[t] === Terrain.Water) return fail('水の上には建てられません');
@@ -408,7 +433,7 @@ export function buildDepot(world: World, t: number, opts: { dry?: boolean } = {}
   const rec = new Recorder(world, [t, nb]);
   const id = newId(world);
   rec.depot(id);
-  world.depots.set(id, { id, tile: t, dir });
+  world.depots.set(id, { id, tile: t, dir, stored: [] });
   world.occ[t] = { k: 'depot', id };
   world.track[t] = dir;
   world.track[nb] |= OPPOSITE[dir];
@@ -457,6 +482,10 @@ export function demolish(world: World, a: number, b: number, opts: { dry?: boole
     if (o?.k === 'depot') {
       if (trainsInDepot(world, o.id)) {
         lastError = '車庫に列車があります';
+        continue;
+      }
+      if (world.depots.get(o.id)!.stored.length > 0) {
+        lastError = '車庫の留置線に車両があります（売るか、列車につないで移してください）';
         continue;
       }
       cost += COSTS.demolishDepot;
@@ -538,7 +567,7 @@ export function applyUndo(world: World, rec: UndoRecord): CmdResult {
   }
   for (const [id, before] of rec.depotsBefore) {
     if (before === null) world.depots.delete(id);
-    else world.depots.set(id, { ...before });
+    else world.depots.set(id, { ...before, stored: world.depots.get(id)?.stored ?? before.stored });
   }
   earn(world, 'construction', rec.cost);
   changed(world, true);
@@ -563,10 +592,13 @@ export function repay(world: World): CmdResult {
   return { ok: true, cost: 0 };
 }
 
-// ───────────────────────── 列車 ─────────────────────────
+// ───────────────────────── 列車・車両 ─────────────────────────
+//
+// 車両は1両ずつの資産。車庫には「留置線」があり、列車から外した車両や
+// 買っただけの車両を置いておける（維持費はかからず、車庫代だけ）。
 
-export function trainCost(wagons: WagonType[]): number {
-  return ENGINE.cost + wagons.reduce((s, w) => s + WAGON_SPECS[w].cost, 0);
+export function trainCost(types: VehicleType[]): number {
+  return types.reduce((s, t) => s + vehicleCost(t), 0);
 }
 
 function nextTrainName(world: World): string {
@@ -576,29 +608,21 @@ function nextTrainName(world: World): string {
   return `列車 ${n}`;
 }
 
-export function buyTrain(
-  world: World,
-  depotId: number,
-  wagons: WagonType[],
-  opts: { dry?: boolean; orderList?: number; orders?: Order[] } = {},
-): CmdResult {
-  const depot = world.depots.get(depotId);
-  if (!depot) return fail('車庫がありません');
-  if (wagons.length === 0) return fail('車両を1両以上つないでください');
-  if (wagons.length > MAX_WAGONS) return fail(`つなげるのは${MAX_WAGONS}両までです`);
-  const cost = trainCost(wagons);
-  if (opts.dry) return { ok: true, cost };
-  if (cost > world.money) return fail(`資金が足りません（${formatYen(cost)} 必要）`, cost);
-  let ol = opts.orderList;
+function wagonCount(t: Train): number {
+  return t.cars.filter((c) => !isEngine(c.type)).length;
+}
+
+function createTrain(world: World, depot: Depot, cars: Car[], orderList?: number, orders?: Order[]): Train {
+  let ol = orderList;
   if (ol === undefined) {
     ol = newId(world);
-    world.orderLists.set(ol, { id: ol, orders: (opts.orders ?? []).map((o) => ({ ...o })) });
+    world.orderLists.set(ol, { id: ol, orders: (orders ?? []).map((o) => ({ ...o })) });
   }
   const id = newId(world);
   const train: Train = {
     id,
     name: nextTrainName(world),
-    cars: [{ type: 'engine', packets: [] }, ...wagons.map((w) => ({ type: w, packets: [] }))],
+    cars,
     orderList: ol,
     curOrder: 0,
     state: 'in_depot',
@@ -606,7 +630,7 @@ export function buyTrain(
     progress: 0,
     trail: [],
     heading: 'order',
-    depotId,
+    depotId: depot.id,
     loadTimer: 0,
     stoppedAt: -1,
     incomeThisStop: 0,
@@ -615,12 +639,154 @@ export function buyTrain(
     trackVersion: -1,
   };
   world.trains.set(id, train);
-  spend(world, 'vehicles', cost);
-  return { ok: true, cost, id };
+  return train;
 }
 
-export function trainWagons(train: Train): WagonType[] {
-  return train.cars.filter((c) => c.type !== 'engine').map((c) => c.type as WagonType);
+function removeTrain(world: World, t: Train) {
+  world.trains.delete(t.id);
+  const stillUsed = [...world.trains.values()].some((x) => x.orderList === t.orderList);
+  if (!stillUsed) world.orderLists.delete(t.orderList);
+}
+
+/** 機関車と貨車をまとめて買って、列車にする（クローンやテスト用） */
+export function buyTrain(
+  world: World,
+  depotId: number,
+  wagons: WagonType[],
+  opts: { dry?: boolean; orderList?: number; orders?: Order[]; engine?: EngineType } = {},
+): CmdResult {
+  const depot = world.depots.get(depotId);
+  if (!depot) return fail('車庫がありません');
+  if (wagons.length === 0) return fail('車両を1両以上つないでください');
+  if (wagons.length > MAX_WAGONS) return fail(`つなげる貨車は${MAX_WAGONS}両までです`);
+  const engine = opts.engine ?? 'steam';
+  const types: VehicleType[] = [engine, ...wagons];
+  const locked = types.find((t) => !canBuy(world, t));
+  if (locked) return fail(`${vehicleName(locked)}はまだ買えません`);
+  const cost = trainCost(types);
+  if (opts.dry) return { ok: true, cost };
+  if (cost > world.money) return fail(`資金が足りません（${formatYen(cost)} 必要）`, cost);
+  const train = createTrain(
+    world,
+    depot,
+    types.map((t) => newCar(world, t)),
+    opts.orderList,
+    opts.orders,
+  );
+  spend(world, 'vehicles', cost);
+  return { ok: true, cost, id: train.id };
+}
+
+/**
+ * 車両を1両買う。
+ * - 機関車：その車庫に新しい列車として置く
+ * - 貨車：attachTo の列車（車庫で停止中）につなぐ。指定がなければ留置線へ
+ */
+export function buyVehicle(
+  world: World,
+  depotId: number,
+  type: VehicleType,
+  opts: { dry?: boolean; attachTo?: number } = {},
+): CmdResult {
+  const depot = world.depots.get(depotId);
+  if (!depot) return fail('車庫がありません');
+  if (!canBuy(world, type)) return fail(`${vehicleName(type)}はまだ買えません（依頼の報酬で解禁されます）`);
+  let target: Train | undefined;
+  if (!isEngine(type) && opts.attachTo !== undefined && opts.attachTo >= 0) {
+    target = world.trains.get(opts.attachTo);
+    const err = attachError(depot, target);
+    if (err) return fail(err);
+  }
+  const cost = vehicleCost(type);
+  if (opts.dry) return { ok: true, cost };
+  if (cost > world.money) return fail(`資金が足りません（${formatYen(cost)} 必要）`, cost);
+  const car = newCar(world, type);
+  spend(world, 'vehicles', cost);
+  if (isEngine(type)) {
+    const t = createTrain(world, depot, [car]);
+    return { ok: true, cost, id: t.id };
+  }
+  if (target) target.cars.push(car);
+  else depot.stored.push(car);
+  return { ok: true, cost, id: car.id };
+}
+
+function attachError(depot: Depot, t: Train | undefined): string | null {
+  if (!t) return '列車がありません';
+  if (t.state !== 'in_depot' || t.depotId !== depot.id) return '列車がこの車庫に止まっていません';
+  if (wagonCount(t) >= MAX_WAGONS) return `つなげる貨車は${MAX_WAGONS}両までです`;
+  return null;
+}
+
+/** 留置線の貨車を、車庫に止まっている列車の最後尾につなぐ */
+export function attachVehicle(world: World, depotId: number, carId: number, trainId: number): CmdResult {
+  const depot = world.depots.get(depotId);
+  if (!depot) return fail('車庫がありません');
+  const i = depot.stored.findIndex((c) => c.id === carId);
+  if (i < 0) return fail('留置線にその車両がありません');
+  if (isEngine(depot.stored[i].type)) return fail('機関車は「列車にする」で使ってください');
+  const t = world.trains.get(trainId);
+  const err = attachError(depot, t);
+  if (err) return fail(err);
+  t!.cars.push(depot.stored.splice(i, 1)[0]);
+  return { ok: true, cost: 0 };
+}
+
+/** 車庫に止まっている列車から貨車を外して、留置線に置く */
+export function detachVehicle(world: World, trainId: number, carId: number): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t) return fail('列車がありません');
+  if (t.state !== 'in_depot') return fail('車庫に入れてから外してください');
+  const depot = world.depots.get(t.depotId);
+  if (!depot) return fail('車庫がありません');
+  const i = t.cars.findIndex((c) => c.id === carId);
+  if (i < 0) return fail('その車両はこの列車にありません');
+  if (i === 0) return fail('機関車は外せません（列車ごと「ばらす」を使ってください）');
+  depot.stored.push(t.cars.splice(i, 1)[0]);
+  return { ok: true, cost: 0 };
+}
+
+/** 留置線の機関車を新しい列車にする */
+export function makeTrain(world: World, depotId: number, carId: number): CmdResult {
+  const depot = world.depots.get(depotId);
+  if (!depot) return fail('車庫がありません');
+  const i = depot.stored.findIndex((c) => c.id === carId);
+  if (i < 0) return fail('留置線にその車両がありません');
+  if (!isEngine(depot.stored[i].type)) return fail('列車にできるのは機関車だけです');
+  const t = createTrain(world, depot, [depot.stored.splice(i, 1)[0]]);
+  return { ok: true, cost: 0, id: t.id };
+}
+
+/** 車庫に止まっている列車をばらして、すべての車両を留置線に置く（指令は消える） */
+export function disbandTrain(world: World, trainId: number): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t) return fail('列車がありません');
+  if (t.state !== 'in_depot') return fail('車庫に入れてからばらしてください');
+  const depot = world.depots.get(t.depotId);
+  if (!depot) return fail('車庫がありません');
+  depot.stored.push(...t.cars);
+  removeTrain(world, t);
+  return { ok: true, cost: 0 };
+}
+
+export function carValue(world: World, car: Car): number {
+  return vehicleValue(car.type, world.day - car.built);
+}
+
+/** 留置線の車両を売る */
+export function sellVehicle(world: World, depotId: number, carId: number): CmdResult {
+  const depot = world.depots.get(depotId);
+  if (!depot) return fail('車庫がありません');
+  const i = depot.stored.findIndex((c) => c.id === carId);
+  if (i < 0) return fail('留置線にその車両がありません');
+  const value = carValue(world, depot.stored[i]);
+  depot.stored.splice(i, 1);
+  earn(world, 'vehicles', value);
+  return { ok: true, cost: -value };
+}
+
+export function trainTypes(train: Train): VehicleType[] {
+  return train.cars.map((c) => c.type);
 }
 
 export function cloneTrain(
@@ -633,25 +799,28 @@ export function cloneTrain(
   const src = world.trains.get(srcId);
   if (!src) return fail('列車がありません');
   const ol = world.orderLists.get(src.orderList)!;
-  return buyTrain(world, depotId, trainWagons(src), {
+  const types = trainTypes(src);
+  const engine = isEngine(types[0]) ? types[0] : 'steam';
+  const wagons = types.slice(1).filter((t): t is WagonType => !isEngine(t));
+  return buyTrain(world, depotId, wagons, {
     dry: opts.dry,
+    engine,
     orderList: share ? ol.id : undefined,
     orders: share ? undefined : ol.orders,
   });
 }
 
-export function trainValue(train: Train): number {
-  return Math.round(trainCost(trainWagons(train)) * 0.7);
+export function trainValue(world: World, train: Train): number {
+  return train.cars.reduce((s, c) => s + carValue(world, c), 0);
 }
 
+/** 列車ごと売る（車庫に止まっているとき） */
 export function sellTrain(world: World, id: number): CmdResult {
   const t = world.trains.get(id);
   if (!t) return fail('列車がありません');
   if (t.state !== 'in_depot') return fail('車庫に入れてから売却してください');
-  const value = trainValue(t);
-  world.trains.delete(id);
-  const stillUsed = [...world.trains.values()].some((x) => x.orderList === t.orderList);
-  if (!stillUsed) world.orderLists.delete(t.orderList);
+  const value = trainValue(world, t);
+  removeTrain(world, t);
   earn(world, 'vehicles', value);
   return { ok: true, cost: -value };
 }

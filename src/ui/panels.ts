@@ -2,29 +2,50 @@
 
 import {
   addOrder,
+  attachVehicle,
   borrow,
-  buyTrain,
+  buyVehicle,
+  carValue,
   deleteOrder,
+  detachVehicle,
+  disbandTrain,
   formatYen,
+  makeTrain,
   repay,
   sellTrain,
+  sellVehicle,
   sendToDepot,
   setOrderLoad,
   setOrderUnload,
   skipOrder,
   startStop,
-  trainCost,
   trainValue,
 } from '../sim/commands';
-import { CARGO_SPECS, CARGOS, ENGINE, FINANCE, INDUSTRY, MAX_WAGONS, WAGON_SPECS, type WagonType } from '../sim/constants';
+import {
+  CARGO_SPECS,
+  CARGOS,
+  ENGINE_SPECS,
+  ENGINE_TYPES,
+  FINANCE,
+  INDUSTRY,
+  isEngine,
+  vehicleCost,
+  vehicleName,
+  WAGON_SPECS,
+  WAGON_TYPES,
+  type VehicleType,
+} from '../sim/constants';
 import { demandFactor } from '../sim/economy';
+import { daysLeft, rewardText } from '../sim/requests';
 import { acceptance, stationAccepts } from '../sim/simulate';
 import {
+  canBuy,
   carCapacity,
   carCargo,
   carLoad,
   FINANCE_CATEGORIES,
   stationSign,
+  trainEngine,
   tx,
   ty,
   type FinanceCategory,
@@ -96,28 +117,35 @@ export function openTrain(g: Game, id: number) {
       const t = g.world.trains.get(id);
       if (!t) return '<p class="muted">この列車はもうありません</p>';
       const s = trainStatus(g, t);
+      const eng = ENGINE_SPECS[trainEngine(t)];
       const cars = t.cars
         .map((c) => {
-          if (c.type === 'engine') return `<li><span class="car-dot engine"></span>${ENGINE.name}</li>`;
+          if (isEngine(c.type)) return `<li><span class="car-dot ${c.type}"></span>${esc(vehicleName(c.type))}<span class="grow"></span><span class="muted small">${ageText(g, c.built)}</span></li>`;
           const cargo = carCargo(c)!;
           const cap = carCapacity(c, cargo);
-          return `<li><span class="car-dot ${c.type}"></span>${WAGON_SPECS[c.type].name}<span class="grow"></span>${gauge(carLoad(c), cap)}<span class="num">${n0(carLoad(c))}/${cap}${CARGO_SPECS[cargo].unit}</span></li>`;
+          return `<li><span class="car-dot ${c.type}"></span>${esc(vehicleName(c.type))}<span class="grow"></span>${gauge(carLoad(c), cap)}<span class="num">${n0(carLoad(c))}/${cap}${CARGO_SPECS[cargo].unit}</span></li>`;
         })
         .join('');
+      const inDepot = t.state === 'in_depot';
       return `
         <button class="status-bar ${s.tone}" data-action="startstop">${esc(s.text)}</button>
         <div class="btnrow">
           <button data-action="orders">${ICONS.orders}<span>指令</span></button>
-          <button data-action="depot">${ICONS.depot}<span>${t.heading === 'depot' && t.state !== 'in_depot' ? '取りやめ' : '車庫へ送る'}</span></button>
+          ${
+            inDepot
+              ? `<button data-action="consist">${ICONS.depot}<span>編成を変える</span></button>`
+              : `<button data-action="depot">${ICONS.depot}<span>${t.heading === 'depot' ? '取りやめ' : '車庫へ送る'}</span></button>`
+          }
           <button data-action="center">${ICONS.center}<span>表示</span></button>
         </div>
         <ul class="cars">${cars}</ul>
         <dl class="stats">
+          <dt>速さ</dt><dd>${eng.speed}マス/日</dd>
           <dt>今年の利益</dt><dd class="${t.profitThisYear >= 0 ? 'pos' : 'neg'}">${formatYen(t.profitThisYear)}</dd>
           <dt>去年の利益</dt><dd>${formatYen(t.profitLastYear)}</dd>
-          <dt>維持費</dt><dd>${formatYen(ENGINE.runningCostPerYear)}/年</dd>
+          <dt>維持費（走っているとき）</dt><dd>${formatYen(eng.runningCostPerYear)}/年</dd>
         </dl>
-        ${t.state === 'in_depot' ? `<button class="danger wide" data-action="sell">売却する（${formatYen(trainValue(t))}）</button>` : ''}`;
+        ${inDepot ? '' : '<p class="muted small">編成を変えるには、いったん車庫へ送ってください。</p>'}`;
     },
     onAction: (a) => {
       const t = g.world.trains.get(id);
@@ -126,10 +154,9 @@ export function openTrain(g: Game, id: number) {
       else if (a === 'orders') openOrders(g, id);
       else if (a === 'depot') g.result(sendToDepot(g.world, id));
       else if (a === 'center') g.centerOnTrain(id);
-      else if (a === 'sell') {
-        g.result(sellTrain(g.world, id));
-        g.wm.close(`train-${id}`);
-        g.wm.close(`orders-${id}`);
+      else if (a === 'consist') {
+        g.depotSel.set(t.depotId, id);
+        openDepot(g, t.depotId);
       }
       g.wm.refreshAll();
     },
@@ -137,6 +164,11 @@ export function openTrain(g: Game, id: number) {
       if (g.selectedTrain === id) g.selectTrain(-1);
     },
   });
+}
+
+function ageText(g: Game, built: number): string {
+  const y = Math.floor((g.world.day - built) / 365);
+  return y <= 0 ? '新車' : `${y}年`;
 }
 
 // ───────────────────────── 指令 ─────────────────────────
@@ -225,72 +257,158 @@ export function addOrderFromMap(g: Game, trainId: number, stationId: number, ful
   g.wm.refreshAll();
 }
 
-// ───────────────────────── 車庫 ─────────────────────────
+// ───────────────────────── 車庫（留置線と編成の組み替え） ─────────────────────────
+
+const SHORT_NAMES: Record<VehicleType, string> = {
+  steam: 'ツナグ形',
+  express: 'ハヤテ形',
+  coach: '客車',
+  logcar: '原木車',
+  lumbercar: '木材車',
+  biglogcar: '大型原木車',
+  biglumbercar: '大型木材車',
+};
+
+function vehicleDesc(t: VehicleType): string {
+  if (isEngine(t)) return `${ENGINE_SPECS[t].speed}マス/日`;
+  const w = WAGON_SPECS[t];
+  return `${CARGO_SPECS[w.cargo].name}${w.capacity}${CARGO_SPECS[w.cargo].unit}`;
+}
 
 export function openDepot(g: Game, id: number) {
-  if (!g.buildComp.has(id)) g.buildComp.set(id, ['logcar', 'logcar']);
   g.wm.open({
     id: `depot-${id}`,
     title: '車庫',
-    width: 340,
+    width: 360,
     render: () => {
       const w = g.world;
-      if (!w.depots.has(id)) return '<p class="muted">この車庫はもうありません</p>';
+      const depot = w.depots.get(id);
+      if (!depot) return '<p class="muted">この車庫はもうありません</p>';
       const inside = [...w.trains.values()].filter((t) => t.depotId === id && t.state === 'in_depot');
-      const comp = g.buildComp.get(id)!;
-      const compHtml = [`<span class="chip engine">機関車</span>`]
-        .concat(comp.map((c, i) => `<button class="chip ${c}" data-action="rm" data-i="${i}" title="外す">${WAGON_SPECS[c].name}<b>×</b></button>`))
-        .join('');
+      let sel = g.depotSel.get(id) ?? -1;
+      if (!inside.some((t) => t.id === sel)) sel = inside.length === 1 ? inside[0].id : -1;
+      g.depotSel.set(id, sel);
+      const selTrain = inside.find((t) => t.id === sel);
       const cloning = g.tool === 'clone' && g.cloneDepot === id;
+
+      const trains = inside
+        .map((t) => {
+          const chips = t.cars
+            .map((c, i) =>
+              i === 0
+                ? `<span class="chip ${c.type}">${SHORT_NAMES[c.type]}</span>`
+                : `<button class="chip ${c.type}" data-action="detach" data-train="${t.id}" data-car="${c.id}" title="外して留置線へ">${SHORT_NAMES[c.type]}<b>↓</b></button>`,
+            )
+            .join('');
+          const wagons = t.cars.length - 1;
+          return `<li class="dtrain ${t.id === sel ? 'sel' : ''}" data-action="seltrain" data-id="${t.id}">
+            <div class="dtrain-head"><b>${esc(t.name)}</b><span class="muted small">貨車${wagons}両</span><span class="grow"></span>
+              <button class="small-btn" data-action="start" data-id="${t.id}">${ICONS.play}発車</button></div>
+            <div class="consist">${chips}</div></li>`;
+        })
+        .join('');
+
+      const stored = depot.stored
+        .map((c) => {
+          const engine = isEngine(c.type);
+          const action = engine
+            ? `<button class="small-btn" data-action="maketrain" data-car="${c.id}">列車にする</button>`
+            : `<button class="small-btn" data-action="attach" data-car="${c.id}" ${selTrain ? '' : 'disabled title="先に上で列車を選んでください"'}>↑つなぐ</button>`;
+          return `<li><span class="car-dot ${c.type}"></span><span>${SHORT_NAMES[c.type]}<small class="muted"> ${ageText(g, c.built)}</small></span><span class="grow"></span>${action}<button class="small-btn" data-action="sellcar" data-car="${c.id}" title="売却">売る ${formatYen(carValue(w, c))}</button></li>`;
+        })
+        .join('');
+
+      const buy = [...ENGINE_TYPES, ...WAGON_TYPES]
+        .map((t) => {
+          const ok = canBuy(w, t);
+          return `<button class="buy ${ok ? '' : 'locked'}" data-action="buy" data-k="${t}" ${ok ? '' : 'disabled'} title="${ok ? '' : '依頼の報酬で解禁されます'}">
+            <span class="buy-name"><span class="car-dot ${t}"></span>${SHORT_NAMES[t]}${ok ? '' : ' 🔒'}</span>
+            <span class="muted small">${vehicleDesc(t)}</span>
+            <span class="num">${formatYen(vehicleCost(t))}</span></button>`;
+        })
+        .join('');
+
       return `
         <h4>車庫の中の列車</h4>
-        <ul class="list">${
-          inside
-            .map(
-              (t) =>
-                `<li><button class="link" data-action="train" data-id="${t.id}">${esc(t.name)}</button><span class="muted small">${t.cars.length - 1}両</span><span class="grow"></span><button class="small-btn" data-action="start" data-id="${t.id}">${ICONS.play}発車</button></li>`,
-            )
-            .join('') || '<li class="muted">なし</li>'
-        }</ul>
-        <h4>新しい列車を買う</h4>
-        <div class="comp">${compHtml}</div>
-        <div class="btnrow wrap">
-          ${(Object.keys(WAGON_SPECS) as WagonType[])
-            .map(
-              (k) =>
-                `<button data-action="add" data-k="${k}" ${comp.length >= MAX_WAGONS ? 'disabled' : ''}><span class="car-dot ${k}"></span><span>＋${WAGON_SPECS[k].name}</span></button>`,
-            )
-            .join('')}
-        </div>
-        <p class="muted small">${comp.map((c) => `${WAGON_SPECS[c].name}：${CARGO_SPECS[WAGON_SPECS[c].cargo].name}${WAGON_SPECS[c].capacity}${CARGO_SPECS[WAGON_SPECS[c].cargo].unit}`).filter((v, i, a) => a.indexOf(v) === i).join(' ／ ')}</p>
+        <ul class="dtrains">${trains || '<li class="muted small">なし（機関車を買うと列車になります）</li>'}</ul>
+        ${
+          selTrain
+            ? `<div class="btnrow">
+                <button data-action="orders">${ICONS.orders}<span>指令</span></button>
+                <button data-action="disband" title="すべての車両を留置線に置きます（指令は消えます）">${ICONS.remove}<span>ばらす</span></button>
+                <button class="danger" data-action="selltrain"><span>列車ごと売る ${formatYen(trainValue(w, selTrain))}</span></button>
+              </div>`
+            : ''
+        }
+        <h4>留置線 <small class="muted">${depot.stored.length}両・置いている間は維持費なし</small></h4>
+        <ul class="list stored">${stored || '<li class="muted small">なし（外した車両や買った貨車がここに置かれます）</li>'}</ul>
+        <h4>車両を買う</h4>
+        <div class="buy-grid">${buy}</div>
+        <p class="muted small">${selTrain ? `貨車は<b>${esc(selTrain.name)}</b>に直接つながります。` : '貨車は留置線に置かれます。'}機関車を買うと新しい列車になります。</p>
         <div class="btnrow">
-          <button class="primary" data-action="buy" ${comp.length ? '' : 'disabled'}>${ICONS.train}<span>購入 ${formatYen(trainCost(comp))}</span></button>
           <button class="${cloning ? 'on' : ''}" data-action="clone" title="押してから地図上の列車をクリック（Ctrl+クリックで指令を共有）">${ICONS.clone}<span>クローン</span></button>
         </div>
         ${
           cloning
-            ? `<p class="hint">複製したい列車を地図でクリック${g.touchUI ? '（タップ）' : '（Ctrl+クリックで指令を共有）'}</p>
+            ? `<p class="hint">複製したい列車を地図で${g.touchUI ? 'タップ' : 'クリック（Ctrl+クリックで指令を共有）'}</p>
                <label class="check"><input type="checkbox" data-key="share" ${g.cloneShare ? 'checked' : ''}> 指令を共有する</label>`
             : ''
         }`;
     },
-    onAction: (a, el) => {
-      const comp = g.buildComp.get(id)!;
-      if (a === 'add') comp.push(el.dataset.k as WagonType);
-      else if (a === 'rm') comp.splice(Number(el.dataset.i), 1);
-      else if (a === 'buy') {
-        const r = buyTrain(g.world, id, comp);
-        g.result(r);
-        if (r.ok && r.id) {
-          openTrain(g, r.id);
-          openOrders(g, r.id);
-          g.toast('列車を買いました。「行き先」で駅を選んでから発車させましょう', 'good');
+    onAction: (a, el, ev) => {
+      const w = g.world;
+      const sel = g.depotSel.get(id) ?? -1;
+      const car = Number(el.dataset.car);
+      switch (a) {
+        case 'seltrain':
+          if ((ev.target as HTMLElement).closest('button')) return;
+          g.depotSel.set(id, Number(el.dataset.id) === sel ? -1 : Number(el.dataset.id));
+          break;
+        case 'start':
+          g.result(startStop(w, Number(el.dataset.id)));
+          break;
+        case 'detach':
+          g.result(detachVehicle(w, Number(el.dataset.train), car));
+          break;
+        case 'attach':
+          g.result(attachVehicle(w, id, car, sel));
+          break;
+        case 'maketrain': {
+          const r = makeTrain(w, id, car);
+          if (g.result(r) && r.id) g.depotSel.set(id, r.id);
+          break;
         }
-      } else if (a === 'clone') {
-        if (g.tool === 'clone') g.setTool('none');
-        else g.startClone(id);
-      } else if (a === 'train') openTrain(g, Number(el.dataset.id));
-      else if (a === 'start') g.result(startStop(g.world, Number(el.dataset.id)));
+        case 'sellcar':
+          g.result(sellVehicle(w, id, car));
+          break;
+        case 'buy': {
+          const r = buyVehicle(w, id, el.dataset.k as VehicleType, { attachTo: sel });
+          if (g.result(r) && isEngine(el.dataset.k as VehicleType) && r.id) {
+            g.depotSel.set(id, r.id);
+            g.toast('機関車を買いました。貨車を買うか、留置線からつないでください', 'good');
+          }
+          break;
+        }
+        case 'orders':
+          if (sel >= 0) openOrders(g, sel);
+          break;
+        case 'disband':
+          if (sel >= 0 && g.result(disbandTrain(w, sel))) {
+            g.wm.close(`train-${sel}`);
+            g.wm.close(`orders-${sel}`);
+          }
+          break;
+        case 'selltrain':
+          if (sel >= 0 && g.result(sellTrain(w, sel))) {
+            g.wm.close(`train-${sel}`);
+            g.wm.close(`orders-${sel}`);
+          }
+          break;
+        case 'clone':
+          if (g.tool === 'clone') g.setTool('none');
+          else g.startClone(id);
+          break;
+      }
       g.wm.refreshAll();
     },
     onChange: (el) => {
@@ -408,8 +526,10 @@ export function openTown(g: Game, id: number) {
 const FIN_LABELS: Record<FinanceCategory, string> = {
   construction: '建設費',
   vehicles: '車両の購入・売却',
-  running: '維持費',
+  running: '列車の維持費',
+  facilities: '車庫代',
   income: '運賃収入',
+  rewards: '依頼の報酬',
   interest: '借入金の利息',
 };
 
@@ -562,7 +682,9 @@ export function openHelp(g: Game) {
           <tr><th><kbd>Shift</kbd>＋建設</th><td>費用の見積もりだけ表示</td></tr>
           <tr><th><kbd>Shift</kbd>+<kbd>F7</kbd></th><td>鉄道建設ツール</td></tr>
           <tr><th><kbd>A</kbd> <kbd>1</kbd>〜<kbd>4</kbd> ／ <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> ／ <kbd>R</kbd></th><td>線路 ／ 解体・車庫・駅 ／ 撤去の切り替え</td></tr>
+          <tr><th><kbd>O</kbd></th><td>1マスの駅の向きを切り替え</td></tr>
           <tr><th><kbd>D</kbd></th><td>解体（どこでも）</td></tr>
+          <tr><th><kbd>F3</kbd></th><td>セーブ／ロード</td></tr>
           <tr><th><kbd>Esc</kbd></th><td>ツールを解除</td></tr>
           <tr><th><kbd>Ctrl</kbd>+<kbd>Z</kbd></th><td>元に戻す</td></tr>
           <tr><th><kbd>F1</kbd></th><td>一時停止</td></tr>
@@ -580,11 +702,11 @@ export function openHelp(g: Game) {
         <h4>遊び方</h4>
         <ol class="steps">
           <li>森と製材所の近くに<b>駅</b>を建てて、<b>線路</b>でつなぐ</li>
-          <li>線路の隣に<b>車庫</b>を置き、クリックして<b>原木車</b>つきの列車を買う</li>
+          <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
           <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
           <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
         </ol>
-        <p class="muted small">試作版（フェーズ0）です。信号・橋・トンネル・地形変更・セーブはまだありません。列車どうしはぶつかりません。</p>
+        <p class="muted small">試作版 v0.2 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
         <h4>画面</h4>
         <div class="btnrow">
           <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
@@ -612,6 +734,8 @@ export function openMenu(g: Game) {
         <button data-action="trains">${ICONS.train}<span>列車一覧</span></button>
         <button data-action="stations">${ICONS.station}<span>駅一覧</span></button>
         <button data-action="industries">${ICONS.industry}<span>産業一覧</span></button>
+        <button data-action="requests">${ICONS.request}<span>依頼ボード</span></button>
+        <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
         <button data-action="help">${ICONS.help}<span>操作方法</span></button>
       </div>`,
@@ -622,6 +746,8 @@ export function openMenu(g: Game) {
       if (a === 'stations') openStationList(g);
       if (a === 'industries') openIndustryList(g);
       if (a === 'towns') openTownList(g);
+      if (a === 'requests') openRequests(g);
+      if (a === 'save') g.openSaveLoad();
       if (a === 'help') openHelp(g);
     },
   });
@@ -635,4 +761,58 @@ export function acceptanceSummary(g: Game, stationId: number): string {
   return CARGOS.filter((c) => a[c])
     .map((c) => CARGO_SPECS[c].name)
     .join('・');
+}
+
+// ───────────────────────── 依頼ボード ─────────────────────────
+
+export function openRequests(g: Game) {
+  g.wm.open({
+    id: 'requests',
+    title: '依頼ボード',
+    width: 380,
+    render: () => {
+      const w = g.world;
+      const st = w.requestState;
+      const cards = w.requests
+        .map((r) => {
+          const left = daysLeft(w, r);
+          const ratio = r.goal > 0 ? r.progress / r.goal : 0;
+          const prog =
+            r.kind === 'connect'
+              ? r.progress >= 1
+                ? 'つながりました'
+                : 'まだつながっていません'
+              : r.kind === 'rating'
+                ? `いちばん高い駅 ${pct(r.progress / 255)} ／ 目標 70%`
+                : r.kind === 'income'
+                  ? `${formatYen(r.progress)} ／ ${formatYen(r.goal)}`
+                  : `${n0(r.progress)} ／ ${n0(r.goal)}${r.kind === 'population' || r.kind === 'carry_pax' ? '人' : 't'}`;
+          return `<li class="req">
+            <div class="req-head"><b>${esc(r.title)}</b></div>
+            <p class="small">${esc(r.desc)}</p>
+            <div class="req-prog">${gauge(r.progress, r.goal, ratio >= 1 ? 'good' : '')}<span class="small">${prog}</span></div>
+            <div class="req-foot">
+              <span class="reward ${r.reward.kind}">報酬：${esc(rewardText(r.reward))}</span>
+              <span class="grow"></span>
+              <span class="muted small">${esc(r.from)}・残り${left}日</span>
+              ${r.tile >= 0 ? `<button class="small-btn" data-action="goto" data-tile="${r.tile}">${ICONS.center}見る</button>` : ''}
+            </div></li>`;
+        })
+        .join('');
+      const unlocked = [...w.unlocked].map((v) => vehicleName(v)).join('・');
+      return `
+        <ul class="reqs">${cards || '<li class="muted small">今は依頼がありません。しばらくすると届きます。</li>'}</ul>
+        <p class="muted small">依頼は達成できなくても大丈夫です（期限が切れると消えるだけ）。報酬の車両は車庫の留置線に届きます。</p>
+        <dl class="stats">
+          <dt>達成した依頼</dt><dd>${st.completed}件</dd>
+          ${unlocked ? `<dt>解禁した車両</dt><dd>${esc(unlocked)}</dd>` : ''}
+        </dl>`;
+    },
+    onAction: (a, el) => {
+      if (a === 'goto') {
+        const t = Number(el.dataset.tile);
+        g.renderer.centerOnTile(tx(g.world, t), ty(g.world, t));
+      }
+    },
+  });
 }

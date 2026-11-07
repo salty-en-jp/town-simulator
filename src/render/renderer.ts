@@ -1,7 +1,7 @@
 // PixiJS による描画。シミュレーションの状態を読むだけで、変更はしない。
 
 import { Application, Container, Graphics } from 'pixi.js';
-import { WAGON_SPECS } from '../sim/constants';
+import { isEngine, WAGON_SPECS } from '../sim/constants';
 import {
   carLoad,
   DIRS,
@@ -26,6 +26,8 @@ export interface Preview {
   ok: boolean;
   remove?: boolean;
   catchment?: Rect | null;
+  /** 駅の向き（ゴーストの線路をこの向きに描く） */
+  axis?: 'x' | 'y';
   kind: 'track' | 'station' | 'depot' | 'demolish';
 }
 
@@ -384,6 +386,12 @@ export class Renderer {
           }
         }
         drawRails(g, segs, 0.55, pv.ok ? undefined : 0xff5a4a);
+      }
+      if (pv.kind === 'station' && pv.axis) {
+        const dirs = pv.axis === 'x' ? [2, 8] : [1, 4];
+        const segs: [number, number, number][] = [];
+        for (const t of pv.tiles) for (const d of dirs) segs.push([tx(w, t), ty(w, t), d]);
+        drawRails(g, segs, 0.75, pv.ok ? undefined : 0xff5a4a);
       }
     }
     if (o.hover >= 0 && !pv) {
@@ -849,16 +857,21 @@ function pointAt(poly: { x: number; y: number }[], s: number): { x: number; y: n
 }
 
 const CAR_COLORS: Record<string, number> = {
-  engine: 0x2f3b4a,
+  steam: 0x2f3b4a,
+  express: 0x2f5f8f,
   coach: 0x3d7a5a,
   logcar: 0x7a4f2c,
   lumbercar: 0x9a7a52,
+  biglogcar: 0x6a4020,
+  biglumbercar: 0x8a6a42,
 };
 
 function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car: Car, selected: boolean) {
-  const len = car.type === 'engine' ? 0.44 : 0.42;
+  const engine = isEngine(car.type);
+  const big = car.type === 'biglogcar' || car.type === 'biglumbercar';
+  const len = engine ? 0.44 : big ? 0.46 : 0.42;
   const wid = 0.22;
-  const h = car.type === 'engine' ? 9 : car.type === 'coach' ? 9 : 5;
+  const h = engine ? 9 : car.type === 'coach' ? 9 : big ? 6 : 5;
   const px = -dy,
     py = dx;
   const corners: [number, number][] = [
@@ -885,26 +898,27 @@ function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car:
   g.poly(groundPoly(corners, base + h)).fill(color);
   if (selected) g.poly(groundPoly(corners, base + h)).stroke({ width: 2, color: 0xffe066 });
 
-  if (car.type === 'engine') {
+  if (engine) {
     // 煙突とライン
     const fx = x + dx * 0.14,
       fy = y + dy * 0.14;
-    g.ellipse(isoX(fx, fy), isoY(fx, fy) - base - h - 3, 2.2, 3.2).fill(0x1b2129);
+    if (car.type === 'steam') g.ellipse(isoX(fx, fy), isoY(fx, fy) - base - h - 3, 2.2, 3.2).fill(0x1b2129);
     const s0 = groundPoly([[x - dx * 0.2, y - dy * 0.2]], base + h - 3),
       s1 = groundPoly([[x + dx * 0.2, y + dy * 0.2]], base + h - 3);
-    g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: 1.5, color: 0xc0443a });
+    g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: 1.5, color: car.type === 'express' ? 0xf2c14e : 0xc0443a });
   } else if (car.type === 'coach') {
     g.poly(groundPoly(corners.map(([cx, cy]) => [x + (cx - x) * 0.8, y + (cy - y) * 0.6] as [number, number]), base + h)).fill(
       shade(color, 1.2),
     );
-  } else {
+  } else if (!isEngine(car.type)) {
     const spec = WAGON_SPECS[car.type];
     const fill = carLoad(car) / spec.capacity;
     if (fill > 0.02) {
       const ch = 2 + fill * 5;
       const inner = corners.map(([cx, cy]) => [x + (cx - x) * 0.85, y + (cy - y) * 0.75] as [number, number]);
-      g.poly(groundPoly(inner, base + h + ch)).fill(car.type === 'logcar' ? C.logEnd : C.plank);
-      g.poly(groundPoly(inner, base + h + ch)).stroke({ width: 1, color: car.type === 'logcar' ? C.log : 0x9a7a52, alpha: 0.8 });
+      const logs = spec.cargo === 'logs';
+      g.poly(groundPoly(inner, base + h + ch)).fill(logs ? C.logEnd : C.plank);
+      g.poly(groundPoly(inner, base + h + ch)).stroke({ width: 1, color: logs ? C.log : 0x9a7a52, alpha: 0.8 });
     }
   }
 }

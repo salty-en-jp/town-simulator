@@ -1430,3 +1430,309 @@ body.touch:has(.win:not(.behind)) #guide {
     height: 19px;
   }
 }
+
+/* ───────────── 新しい車両の色 ───────────── */
+
+.car-dot.steam,
+.chip.steam {
+  background: #2f3b4a;
+}
+
+.car-dot.express,
+.chip.express {
+  background: #2f5f8f;
+}
+
+.car-dot.biglogcar,
+.chip.biglogcar {
+  background: #6a4020;
+}
+
+.car-dot.biglumbercar,
+.chip.biglumbercar {
+  background: #8a6a42;
+}
+
+/* ───────────── 車庫：列車・留置線・購入 ───────────── */
+
+.dtrains {
+  list-style: none;
+  margin: 4px 0 6px;
+  padding: 0;
+}
+
+.dtrain {
+  padding: 7px 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.dtrain.sel {
+  border-color: #d8b24a;
+  background: #fff8dc;
+  box-shadow: 0 0 0 2px rgba(242, 193, 78, 0.45);
+}
+
+.dtrain-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+
+.consist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.consist .chip {
+  cursor: pointer;
+}
+
+.consist button.chip:hover {
+  filter: brightness(1.15);
+}
+
+.list.stored li {
+  gap: 6px;
+}
+
+.list.stored .small-btn:disabled {
+  opacity: 0.45;
+}
+
+.buy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.buy-grid .buy {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'name cost' 'desc desc';
+  align-items: center;
+  gap: 1px 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.buy-grid .buy:hover:not(:disabled) {
+  border-color: var(--rail-2);
+}
+
+.buy-name {
+  grid-area: name;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.buy-grid .buy .num {
+  grid-area: cost;
+  font-size: 12px;
+}
+
+.buy-grid .buy .small {
+  grid-area: desc;
+}
+
+.buy-grid .buy.locked {
+  opacity: 0.5;
+  cursor: default;
+  background: var(--paper-2);
+}
+
+/* ───────────── 依頼ボード ───────────── */
+
+.reqs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.req {
+  padding: 9px 10px;
+  margin-bottom: 8px;
+  border-radius: 9px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.req-head {
+  font-size: 14px;
+}
+
+.req p {
+  margin: 3px 0 6px;
+}
+
+.req-prog {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.req-prog .gauge {
+  flex: 1;
+}
+
+.req-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.reward {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #fff1bf;
+  color: #6a4b06;
+}
+
+.reward.vehicle {
+  background: #dcebf9;
+  color: #1f4a73;
+}
+
+.has-badge {
+  position: relative;
+}
+
+.badge:empty {
+  display: none;
+}
+
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #e2574a;
+  color: #fff;
+  font-family: var(--font-game);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* ───────────── セーブ／ロード ───────────── */
+
+.slots {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+}
+
+.slot {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-areas: 'thumb info' 'thumb btns';
+  gap: 4px 10px;
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.slot .thumb {
+  grid-area: thumb;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  background: var(--paper-2);
+  overflow: hidden;
+}
+
+.slot .thumb img {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.slot-info {
+  grid-area: info;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.slot-info b {
+  font-family: var(--font-game);
+  font-weight: 400;
+}
+
+.slot-btns {
+  grid-area: btns;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+body.touch .small-btn {
+  min-height: 34px;
+  padding: 4px 10px;
+}
+
+/* ───────────── 駅の向き ───────────── */
+
+#railbar .rotate-btn .axis-label {
+  font-family: var(--font-game);
+  font-size: 12px;
+  min-width: 2em;
+}
+
+.round.rotate {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+/* ───────────── タイトル画面：続きから ───────────── */
+
+.continue-meta {
+  margin: 10px 0 0;
+  font-family: var(--font-game);
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.title-sub {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.sub-btn {
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--rail-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* スマホ：確定バーが出ている間は目標カードを隠す */
+body.touch:has(#confirm:not([hidden])) #guide {
+  display: none;
+}

@@ -104,6 +104,8 @@ export function addTown(world: World, name: string, cx: number, cy: number): Tow
     lumberReceivedLastMonth: 0,
     paxReceivedThisMonth: 0,
     paxReceivedLastMonth: 0,
+    lumberTotal: 0,
+    paxTotal: 0,
     population: 0,
     houses: 0,
     activeStations: 0,
@@ -142,6 +144,8 @@ export function addIndustry(
     producedLastMonth: 0,
     transportedLastMonth: 0,
     receivedLastMonth: 0,
+    transportedTotal: 0,
+    receivedTotal: 0,
   };
   world.industries.set(id, ind);
   for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) world.occ[idx(world, xx, yy)] = { k: 'industry', id };
