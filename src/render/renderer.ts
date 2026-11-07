@@ -1,7 +1,8 @@
 // PixiJS による描画。シミュレーションの状態を読むだけで、変更はしない。
 
 import { Application, Container, Graphics } from 'pixi.js';
-import { CARGO_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
+import { CARGO_SPECS, INDUSTRY_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
+import { ownerLabel } from '../sim/industries';
 import {
   carLoad,
   DIRS,
@@ -349,6 +350,11 @@ export class Renderer {
     }
     low.sort((a, b) => a.depth - b.depth);
     for (const it of low) it.draw();
+    // 探鉱中の場所には旗
+    for (const sv of w.surveys) {
+      const spec = INDUSTRY_SPECS[sv.type];
+      items.push({ depth: sv.x + sv.y + spec.w + spec.h - 2, draw: () => drawSurvey(g, sv.x, sv.y, spec.w, spec.h) });
+    }
     items.sort((a, b) => a.depth - b.depth);
     for (const it of items) it.draw();
   }
@@ -573,7 +579,9 @@ export class Renderer {
       for (const ind of w.industries.values()) {
         const k = `ind${ind.id}`;
         live.add(k);
-        this.label(k, esc(ind.name), 'industry', ind.x + (ind.w - 1) / 2, ind.y + (ind.h - 1) / 2, 46);
+        const ol = ownerLabel(w, ind);
+        const cls = ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : '';
+        this.label(k, `${esc(ind.name)}${ol !== '地元' ? `<small>${ol}</small>` : ''}`, `industry ${cls}`, ind.x + (ind.w - 1) / 2, ind.y + (ind.h - 1) / 2, 46);
       }
       for (const [k, l] of this.labels) {
         if (!live.has(k)) {
@@ -902,6 +910,7 @@ function drawSawmill(g: Graphics, x0: number, y0: number, w: number, h: number, 
 /** 産業の種類ごとに描き分ける */
 function drawIndustry(g: Graphics, ind: Industry) {
   const { x, y, w, h } = ind;
+  if (ind.status === 'building') return drawConstruction(g, x, y, w, h);
   const pile = (c: number, cap = 500) => Math.min(1, c / cap);
   switch (ind.type) {
     case 'forest':
@@ -921,6 +930,35 @@ function drawIndustry(g: Graphics, ind: Industry) {
     case 'materialsplant':
       return drawMaterialsPlant(g, x, y, w, h, pile(ind.outStock));
   }
+}
+
+/** 建設中の工場：囲いと足場とクレーン */
+function drawConstruction(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  lot(g, x0, y0, w, h, 0xb59a74);
+  for (let k = 0; k < 3; k++) {
+    const x = x0 + 0.1 + k * ((w - 0.8) / 2);
+    box(g, x - 0.06, y0 - 0.2, x + 0.06, y0 + h - 0.8, 16 + k * 4, 0x9a8a74);
+  }
+  box(g, x0 - 0.1, y0 - 0.25, x0 + w - 0.9, y0 + h - 0.75, 2, 0xd9a441, 12);
+  box(g, x0 + w - 0.7, y0 + h - 1.0, x0 + w - 0.6, y0 + h - 0.9, 44, 0xe2b13c);
+  box(g, x0 + w - 1.8, y0 + h - 1.0, x0 + w - 0.6, y0 + h - 0.9, 2, 0xe2b13c, 44);
+}
+
+/** 探鉱中の場所：杭と旗 */
+function drawSurvey(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  const corners: [number, number][] = [
+    [x0 - 0.4, y0 - 0.4],
+    [x0 + w - 0.6, y0 - 0.4],
+    [x0 + w - 0.6, y0 + h - 0.6],
+    [x0 - 0.4, y0 + h - 0.6],
+  ];
+  const p = groundPoly(corners);
+  g.poly(p).stroke({ width: 2, color: 0xffffff, alpha: 0.7 });
+  for (const [cx, cy] of corners) g.rect(isoX(cx, cy) - 1, isoY(cx, cy) - 8, 2, 8).fill(0x7a5a3a);
+  const fx = isoX(x0 + (w - 1) / 2, y0 + (h - 1) / 2),
+    fy = isoY(x0 + (w - 1) / 2, y0 + (h - 1) / 2);
+  g.rect(fx - 1, fy - 26, 2, 26).fill(0x5a4a3a);
+  g.poly([fx + 1, fy - 26, fx + 14, fy - 21, fx + 1, fy - 16]).fill(0xe2574a);
 }
 
 function lot(g: Graphics, x0: number, y0: number, w: number, h: number, color: number) {

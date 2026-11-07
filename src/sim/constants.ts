@@ -207,6 +207,42 @@ export const INDUSTRY_SPECS: Record<IndustryType, IndustrySpec> = {
 };
 
 export const INDUSTRY_TYPES = Object.keys(INDUSTRY_SPECS) as IndustryType[];
+export const PRIMARY_TYPES: IndustryType[] = ['forest', 'farm', 'ironmine', 'coalmine'];
+export const FACTORY_TYPES: IndustryType[] = ['sawmill', 'foodplant', 'steelmill', 'materialsplant'];
+
+/** 産業の持ち主・権利・契約・探鉱・建設 */
+export const INDUSTRY_ECON = {
+  /** 一次産業の権利の値段：1か月の生産量 1t あたり */
+  pricePerMonthlyT: 150_000,
+  /** 工場の値段（建設費・権利の値段） */
+  factoryPrice: { sawmill: 25_000_000, foodplant: 30_000_000, steelmill: 50_000_000, materialsplant: 45_000_000 } as Record<
+    string,
+    number
+  >,
+  /** 工場の建設にかかる日数 */
+  buildDays: 60,
+  /** 探鉱の費用と、調査にかかる日数 */
+  surveyCost: { forest: 8_000_000, farm: 10_000_000, ironmine: 15_000_000, coalmine: 15_000_000 } as Record<string, number>,
+  surveyDays: 60,
+  /** 自社の産業の配当：運び出した製品 1t あたり ＝ 貨物の基本運賃 × この倍率 */
+  dividendRateMul: 6,
+  /** 自社の産業の維持費（1年あたり、値段に対する割合） */
+  upkeepPerYear: 0.03,
+  /** 増産：値段のこの割合を払うと、生産量（加工能力）が expandFactor 倍 */
+  expandCostRatio: 0.5,
+  expandFactor: 1.25,
+  /** 輸送契約：料金（値段に対する割合）・期間・条件 */
+  contractFeeRatio: 0.06,
+  contractDays: 730,
+  /** 毎月これだけの割合を運び出すこと（はじめの contractGraceDays 日は数えない） */
+  contractMinRate: 0.4,
+  contractGraceDays: 60,
+  /** 条件を守れなかった月がこれだけ続くと、契約が打ち切られる */
+  contractMaxStrikes: 3,
+  /** 毎月、他社の一次産業が新しく見つかる確率 */
+  discoverPerMonth: 1 / 15,
+  maxIndustries: 30,
+};
 
 export const TOWN = {
   lumberPerHouse: 10,

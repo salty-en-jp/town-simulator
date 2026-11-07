@@ -15,6 +15,7 @@ import {
   type Cargo,
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
+import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
 import { updateRequests } from './requests';
 import { findPath } from './track';
 import {
@@ -26,6 +27,7 @@ import {
   dirBetween,
   earn,
   emptyFinance,
+  canLoadFrom,
   idx,
   inBounds,
   isPrimary,
@@ -99,7 +101,7 @@ export function acceptance(world: World, st: Station): Acceptance {
   const add = (cargo: Cargo, a: Acceptor) => (by[cargo] ??= []).push(a);
   for (const ind of world.industries.values()) {
     const inputs = INDUSTRY_SPECS[ind.type].inputs;
-    if (!inputs.length || !rectOverlapsIndustry(r, ind)) continue;
+    if (!inputs.length || ind.status !== 'active' || !rectOverlapsIndustry(r, ind)) continue;
     const d = Math.abs(ind.x + (ind.w - 1) / 2 - sx) + Math.abs(ind.y + (ind.h - 1) / 2 - sy);
     for (const cargo of inputs) add(cargo, { kind: 'industry', id: ind.id, dist: d });
   }
@@ -409,6 +411,7 @@ function handToStations(cands: Station[], cargo: Cargo, amount: number): number 
 
 function industriesDaily(world: World, ctx: DayContext) {
   for (const ind of world.industries.values()) {
+    if (ind.status !== 'active') continue;
     const spec = INDUSTRY_SPECS[ind.type];
     const perDay = ind.prodRate / 30;
     const room = Math.max(0, INDUSTRY.stockCap - ind.outStock);
@@ -425,6 +428,8 @@ function industriesDaily(world: World, ctx: DayContext) {
       ind.producedThisMonth += conv;
     }
     const cargo = spec.output;
+    // 他社の産業（権利も契約もない）からは、駅に貨物が来ない
+    if (!canLoadFrom(world, ind)) continue;
     const cands = bestStations(world, ctx, cargo, (r) => rectOverlapsIndustry(r, ind));
     const moved = handToStations(cands, cargo, ind.outStock);
     ind.outStock -= moved;
@@ -636,6 +641,7 @@ function daily(world: World) {
   housesDaily(world, ctx);
   townsDaily(world, ctx);
   stationsDaily(world);
+  industriesOwnershipDaily(world);
   updateRequests(world);
 }
 
@@ -657,8 +663,9 @@ function monthly(world: World) {
     ind.transportedLastMonth = ind.transportedThisMonth;
     ind.receivedLastMonth = ind.receivedThisMonth;
     ind.producedThisMonth = ind.transportedThisMonth = ind.receivedThisMonth = 0;
-    if (isPrimary(ind.type)) changeProduction(world, ind);
+    if (isPrimary(ind.type) && canLoadFrom(world, ind)) changeProduction(world, ind);
   }
+  industriesOwnershipMonthly(world);
   for (const town of world.towns.values()) {
     for (const r of Object.values(town.recv)) {
       r!.lm = r!.m;

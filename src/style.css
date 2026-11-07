@@ -2009,3 +2009,91 @@ body.picking #labels.far .map-label.station {
 body.touch .mtab {
   padding: 7px 11px;
 }
+
+/* ───────────── 産業の持ち主 ───────────── */
+
+.owner-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: #e8e2d4;
+  color: #5a5040;
+  flex: none;
+}
+
+.owner-badge.own {
+  background: var(--accent);
+  color: #2a2014;
+}
+
+.owner-badge.other {
+  background: #5a5f66;
+  color: #fff;
+}
+
+.owner-badge.contract {
+  background: #dcebf9;
+  color: #1f4a73;
+}
+
+.owner-badge.building {
+  background: #f3d9a8;
+  color: #6a4b06;
+}
+
+.owner-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.owner-box .small {
+  line-height: 1.5;
+}
+
+.list li .owner-badge {
+  margin-right: 2px;
+}
+
+.buy-grid .buy.on {
+  border-color: #c99a2a;
+  background: #fff1bf;
+}
+
+.map-label.industry small {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  background: #e8e2d4;
+}
+
+.map-label.industry.own {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.map-label.industry.own small {
+  background: var(--accent);
+  color: #2a2014;
+}
+
+.map-label.industry.other {
+  background: rgba(225, 222, 214, 0.92);
+  color: #6a6458;
+}
+
+.map-label.industry.other small {
+  background: #5a5f66;
+  color: #fff;
+}
+
+.map-label.industry.contract small {
+  background: #dcebf9;
+  color: #1f4a73;
+}

@@ -100,31 +100,11 @@ describe('町と食料品・建設資材', () => {
   });
 });
 
-describe('古いセーブ（v0.2）の読み込み', () => {
-  it('版1のセーブを変換して読み込める', () => {
+describe('古いセーブ', () => {
+  it('試作版の古いセーブは、わかりやすいエラーで断る', () => {
     const w = createEmptyWorld(20, 20, 3);
-    const saw = addIndustry(w, 'sawmill', '製材所', 5, 5, 3, 2);
-    const t = addTown(w, '町', 14, 14);
     const file = JSON.parse(serializeWorld(w));
-    // 版1の形に戻す
-    file.version = 1;
-    const ind = file.world.industries.find((i: { id: number }) => i.id === saw.id);
-    delete ind.inputs;
-    ind.inStock = 123;
-    const town = file.world.towns.find((x: { id: number }) => x.id === t.id);
-    delete town.stock;
-    delete town.recv;
-    delete town.fed;
-    Object.assign(town, { lumber: 7, lumberReceivedThisMonth: 1, lumberReceivedLastMonth: 2, paxReceivedThisMonth: 3, paxReceivedLastMonth: 4, lumberTotal: 50, paxTotal: 60 });
-    file.world.requests = [{ id: 99, kind: 'haul_logs', target: 1, target2: -1, goal: 10, base: 0, progress: 0, from: '', title: '', desc: '', createdDay: 0, deadlineDay: 9, reward: { kind: 'money', amount: 1 }, tile: -1 }];
-    const w2 = deserializeWorld(JSON.stringify(file));
-    expect(w2.industries.get(saw.id)!.inputs.logs).toBe(123);
-    const t2 = w2.towns.get(t.id)!;
-    expect(t2.stock.lumber).toBe(7);
-    expect(t2.recv.lumber!.total).toBe(50);
-    expect(t2.recv.passengers!.lm).toBe(4);
-    expect(w2.requests[0].kind).toBe('haul');
-    expect(w2.requests[0].cargo).toBe('logs');
-    days(w2, 30);
+    file.version = 2;
+    expect(() => deserializeWorld(JSON.stringify(file))).toThrow(/古いセーブ/);
   });
 });

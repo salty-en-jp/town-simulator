@@ -14,6 +14,7 @@ import {
   type Occupant,
   type OrderList,
   type Station,
+  type Survey,
   type Town,
   type Train,
   type World,
@@ -21,7 +22,9 @@ import {
 import type { VehicleType } from './constants';
 
 export const SAVE_FORMAT = 'tsunagumachi';
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+/** これより古いセーブは読み込まない（試作版のあいだは変換しない） */
+export const OLDEST_SUPPORTED = 3;
 
 interface SavedWorld {
   w: number;
@@ -51,6 +54,7 @@ interface SavedWorld {
   unlocked: VehicleType[];
   requests: Request[];
   requestState: RequestState;
+  surveys: Survey[];
 }
 
 export interface SaveFile {
@@ -110,6 +114,7 @@ export function toSaveFile(w: World): SaveFile {
       unlocked: [...w.unlocked],
       requests: w.requests,
       requestState: w.requestState,
+      surveys: w.surveys,
     },
   };
 }
@@ -120,50 +125,10 @@ export function serializeWorld(w: World): string {
 
 export class SaveError extends Error {}
 
-/** 古い版のセーブを今の形に直す（版を上げたらここに足していく） */
+/** 古い版のセーブを今の形に直す（1.0 になったら、ここに変換を足していく） */
 function migrate(file: SaveFile): SaveFile {
-  if (file.version === 1) migrateV1toV2(file);
   return file;
 }
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/**
- * 版1（v0.2）→ 版2（物流の拡張）
- * ・産業の入力在庫 inStock を、貨物ごとの inputs に
- * ・町の木材・受け取り量を、貨物ごとの stock・recv に
- * ・依頼の種類 haul_logs / deliver_lumber を haul / deliver に
- */
-function migrateV1toV2(file: SaveFile) {
-  const w = file.world as any;
-  for (const ind of w.industries as any[]) {
-    if (!ind.inputs) ind.inputs = ind.type === 'sawmill' ? { logs: ind.inStock ?? 0 } : {};
-    delete ind.inStock;
-  }
-  for (const t of w.towns as any[]) {
-    if (!t.stock) {
-      t.stock = { lumber: t.lumber ?? 0 };
-      t.recv = {
-        lumber: { m: t.lumberReceivedThisMonth ?? 0, lm: t.lumberReceivedLastMonth ?? 0, total: t.lumberTotal ?? 0 },
-        passengers: { m: t.paxReceivedThisMonth ?? 0, lm: t.paxReceivedLastMonth ?? 0, total: t.paxTotal ?? 0 },
-      };
-      t.fed = false;
-    }
-    for (const k of ['lumber', 'lumberReceivedThisMonth', 'lumberReceivedLastMonth', 'paxReceivedThisMonth', 'paxReceivedLastMonth', 'lumberTotal', 'paxTotal']) {
-      delete t[k];
-    }
-  }
-  for (const r of (w.requests ?? []) as any[]) {
-    if (r.kind === 'haul_logs') {
-      r.kind = 'haul';
-      r.cargo = 'logs';
-    } else if (r.kind === 'deliver_lumber') {
-      r.kind = 'deliver';
-      r.cargo = 'lumber';
-    }
-  }
-  file.version = 2;
-}
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function deserializeWorld(text: string): World {
   let file: SaveFile;
@@ -174,6 +139,7 @@ export function deserializeWorld(text: string): World {
   }
   if (!file || file.format !== SAVE_FORMAT) throw new SaveError('ツナグマチのセーブデータではありません');
   if (file.version > SAVE_VERSION) throw new SaveError('新しい版のセーブデータです。ページを再読み込みしてください');
+  if (file.version < OLDEST_SUPPORTED) throw new SaveError('試作版の古いセーブデータのため読み込めません。「はじめから」で新しく始めてください');
   file = migrate(file);
   const s = file.world;
   const n = s.w * s.h;
@@ -216,5 +182,6 @@ export function deserializeWorld(text: string): World {
     unlocked: new Set(s.unlocked),
     requests: s.requests ?? [],
     requestState: s.requestState,
+    surveys: s.surveys ?? [],
   };
 }

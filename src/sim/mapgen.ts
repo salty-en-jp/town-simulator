@@ -3,9 +3,12 @@
 // ・最初の「森 → 製材所 → 町」は、川を渡らずに近くでつくれるように置く（はじめの目標用）
 // ・ほかの産業は、ほどよく離して置く。同じ種類の工場が複数あると「どこへ運ぶか」を選べる
 
-import { INDUSTRY_SPECS, type IndustryType } from './constants';
+import type { IndustryType } from './constants';
+import { placeIndustryAt, placeIndustrySomewhere } from './industries';
 import { growHouse, housesByTown, refreshStats } from './simulate';
-import { createEmptyWorld, idx, inBounds, newId, Terrain, type Industry, type Town, type World } from './world';
+import { createEmptyWorld, idx, inBounds, newId, Terrain, type Town, type World } from './world';
+
+export { addIndustry } from './industries';
 
 const TOWN_NAMES = ['桜川', '青葉台', '若松', '梅ヶ丘', '日向', '水沢', '朝霧', '双葉', '柳瀬', '高森', '白浜', '川辺', '緑ヶ丘', '星野'];
 
@@ -66,12 +69,16 @@ export function generateWorld(seed: number, size = 96): World {
   const townC = addTown(world, takeName(), at(0.8) + j(3), at(0.8) + j(3));
   const townD = addTown(world, takeName(), at(0.22) + j(3), at(0.2) + j(3));
 
-  // 最初のチェーン：森と製材所は川の西側、町Aの近く
-  placeAt(world, 'forest', at(0.12) + j(2), at(0.36) + j(2));
-  placeAt(world, 'sawmill', at(0.3) + j(2), at(0.48) + j(3));
+  // 最初のチェーン：森と製材所は川の西側、町Aの近く（地元の産業：だれでも運べる）
+  placeIndustryAt(world, 'forest', at(0.12) + j(2), at(0.36) + j(2), 'public');
+  placeIndustryAt(world, 'sawmill', at(0.3) + j(2), at(0.48) + j(3), 'public');
 
-  // ほかの産業は、空いている場所に間隔をあけて置く
-  for (const type of OTHER_INDUSTRIES) placeSomewhere(world, type);
+  // ほかの産業は、空いている場所に間隔をあけて置く。
+  // 各種類の1つめは地元の産業、2つめからは他社（権利を買うか輸送契約で運べる）
+  for (const type of OTHER_INDUSTRIES) {
+    const has = [...world.industries.values()].some((i) => i.type === type);
+    placeIndustrySomewhere(world, type, has ? 'other' : 'public');
+  }
 
   // 町の最初の家
   const initial: [Town, number][] = [
@@ -106,53 +113,6 @@ function clearArea(world: World, x0: number, y0: number, w: number, h: number) {
   }
 }
 
-/** いちばん近い町の名前を使って産業の名前をつける（重なったら次に近い町、それでもだめなら番号） */
-function industryName(world: World, type: IndustryType, cx: number, cy: number): string {
-  const suffix = INDUSTRY_SPECS[type].suffix;
-  const taken = new Set([...world.industries.values()].map((i) => i.name));
-  const towns = [...world.towns.values()].sort(
-    (a, b) => Math.abs(a.cx - cx) + Math.abs(a.cy - cy) - (Math.abs(b.cx - cx) + Math.abs(b.cy - cy)),
-  );
-  for (const t of towns) if (!taken.has(`${t.name}${suffix}`)) return `${t.name}${suffix}`;
-  const base = towns[0]?.name ?? 'ツナグ';
-  for (let n = 2; ; n++) if (!taken.has(`${base}第${n}${suffix}`)) return `${base}第${n}${suffix}`;
-}
-
-function placeAt(world: World, type: IndustryType, x: number, y: number): Industry {
-  const spec = INDUSTRY_SPECS[type];
-  return addIndustry(world, type, industryName(world, type, x, y), x, y, spec.w, spec.h);
-}
-
-/** 置ける場所か：まわり1マスも含めて水・建物がなく、ほかの産業・町から離れている */
-function canPlace(world: World, type: IndustryType, x: number, y: number): boolean {
-  const { w, h } = INDUSTRY_SPECS[type];
-  if (x < 2 || y < 2 || x + w + 2 > world.w || y + h + 2 > world.h) return false;
-  for (let yy = y - 1; yy <= y + h; yy++) {
-    for (let xx = x - 1; xx <= x + w; xx++) {
-      const t = idx(world, xx, yy);
-      if (world.terrain[t] === Terrain.Water || world.occ[t]) return false;
-    }
-  }
-  const cx = x + w / 2,
-    cy = y + h / 2;
-  for (const ind of world.industries.values()) {
-    if (Math.abs(ind.x + ind.w / 2 - cx) + Math.abs(ind.y + ind.h / 2 - cy) < 14) return false;
-  }
-  for (const t of world.towns.values()) {
-    if (Math.abs(t.cx - cx) + Math.abs(t.cy - cy) < 10) return false;
-  }
-  return true;
-}
-
-function placeSomewhere(world: World, type: IndustryType): Industry | null {
-  for (let tries = 0; tries < 400; tries++) {
-    const x = world.rng.int(2, world.w - 6),
-      y = world.rng.int(2, world.h - 6);
-    if (canPlace(world, type, x, y)) return placeAt(world, type, x, y);
-  }
-  return null;
-}
-
 export function addTown(world: World, name: string, cx: number, cy: number): Town {
   clearArea(world, cx - 2, cy - 2, 5, 5);
   const id = newId(world);
@@ -173,51 +133,3 @@ export function addTown(world: World, name: string, cx: number, cy: number): Tow
   return town;
 }
 
-export function addIndustry(
-  world: World,
-  type: IndustryType,
-  name: string,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): Industry {
-  x = Math.max(1, Math.min(world.w - w - 1, x));
-  y = Math.max(1, Math.min(world.h - h - 1, y));
-  clearArea(world, x - 1, y - 1, w + 2, h + 2);
-  const id = newId(world);
-  const spec = INDUSTRY_SPECS[type];
-  const ind: Industry = {
-    id,
-    type,
-    name,
-    x,
-    y,
-    w,
-    h,
-    inputs: Object.fromEntries(spec.inputs.map((c) => [c, 0])),
-    outStock: 0,
-    prodRate: spec.rate,
-    producedThisMonth: 0,
-    transportedThisMonth: 0,
-    receivedThisMonth: 0,
-    producedLastMonth: 0,
-    transportedLastMonth: 0,
-    receivedLastMonth: 0,
-    transportedTotal: 0,
-    receivedTotal: 0,
-  };
-  world.industries.set(id, ind);
-  for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) world.occ[idx(world, xx, yy)] = { k: 'industry', id };
-  // 森林のまわりは木を多めに
-  if (type === 'forest') {
-    for (let yy = y - 3; yy < y + h + 3; yy++) {
-      for (let xx = x - 3; xx < x + w + 3; xx++) {
-        if (!inBounds(world, xx, yy)) continue;
-        const t = idx(world, xx, yy);
-        if (!world.occ[t] && world.terrain[t] === Terrain.Grass && world.rng.chance(0.45)) world.terrain[t] = Terrain.Trees;
-      }
-    }
-  }
-  return ind;
-}
