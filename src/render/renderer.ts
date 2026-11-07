@@ -77,7 +77,12 @@ export class Renderer {
   cam = new Container();
   terrainG = new Graphics();
   trackG = new Graphics();
+  /** 駅・車庫（建物を半透明にしても見えるように別レイヤー） */
+  stationsG = new Graphics();
+  /** 家・ビル・木・産業 */
   objectsG = new Graphics();
+  /** 列車の路線（指令の順に通る線路） */
+  routeG = new Graphics();
   overlayG = new Graphics();
   trainsG = new Graphics();
   world!: World;
@@ -107,7 +112,7 @@ export class Renderer {
       preference: 'webgl',
     });
     host.appendChild(r.app.canvas);
-    r.cam.addChild(r.terrainG, r.trackG, r.objectsG, r.overlayG, r.trainsG);
+    r.cam.addChild(r.terrainG, r.trackG, r.stationsG, r.objectsG, r.routeG, r.overlayG, r.trainsG);
     r.app.stage.addChild(r.cam);
     return r;
   }
@@ -300,9 +305,12 @@ export class Renderer {
 
   private drawObjects() {
     const g = this.objectsG;
+    const sg = this.stationsG;
     const w = this.world;
     g.clear();
+    sg.clear();
     const items: { depth: number; draw: () => void }[] = [];
+    const low: { depth: number; draw: () => void }[] = [];
     const doneIndustry = new Set<number>();
     for (let i = 0; i < w.occ.length; i++) {
       const x = tx(w, i),
@@ -320,12 +328,12 @@ export class Renderer {
           const st = w.stations.get(o.id);
           if (!st) break;
           const isSign = stationSign(st) === i;
-          items.push({ depth: x + y - 0.1, draw: () => drawPlatform(g, x, y, st.axis, isSign) });
+          low.push({ depth: x + y - 0.1, draw: () => drawPlatform(sg, x, y, st.axis, isSign) });
           break;
         }
         case 'depot': {
           const d = w.depots.get(o.id);
-          if (d) items.push({ depth: x + y, draw: () => drawDepot(g, x, y, d.dir) });
+          if (d) low.push({ depth: x + y, draw: () => drawDepot(sg, x, y, d.dir) });
           break;
         }
         case 'industry': {
@@ -339,8 +347,72 @@ export class Renderer {
         }
       }
     }
+    low.sort((a, b) => a.depth - b.depth);
+    for (const it of low) it.draw();
     items.sort((a, b) => a.depth - b.depth);
     for (const it of items) it.draw();
+  }
+
+  // ───────────── 建物の半透明・路線 ─────────────
+
+  /** 建物（家・ビル・木・産業）を半透明にする。駅を選ぶとき・X キー */
+  setFaded(on: boolean) {
+    this.objectsG.alpha = on ? 0.28 : 1;
+  }
+
+  get faded(): boolean {
+    return this.objectsG.alpha < 1;
+  }
+
+  private routeNumbers = new Map<number, number[]>();
+
+  /**
+   * 列車の路線を描く。paths[i] は stops[i] → stops[i+1]（最後は最初へ戻る）の経路。
+   * つながっていない区間は null（赤い点線で描く）
+   */
+  setRoute(route: { stops: number[]; paths: (number[] | null)[]; current: number } | null) {
+    const g = this.routeG;
+    const w = this.world;
+    g.clear();
+    this.routeNumbers.clear();
+    this.labelsVersion = -1;
+    if (!route || !w) return;
+    route.stops.forEach((id, i) => {
+      const arr = this.routeNumbers.get(id) ?? [];
+      arr.push(i + 1);
+      this.routeNumbers.set(id, arr);
+    });
+    const lift = 3;
+    route.paths.forEach((path, i) => {
+      const from = w.stations.get(route.stops[i]);
+      const to = w.stations.get(route.stops[(i + 1) % route.stops.length]);
+      if (!from || !to) return;
+      const active = i === (route.current - 1 + route.stops.length) % route.stops.length;
+      if (path && path.length > 1) {
+        const pts = path.map((t) => groundPoly([[tx(w, t), ty(w, t)]], lift));
+        g.moveTo(pts[0][0], pts[0][1]);
+        for (const p of pts.slice(1)) g.lineTo(p[0], p[1]);
+        g.stroke({ width: 10, color: 0x1f332b, alpha: 0.55, cap: 'round', join: 'round' });
+        g.moveTo(pts[0][0], pts[0][1]);
+        for (const p of pts.slice(1)) g.lineTo(p[0], p[1]);
+        g.stroke({ width: 6, color: active ? 0xffe066 : 0xf2c14e, alpha: 0.95, cap: 'round', join: 'round' });
+      } else {
+        // つながっていない：赤い点線
+        const a = stationSign(from),
+          b = stationSign(to);
+        const ax = tx(w, a),
+          ay = ty(w, a),
+          bx = tx(w, b),
+          by = ty(w, b);
+        const n = Math.max(2, Math.round(Math.hypot(bx - ax, by - ay) / 0.6));
+        for (let k = 0; k < n; k += 2) {
+          const p = groundPoly([[ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n]], lift);
+          const q = groundPoly([[ax + ((bx - ax) * (k + 1)) / n, ay + ((by - ay) * (k + 1)) / n]], lift);
+          g.moveTo(p[0], p[1]).lineTo(q[0], q[1]);
+        }
+        g.stroke({ width: 5, color: 0xff5a4a, alpha: 0.9, cap: 'round' });
+      }
+    });
   }
 
   // ───────────── プレビュー・選択 ─────────────
@@ -492,7 +564,11 @@ export class Renderer {
         const k = `st${st.id}`;
         live.add(k);
         const s = stationSign(st);
-        this.label(k, esc(st.name), 'station', tx(w, s), ty(w, s), 22);
+        const nums = this.routeNumbers.get(st.id);
+        const badge = nums ? nums.map((n) => `<i class="ord">${n}</i>`).join('') : '';
+        const l = this.label(k, `${badge}${esc(st.name)}`, `station${nums ? ' in-route' : ''}`, tx(w, s), ty(w, s), 22);
+        l.el.dataset.station = String(st.id);
+        l.el.classList.toggle('in-route', !!nums);
       }
       for (const ind of w.industries.values()) {
         const k = `ind${ind.id}`;

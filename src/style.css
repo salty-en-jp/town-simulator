@@ -1736,3 +1736,145 @@ body.touch .small-btn {
 body.touch:has(#confirm:not([hidden])) #guide {
   display: none;
 }
+
+/* ───────────── 行き先を選ぶとき：選択バー・駅名の看板 ───────────── */
+
+#pickbar:not([hidden]) {
+  position: absolute;
+  left: 50%;
+  bottom: 42px;
+  transform: translateX(-50%);
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(820px, calc(100vw - 24px));
+  padding: 8px 8px 8px 16px;
+  border-radius: 14px;
+  background: rgba(31, 51, 43, 0.96);
+  color: var(--rail-ink);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+body.touch #pickbar:not([hidden]) {
+  bottom: calc(var(--safe-b) + 10px);
+  max-width: calc(100vw - 96px - var(--safe-l) - var(--safe-r));
+  left: calc(50% - 32px);
+}
+
+.pick-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  flex: none;
+}
+
+.pick-text b {
+  font-family: var(--font-game);
+  font-weight: 400;
+  font-size: 14px;
+}
+
+.pick-text span {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.pick-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.pick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px 3px 4px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #2a2014;
+  font-size: 13px;
+}
+
+.pick-chip i,
+.map-label .ord {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #1f332b;
+  color: #fff;
+  font-style: normal;
+  font-family: var(--font-game);
+  font-size: 11px;
+}
+
+.pick-chip small {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.pick-arrow {
+  opacity: 0.6;
+}
+
+.pick-btn {
+  flex: none;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pick-btn.primary {
+  background: var(--accent);
+  color: #2a2014;
+  font-weight: 700;
+}
+
+.pick-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+body.touch .pick-btn {
+  height: 46px;
+}
+
+/* 駅名の看板：行き先を選ぶときは押せる・路線に入っている駅は番号つき */
+.map-label .ord {
+  margin-right: 5px;
+}
+
+.map-label.station.in-route {
+  box-shadow:
+    0 0 0 2px #1f332b,
+    0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+body.picking .map-label.station {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 6px 9px 5px;
+  font-size: 14px;
+}
+
+body.picking .map-label.station:hover {
+  background: #ffe48a;
+}
+
+body.picking #labels.far .map-label.station {
+  display: block;
+}
