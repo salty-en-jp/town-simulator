@@ -1,6 +1,17 @@
 // 世界の状態と基本ヘルパー
 
-import { CARGOS, ENGINE, FINANCE, STATION, WAGON_SPECS, type Cargo, type WagonType } from './constants';
+import {
+  CARGOS,
+  ENGINE_SPECS,
+  FINANCE,
+  isEngine,
+  STATION,
+  WAGON_SPECS,
+  type Cargo,
+  type EngineType,
+  type VehicleType,
+} from './constants';
+import type { Request, RequestState } from './requests';
 import { Rng } from './rng';
 
 export const enum Terrain {
@@ -52,6 +63,8 @@ export interface Depot {
   id: number;
   tile: number;
   dir: number;
+  /** 留置線：列車から外した車両・買って置いてある車両 */
+  stored: Car[];
 }
 
 export type IndustryType = 'forest' | 'sawmill';
@@ -76,6 +89,9 @@ export interface Industry {
   producedLastMonth: number;
   transportedLastMonth: number;
   receivedLastMonth: number;
+  /** はじめからの累計（依頼の進み具合に使う） */
+  transportedTotal: number;
+  receivedTotal: number;
 }
 
 export interface Town {
@@ -89,6 +105,8 @@ export interface Town {
   lumberReceivedLastMonth: number;
   paxReceivedThisMonth: number;
   paxReceivedLastMonth: number;
+  lumberTotal: number;
+  paxTotal: number;
   /** 日次処理で集計 */
   population: number;
   houses: number;
@@ -118,8 +136,12 @@ export interface Packet {
   days: number;
 }
 
+/** 車両1両（機関車・貨車とも）。会社の資産として1両ずつ管理する */
 export interface Car {
-  type: 'engine' | WagonType;
+  id: number;
+  type: VehicleType;
+  /** 製造日（ゲーム内の日） */
+  built: number;
   packets: Packet[];
 }
 
@@ -154,12 +176,14 @@ export interface Train {
   trackVersion: number;
 }
 
-export type FinanceCategory = 'construction' | 'vehicles' | 'running' | 'income' | 'interest';
+export type FinanceCategory = 'construction' | 'vehicles' | 'running' | 'facilities' | 'income' | 'rewards' | 'interest';
 export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
   'construction',
   'vehicles',
   'running',
+  'facilities',
   'income',
+  'rewards',
   'interest',
 ];
 
@@ -195,10 +219,14 @@ export interface World {
   /** 線路が変わるたびに増える（経路の再計算用） */
   trackVersion: number;
   firstArrivals: Set<number>;
+  /** 依頼の報酬で買えるようになった車両 */
+  unlocked: Set<VehicleType>;
+  requests: Request[];
+  requestState: RequestState;
 }
 
 export function emptyFinance(): Record<FinanceCategory, number> {
-  return { construction: 0, vehicles: 0, running: 0, income: 0, interest: 0 };
+  return { construction: 0, vehicles: 0, running: 0, facilities: 0, income: 0, rewards: 0, interest: 0 };
 }
 
 export function createEmptyWorld(w: number, h: number, seed: number): World {
@@ -228,6 +256,9 @@ export function createEmptyWorld(w: number, h: number, seed: number): World {
     version: 0,
     trackVersion: 0,
     firstArrivals: new Set(),
+    unlocked: new Set(),
+    requests: [],
+    requestState: { nextCheckDay: 20, completed: 0, expired: 0, incomeTotal: 0 },
   };
 }
 
@@ -346,27 +377,31 @@ export function industryProduces(type: IndustryType): Cargo {
   return type === 'forest' ? 'logs' : 'lumber';
 }
 
-export function trainSpeed(_train: Train): number {
-  return ENGINE.speed;
+export function trainEngine(train: Train): EngineType {
+  const t = train.cars[0]?.type;
+  return t && isEngine(t) ? t : 'steam';
+}
+
+export function trainSpeed(train: Train): number {
+  return ENGINE_SPECS[trainEngine(train)].speed;
 }
 
 export function trainCapacity(train: Train, cargo: Cargo): number {
   let cap = 0;
   for (const car of train.cars) {
-    if (car.type === 'engine') continue;
     cap += carCapacity(car, cargo);
   }
   return cap;
 }
 
 export function carCapacity(car: Car, cargo: Cargo): number {
-  if (car.type === 'engine') return 0;
+  if (isEngine(car.type)) return 0;
   const spec = WAGON_SPECS[car.type];
   return spec.cargo === cargo ? spec.capacity : 0;
 }
 
 export function carCargo(car: Car): Cargo | null {
-  return car.type === 'engine' ? null : WAGON_SPECS[car.type].cargo;
+  return isEngine(car.type) ? null : WAGON_SPECS[car.type].cargo;
 }
 
 export function carLoad(car: Car): number {
@@ -394,4 +429,15 @@ export function earn(world: World, cat: FinanceCategory, amount: number): void {
 export function dateOf(day: number): { y: number; m: number; d: number } {
   const dt = new Date(Date.UTC(1960, 0, 1) + day * 86_400_000);
   return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
+}
+
+/** 新しい車両を1両つくる（まだどこにも置かない） */
+export function newCar(world: World, type: VehicleType): Car {
+  return { id: newId(world), type, built: world.day, packets: [] };
+}
+
+/** 買える車両か（依頼の報酬で解禁されるものがある） */
+export function canBuy(world: World, type: VehicleType): boolean {
+  const spec = isEngine(type) ? ENGINE_SPECS[type] : WAGON_SPECS[type];
+  return !spec.locked || world.unlocked.has(type);
 }

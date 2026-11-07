@@ -10,15 +10,16 @@ import {
   cloneTrain,
   demolish,
   formatYen,
+  stationAxisFor,
   trackPath,
   type CmdResult,
   type UndoRecord,
 } from './sim/commands';
-import { STATION, TICKS_PER_DAY, type WagonType } from './sim/constants';
+import { STATION, TICKS_PER_DAY } from './sim/constants';
 import { generateWorld } from './sim/mapgen';
 import { step } from './sim/simulate';
 import { rectTiles, straightLine } from './sim/track';
-import { dateOf, tx, ty, type Rect, type World } from './sim/world';
+import { dateOf, tx, ty, type Axis, type Rect, type World } from './sim/world';
 import { ICONS } from './ui/icons';
 import {
   addOrderFromMap,
@@ -29,6 +30,7 @@ import {
   openIndustry,
   openIndustryList,
   openMenu,
+  openRequests,
   openStation,
   openStationList,
   openTown,
@@ -37,6 +39,18 @@ import {
   openTrainList,
 } from './ui/panels';
 import { WindowManager } from './ui/windows';
+import {
+  deleteSave,
+  exportSave,
+  listSaves,
+  loadFrom,
+  metaLabel,
+  pickSaveFile,
+  saveTo,
+  SLOTS,
+  type SaveMeta,
+  type Slot,
+} from './storage';
 
 export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'order' | 'clone';
 type BuildTool = 'track' | 'station' | 'depot' | 'demolish';
@@ -67,7 +81,8 @@ export class Game implements InputTarget {
   cloneDepot = -1;
   cloneShare = true;
   orderSel = new Map<number, number>();
-  buildComp = new Map<number, WagonType[]>();
+  /** 車庫ごとに選んでいる列車（編成の組み替え用） */
+  depotSel = new Map<number, number>();
   selectedTrain = -1;
   selectedStation = -1;
   touchUI = false;
@@ -118,26 +133,158 @@ export class Game implements InputTarget {
     }
     this.applyUiMode();
     document.addEventListener('visibilitychange', () => {
-      // 裏に回ったら自動で一時停止（電池の節約）
-      if (document.hidden && this.started && !this.paused) this.togglePause();
+      if (!document.hidden || !this.started) return;
+      // 裏に回ったら自動で一時停止（電池の節約）して、オートセーブ
+      // （iPhone は裏のタブを勝手に閉じることがあるため）
+      if (!this.paused) this.togglePause();
+      this.autosave();
     });
-    window.addEventListener('beforeunload', (e) => {
-      if (this.started) e.preventDefault();
-    });
+    window.addEventListener('pagehide', () => this.autosave());
+    window.addEventListener('beforeunload', () => this.autosave());
   }
 
   newGame(seed: number) {
-    this.world = generateWorld(seed);
-    this.renderer.setWorld(this.world);
+    this.startWorld(generateWorld(seed));
+  }
+
+  /** 世界を差し替える（新しいゲーム・ロード） */
+  startWorld(world: World) {
+    this.world = world;
+    this.renderer.setWorld(world);
     this.undoStack = [];
-    const ind = [...this.world.industries.values()];
-    const cx = ind.reduce((s, i) => s + i.x + 1, 0) / ind.length;
-    const cy = ind.reduce((s, i) => s + i.y + 1, 0) / ind.length;
-    this.renderer.centerOnTile(cx, cy, this.touchUI ? 0.7 : 1);
+    this.depotSel.clear();
+    this.orderSel.clear();
+    this.wm.closeWhere(() => true);
+    this.setTool('none');
+    this.selectTrain(-1);
+    this.selectStation(-1);
+    this.lastAutoMonth = dateOf(world.day).m;
+    const st = [...world.stations.values()][0];
+    if (st) {
+      const t = st.tiles[0];
+      this.renderer.centerOnTile(tx(world, t), ty(world, t), this.touchUI ? 0.7 : 1);
+    } else {
+      const ind = [...world.industries.values()];
+      const cx = ind.reduce((s, i) => s + i.x + 1, 0) / ind.length;
+      const cy = ind.reduce((s, i) => s + i.y + 1, 0) / ind.length;
+      this.renderer.centerOnTile(cx, cy, this.touchUI ? 0.7 : 1);
+    }
     this.started = true;
+    this.guideClosed = false;
     this.updateHud();
     this.updateGuide();
-    requestAnimationFrame((t) => this.loop(t));
+    if (!this.loopStarted) {
+      this.loopStarted = true;
+      requestAnimationFrame((t) => this.loop(t));
+    }
+  }
+
+  // ───────────────────────── セーブ ─────────────────────────
+
+  private loopStarted = false;
+  private lastAutoMonth = -1;
+  private saving = false;
+  saveMetas: Partial<Record<Slot, SaveMeta>> = {};
+
+  private autosaveAgain = false;
+
+  autosave() {
+    if (!this.started) return;
+    if (this.saving) {
+      // 保存中なら、終わったらもう一度（最新の状態を残す）
+      this.autosaveAgain = true;
+      return;
+    }
+    this.saving = true;
+    saveTo('auto', this.world)
+      .catch(() => this.toast('オートセーブに失敗しました', 'bad'))
+      .finally(() => {
+        this.saving = false;
+        if (this.autosaveAgain) {
+          this.autosaveAgain = false;
+          this.autosave();
+        }
+      });
+  }
+
+  async refreshSaveMetas() {
+    this.saveMetas = await listSaves();
+    this.wm.refresh('saveload', true);
+  }
+
+  openSaveLoad() {
+    void this.refreshSaveMetas();
+    this.wm.open({
+      id: 'saveload',
+      title: 'セーブ／ロード',
+      width: 400,
+      render: () => {
+        const rows = SLOTS.map((slot) => {
+          const m = this.saveMetas[slot];
+          const name = slot === 'auto' ? 'オートセーブ' : `スロット ${slot}`;
+          const info = m
+            ? `<span>${metaLabel(m)}・${formatYen(m.money)}</span><small class="muted">人口 ${m.population.toLocaleString('ja-JP')}人・列車 ${m.trains}本・保存 ${new Date(m.savedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>`
+            : '<span class="muted">空き</span>';
+          return `<li class="slot">
+            <div class="thumb">${m?.thumb ? `<img src="${m.thumb}" alt="">` : ''}</div>
+            <div class="slot-info"><b>${name}</b>${info}</div>
+            <div class="slot-btns">
+              ${slot !== 'auto' ? `<button class="small-btn" data-action="save" data-slot="${slot}">${ICONS.save}セーブ</button>` : ''}
+              ${m ? `<button class="small-btn" data-action="load" data-slot="${slot}">ロード</button>` : ''}
+              ${m && slot !== 'auto' ? `<button class="small-btn" data-action="delete" data-slot="${slot}" title="消す">${ICONS.close}</button>` : ''}
+            </div></li>`;
+        }).join('');
+        return `
+          <p class="muted small">オートセーブは毎月と、アプリを裏に回したとき・閉じたときに自動で保存されます。</p>
+          <ul class="slots">${rows}</ul>
+          <h4>ファイル</h4>
+          <div class="btnrow">
+            <button data-action="export">${this.touchUI ? '送る・保存する' : 'ファイルに書き出す'}</button>
+            <button data-action="import">ファイルから読み込む</button>
+          </div>
+          <p class="muted small">PC と iPhone の行き来や、家族に街を見せるときに使えます。iPhone のデータは、ホーム画面に追加したアプリから遊ぶと消えにくくなります。</p>
+          <div class="btnrow"><button class="danger" data-action="new">新しいゲームをはじめる</button></div>`;
+      },
+      onAction: (a, el) => void this.saveAction(a, el.dataset.slot as Slot | undefined),
+    });
+  }
+
+  private async saveAction(a: string, slot?: Slot) {
+    try {
+      if (a === 'save' && slot) {
+        if (this.saveMetas[slot] && !confirm(`スロット ${slot} に上書きしますか？`)) return;
+        await saveTo(slot, this.world);
+        this.toast(`スロット ${slot} にセーブしました`, 'good');
+      } else if (a === 'load' && slot) {
+        if (slot !== 'auto') await saveTo('auto', this.world); // 今の街はオートセーブに残しておく
+        const w = await loadFrom(slot);
+        if (w) {
+          this.startWorld(w);
+          this.toast(`${slot === 'auto' ? 'オートセーブ' : `スロット ${slot}`}を読み込みました`, 'good');
+        }
+      } else if (a === 'delete' && slot) {
+        if (!confirm(`スロット ${slot} を消しますか？`)) return;
+        await deleteSave(slot);
+      } else if (a === 'export') {
+        const r = await exportSave(this.world);
+        if (r === 'downloaded') this.toast('セーブファイルを書き出しました', 'good');
+      } else if (a === 'import') {
+        const w = await pickSaveFile();
+        if (w) {
+          await saveTo('auto', this.world);
+          this.startWorld(w);
+          this.toast('セーブファイルを読み込みました', 'good');
+        }
+      } else if (a === 'new') {
+        if (!confirm('新しいゲームをはじめますか？（今の街はオートセーブに残ります）')) return;
+        await saveTo('auto', this.world);
+        this.newGame(Math.floor(Math.random() * 1e9));
+        this.toast('新しいゲームをはじめました', 'good');
+      }
+    } catch (e) {
+      this.toast((e as Error).message || 'うまくいきませんでした', 'bad');
+    }
+    await this.refreshSaveMetas();
   }
 
   // ───────────────────────── 画面モード ─────────────────────────
@@ -268,7 +415,7 @@ export class Game implements InputTarget {
       case 'track':
         return buildTrack(w, p.a, p.b, { remove, dry: true });
       case 'station':
-        return buildStation(w, p.a, p.b, { dry: true });
+        return buildStation(w, p.a, p.b, { dry: true, axis: this.explicitAxis() });
       case 'depot':
         return buildDepot(w, p.b, { dry: true });
       case 'demolish':
@@ -284,7 +431,7 @@ export class Game implements InputTarget {
         r = buildTrack(w, p.a, p.b, { remove });
         break;
       case 'station':
-        r = buildStation(w, p.a, p.b);
+        r = buildStation(w, p.a, p.b, { axis: this.explicitAxis() });
         break;
       case 'depot':
         r = buildDepot(w, p.b);
@@ -300,7 +447,29 @@ export class Game implements InputTarget {
     return ok;
   }
 
-  private previewTiles(p: Pending): { tiles: number[]; path?: number[]; catchment?: Rect | null } {
+  /** 駅の向き：'auto' はまわりの線路から推測 */
+  stationAxis: 'auto' | Axis = 'auto';
+  private hoverPending: Pending | null = null;
+
+  private explicitAxis(): Axis | undefined {
+    return this.stationAxis === 'auto' ? undefined : this.stationAxis;
+  }
+
+  /** 1マスの駅の向きを切り替える（PC：O キー／ボタン、スマホ：確定バーの回転ボタン） */
+  rotateStation() {
+    const p = this.pending ?? this.hoverPending;
+    let cur: Axis = this.stationAxis === 'auto' ? 'x' : this.stationAxis;
+    if (p && p.kind === 'station') {
+      cur = stationAxisFor(this.world, straightLine(this.world, p.a, p.b, STATION.maxLength), this.explicitAxis());
+    }
+    this.stationAxis = cur === 'x' ? 'y' : 'x';
+    if (this.tool !== 'station') this.setTool('station');
+    if (this.pending) this.showPreview(this.pending, this.removeMode);
+    else if (this.hoverPending) this.showPreview(this.hoverPending, false);
+    this.updateHud();
+  }
+
+  private previewTiles(p: Pending): { tiles: number[]; path?: number[]; catchment?: Rect | null; axis?: Axis } {
     const w = this.world;
     switch (p.kind) {
       case 'track': {
@@ -309,7 +478,7 @@ export class Game implements InputTarget {
       }
       case 'station': {
         const tiles = straightLine(w, p.a, p.b, STATION.maxLength);
-        return { tiles, catchment: catchmentOf(w, tiles) };
+        return { tiles, catchment: catchmentOf(w, tiles), axis: stationAxisFor(w, tiles, this.explicitAxis()) };
       }
       case 'depot':
         return { tiles: [p.b] };
@@ -365,6 +534,7 @@ export class Game implements InputTarget {
         <span>${r.ok ? formatYen(r.cost) : esc(r.error ?? '')}</span>
         ${p.kind === 'track' && p.a === p.b ? '<small>もう一度タップで終点</small>' : ''}
       </div>
+      ${p.kind === 'station' && p.a === p.b ? `<button class="round rotate" data-c="rotate" aria-label="向きを変える">${ICONS.rotate}</button>` : ''}
       <button class="round cancel" data-c="cancel" aria-label="取り消し">${ICONS.close}</button>
       <button class="round ok" data-c="ok" aria-label="確定" ${r.ok ? '' : 'disabled'}>${ICONS.check}</button>`;
   }
@@ -394,8 +564,10 @@ export class Game implements InputTarget {
     this.renderer.setOverlay({ hover: t });
     if (this.touchUI) return;
     if (t >= 0 && (this.tool === 'station' || this.tool === 'depot')) {
-      this.showPreview({ kind: this.tool, a: t, b: t }, false, mods);
+      this.hoverPending = { kind: this.tool, a: t, b: t };
+      this.showPreview(this.hoverPending, false, mods);
     } else if (!this.drag) {
+      this.hoverPending = null;
       this.renderer.setOverlay({ preview: null });
       this.el.tip.hidden = true;
     }
@@ -520,7 +692,8 @@ export class Game implements InputTarget {
       let handled = true;
       if (k === 'F1' && e.shiftKey) openTrainList(this);
       else if (k === 'F1' || k === 'Pause') this.togglePause();
-      else if (!e.shiftKey && ['F2', 'F3', 'F6', 'F9', 'F10', 'F11'].includes(k)) this.notYet(k);
+      else if (k === 'F3' && !e.shiftKey) this.openSaveLoad();
+      else if (!e.shiftKey && ['F2', 'F6', 'F9', 'F10', 'F11'].includes(k)) this.notYet(k);
       else if (k === 'F4' && !e.shiftKey) this.notYet('全体マップ');
       else if (k === 'F5' && !e.shiftKey) openTownList(this);
       else if (k === 'F7' && e.shiftKey) this.toggleRailToolbar();
@@ -543,6 +716,7 @@ export class Game implements InputTarget {
       else if (this.railToolbarOpen && k === '7') this.setToolKey('depot');
       else if (this.railToolbarOpen && k === '9') this.setToolKey('station');
       else if (this.railToolbarOpen && (k === 'r' || k === 'R')) this.toggleRemove();
+      else if (this.railToolbarOpen && (k === 'o' || k === 'O')) this.rotateStation();
       else if (this.railToolbarOpen && ['s', 'S', 'b', 'B', 't', 'T', '8', 'c', 'C'].includes(k)) this.notYet(k.toUpperCase());
       else if (['q', 'Q', 'w', 'W', 'e', 'E'].includes(k)) this.notYet('地形の変更');
       else handled = false;
@@ -584,6 +758,7 @@ export class Game implements InputTarget {
       <div class="tb-group">
         <button data-a="pause" title="一時停止 (F1)">${ICONS.pause}</button>
         <button data-a="speed" title="早送り">${ICONS.fast}<span class="speed"></span></button>
+        <button data-a="save" title="セーブ／ロード (F3)">${ICONS.save}</button>
       </div>
       <div class="tb-group">
         <button data-a="finance" title="財務 (F8)">${ICONS.money}</button>
@@ -591,6 +766,7 @@ export class Game implements InputTarget {
         <button data-a="stations" title="駅一覧 (F7)">${ICONS.station}</button>
         <button data-a="industries" title="産業一覧 (F12)">${ICONS.industry}</button>
         <button data-a="trains" title="列車一覧 (Shift+F1)">${ICONS.train}</button>
+        <button data-a="requests" title="依頼ボード" class="has-badge">${ICONS.request}<span class="badge"></span></button>
       </div>
       <div class="tb-group">
         <button data-a="rail" title="鉄道建設 (Shift+F7)">${ICONS.rail}</button>
@@ -607,6 +783,7 @@ export class Game implements InputTarget {
       <button data-a="t-demolish" title="解体 6">${ICONS.demolish}<kbd>6</kbd></button>
       <button data-a="t-depot" title="車庫 7">${ICONS.depot}<kbd>7</kbd></button>
       <button data-a="t-station" title="駅 9 ・ ドラッグで長さを指定">${ICONS.station}<kbd>9</kbd></button>
+      <button data-a="t-rotate" class="rotate-btn" title="1マスの駅の向き O（自動 → 切り替え）">${ICONS.rotate}<span class="axis-label"></span><kbd>O</kbd></button>
       <button data-a="na" title="信号 S（試作版では未実装）" disabled><span class="na">信号</span><kbd>S</kbd></button>
       <button data-a="na" title="橋 B（試作版では川の上に線路を引くと自動で橋になります）" disabled><span class="na">橋</span><kbd>B</kbd></button>
       <button data-a="na" title="トンネル T（試作版では未実装）" disabled><span class="na">トンネル</span><kbd>T</kbd></button>
@@ -621,6 +798,7 @@ export class Game implements InputTarget {
       <span class="m-date"></span>
       <button data-a="pause" class="m-btn" aria-label="一時停止">${ICONS.pause}</button>
       <button data-a="speed" class="m-btn" aria-label="速度">${ICONS.fast}<span class="speed"></span></button>
+      <button data-a="requests" class="m-btn has-badge" aria-label="依頼ボード">${ICONS.request}<span class="badge"></span></button>
       <button data-a="menu" class="m-btn" aria-label="メニュー">${ICONS.menu}</button>`;
     this.el.mtools.innerHTML = `
       <button data-a="t-track" aria-label="線路">${ICONS.rail}<span>線路</span></button>
@@ -647,6 +825,7 @@ export class Game implements InputTarget {
         if (this.commit(p, this.removeMode)) this.clearPending();
         else this.showPreview(p, this.removeMode);
       } else if (b.dataset.c === 'cancel') this.clearPending();
+      else if (b.dataset.c === 'rotate') this.rotateStation();
     });
     this.el.guide.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('[data-g="close"]')) {
@@ -695,6 +874,12 @@ export class Game implements InputTarget {
       case 'help':
         openHelp(this);
         break;
+      case 'save':
+        this.openSaveLoad();
+        break;
+      case 'requests':
+        openRequests(this);
+        break;
       case 'menu':
         openMenu(this);
         break;
@@ -710,6 +895,9 @@ export class Game implements InputTarget {
         break;
       case 't-demolish':
         this.setTool('demolish');
+        break;
+      case 't-rotate':
+        this.rotateStation();
         break;
       case 't-remove':
         this.toggleRemove();
@@ -728,6 +916,9 @@ export class Game implements InputTarget {
     on('[data-a="rail"]', this.railToolbarOpen);
     on('[data-a="t-track"]', this.tool === 'track' && !this.removeMode);
     on('[data-a="t-station"]', this.tool === 'station');
+    document.querySelectorAll('.axis-label').forEach(
+      (el) => (el.textContent = this.stationAxis === 'auto' ? '自動' : this.stationAxis === 'x' ? '＼' : '／'),
+    );
     on('[data-a="t-depot"]', this.tool === 'depot');
     on('[data-a="t-demolish"], [data-a="demolish"]', this.tool === 'demolish');
     on('[data-a="t-remove"]', this.removeMode);
@@ -746,6 +937,8 @@ export class Game implements InputTarget {
     mm.textContent = money;
     mm.classList.toggle('neg', w.money < 0);
     document.body.classList.toggle('paused', this.paused);
+    const n = w.requests.length;
+    document.querySelectorAll('.badge').forEach((b) => (b.textContent = n > 0 ? String(n) : ''));
   }
 
   // ───────────────────────── はじめのガイド ─────────────────────────
@@ -759,7 +952,7 @@ export class Game implements InputTarget {
     const steps = [
       { done: w.stations.size >= 2, text: `${esc(forest?.name ?? '森')}と${esc(saw?.name ?? '製材所')}の近くに<b>駅</b>を建てる` },
       { done: w.depots.size >= 1 && hasAnyTrack(w), text: '駅を<b>線路</b>でつなぎ、線路の隣に<b>車庫</b>を置く' },
-      { done: trains.some((t) => t.state !== 'in_depot'), text: '車庫で列車を買い、<b>指令</b>で行き先を選んで<b>発車</b>' },
+      { done: trains.some((t) => t.state !== 'in_depot'), text: '車庫で<b>機関車</b>と<b>原木車</b>を買い、<b>指令</b>で行き先を選んで<b>発車</b>' },
       { done: w.finance.thisYear.income + w.finance.lastYear.income > 0, text: '原木を製材所に届けて<b>お金を稼ぐ</b>' },
       { done: [...w.towns.values()].some((t) => t.lumberReceivedThisMonth + t.lumberReceivedLastMonth > 0), text: '<b>木材</b>を町に届けて<b>家を建てる</b>' },
     ];
@@ -785,6 +978,11 @@ export class Game implements InputTarget {
         this.acc -= ticks * msPerTick;
         step(this.world, ticks);
       }
+    }
+    const m = dateOf(this.world.day).m;
+    if (m !== this.lastAutoMonth) {
+      this.lastAutoMonth = m;
+      this.autosave();
     }
     this.drainEvents();
     this.renderer.frame(now);

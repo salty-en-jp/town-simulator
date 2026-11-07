@@ -2,7 +2,8 @@
 
 import {
   CARGOS,
-  ENGINE,
+  COSTS,
+  ENGINE_SPECS,
   HOUSE_PAX_PER_DAY,
   HOUSE_POP,
   INDUSTRY,
@@ -12,6 +13,7 @@ import {
   type Cargo,
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
+import { updateRequests } from './requests';
 import { findPath } from './track';
 import {
   carCapacity,
@@ -33,6 +35,7 @@ import {
   stationSign,
   Terrain,
   trainSpeed,
+  trainEngine,
   tx,
   ty,
   type Industry,
@@ -216,6 +219,7 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
       delivered += take;
       const income = cargoIncome(cargo, take, manhattan(world, p.fromTile, sign), p.days, demand);
       earn(world, 'income', income);
+      world.requestState.incomeTotal += income;
       t.incomeThisStop += income;
       t.profitThisYear += income;
     }
@@ -226,11 +230,16 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
     if (sawmill) {
       sawmill.inStock += delivered;
       sawmill.receivedThisMonth += delivered;
+      sawmill.receivedTotal += delivered;
     } else if (town) {
       if (cargo === 'lumber') {
         town.lumber += delivered;
         town.lumberReceivedThisMonth += delivered;
-      } else town.paxReceivedThisMonth += delivered;
+        town.lumberTotal += delivered;
+      } else {
+        town.paxReceivedThisMonth += delivered;
+        town.paxTotal += delivered;
+      }
     }
   }
   return delivered;
@@ -384,6 +393,7 @@ function industriesDaily(world: World, ctx: DayContext) {
     const moved = handToStations(cands, cargo, ind.outStock);
     ind.outStock -= moved;
     ind.transportedThisMonth += moved;
+    ind.transportedTotal += moved;
   }
 }
 
@@ -578,14 +588,19 @@ function daily(world: World) {
   housesDaily(world, ctx);
   townsDaily(world, ctx);
   stationsDaily(world);
+  updateRequests(world);
 }
 
 // ───────────────────────── 毎月・毎年 ─────────────────────────
 
 function monthly(world: World) {
   let running = 0;
-  for (const t of world.trains.values()) if (t.state !== 'in_depot') running += ENGINE.runningCostPerYear / 12;
+  for (const t of world.trains.values()) {
+    if (t.state !== 'in_depot') running += ENGINE_SPECS[trainEngine(t)].runningCostPerYear / 12;
+  }
   if (running > 0) spend(world, 'running', Math.round(running));
+  const depotFee = Math.round((world.depots.size * COSTS.depotPerYear) / 12);
+  if (depotFee > 0) spend(world, 'facilities', depotFee);
   const interest = Math.round((world.loan * world.interestRate) / 100 / 12);
   if (interest > 0) spend(world, 'interest', interest);
 
