@@ -21,7 +21,7 @@ import {
 import type { VehicleType } from './constants';
 
 export const SAVE_FORMAT = 'tsunagumachi';
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 interface SavedWorld {
   w: number;
@@ -122,9 +122,48 @@ export class SaveError extends Error {}
 
 /** 古い版のセーブを今の形に直す（版を上げたらここに足していく） */
 function migrate(file: SaveFile): SaveFile {
-  // 例：if (file.version === 1) { ...; file.version = 2; }
+  if (file.version === 1) migrateV1toV2(file);
   return file;
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * 版1（v0.2）→ 版2（物流の拡張）
+ * ・産業の入力在庫 inStock を、貨物ごとの inputs に
+ * ・町の木材・受け取り量を、貨物ごとの stock・recv に
+ * ・依頼の種類 haul_logs / deliver_lumber を haul / deliver に
+ */
+function migrateV1toV2(file: SaveFile) {
+  const w = file.world as any;
+  for (const ind of w.industries as any[]) {
+    if (!ind.inputs) ind.inputs = ind.type === 'sawmill' ? { logs: ind.inStock ?? 0 } : {};
+    delete ind.inStock;
+  }
+  for (const t of w.towns as any[]) {
+    if (!t.stock) {
+      t.stock = { lumber: t.lumber ?? 0 };
+      t.recv = {
+        lumber: { m: t.lumberReceivedThisMonth ?? 0, lm: t.lumberReceivedLastMonth ?? 0, total: t.lumberTotal ?? 0 },
+        passengers: { m: t.paxReceivedThisMonth ?? 0, lm: t.paxReceivedLastMonth ?? 0, total: t.paxTotal ?? 0 },
+      };
+      t.fed = false;
+    }
+    for (const k of ['lumber', 'lumberReceivedThisMonth', 'lumberReceivedLastMonth', 'paxReceivedThisMonth', 'paxReceivedLastMonth', 'lumberTotal', 'paxTotal']) {
+      delete t[k];
+    }
+  }
+  for (const r of (w.requests ?? []) as any[]) {
+    if (r.kind === 'haul_logs') {
+      r.kind = 'haul';
+      r.cargo = 'logs';
+    } else if (r.kind === 'deliver_lumber') {
+      r.kind = 'deliver';
+      r.cargo = 'lumber';
+    }
+  }
+  file.version = 2;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function deserializeWorld(text: string): World {
   let file: SaveFile;

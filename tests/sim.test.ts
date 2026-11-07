@@ -164,9 +164,10 @@ function chainWorld() {
 describe('物流チェーン', () => {
   it('駅の受け入れ判定', () => {
     const { w, stForest, stSaw, stTown } = chainWorld();
-    expect(acceptance(w, w.stations.get(stSaw)!).logs).toBe(true);
-    expect(acceptance(w, w.stations.get(stForest)!).logs).toBe(false);
-    expect(acceptance(w, w.stations.get(stTown)!).lumber).toBe(true);
+    const acc = (id: number, c: 'logs' | 'lumber') => (acceptance(w, w.stations.get(id)!).by[c]?.length ?? 0) > 0;
+    expect(acc(stSaw, 'logs')).toBe(true);
+    expect(acc(stForest, 'logs')).toBe(false);
+    expect(acc(stTown, 'lumber')).toBe(true);
   });
 
   it('原木を製材所へ運ぶとお金が入り、製材所が木材を作る', () => {
@@ -178,7 +179,7 @@ describe('物流チェーン', () => {
     const incomeBefore = w.finance.thisYear.income;
     days(w, 120);
     expect(w.finance.thisYear.income + w.finance.lastYear.income).toBeGreaterThan(incomeBefore);
-    expect(saw.receivedThisMonth + saw.receivedLastMonth + saw.inStock).toBeGreaterThan(0);
+    expect(saw.receivedThisMonth + saw.receivedLastMonth + (saw.inputs.logs ?? 0)).toBeGreaterThan(0);
     expect(saw.outStock + saw.producedLastMonth + saw.producedThisMonth).toBeGreaterThan(0);
     expect(forest.transportedLastMonth).toBeGreaterThan(0);
     expect(w.events.some((e) => e.type === 'income')).toBe(true);
@@ -193,7 +194,7 @@ describe('物流チェーン', () => {
     startStop(w, tr);
     const housesBefore = town.houses || 4;
     days(w, 90);
-    expect(town.lumberReceivedThisMonth + town.lumberReceivedLastMonth + town.lumber).toBeGreaterThan(0);
+    expect(town.recv.lumber?.total ?? 0).toBeGreaterThan(0);
     expect(town.houses).toBeGreaterThan(housesBefore);
   });
 
@@ -235,8 +236,10 @@ describe('マップ生成', () => {
     const a = generateWorld(42);
     const b = generateWorld(42);
     expect(Array.from(a.terrain)).toEqual(Array.from(b.terrain));
-    expect(a.towns.size).toBe(2);
-    expect(a.industries.size).toBe(2);
+    expect(a.towns.size).toBe(4);
+    expect(a.industries.size).toBe(12);
+    const types = new Set([...a.industries.values()].map((i) => i.type));
+    expect(types.size).toBe(8);
     expect([...a.towns.values()].every((t) => t.houses > 5)).toBe(true);
   });
 

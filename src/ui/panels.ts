@@ -15,6 +15,7 @@ import {
   sellTrain,
   sellVehicle,
   sendToDepot,
+  setOrderDest,
   setOrderLoad,
   setOrderUnload,
   skipOrder,
@@ -28,16 +29,20 @@ import {
   ENGINE_TYPES,
   FINANCE,
   INDUSTRY,
+  INDUSTRY_SPECS,
   isEngine,
+  TOWN,
+  TOWN_GOODS,
   vehicleCost,
   vehicleName,
   WAGON_SPECS,
   WAGON_TYPES,
+  type Cargo,
   type VehicleType,
 } from '../sim/constants';
 import { demandFactor } from '../sim/economy';
 import { daysLeft, rewardText } from '../sim/requests';
-import { acceptance, stationAccepts } from '../sim/simulate';
+import { acceptorDemand, acceptorName, acceptors, acceptorStock, stationAccepts } from '../sim/simulate';
 import {
   canBuy,
   carCapacity,
@@ -50,6 +55,7 @@ import {
   ty,
   type FinanceCategory,
   type LoadMode,
+  type Order,
   type Train,
   type UnloadMode,
 } from '../sim/world';
@@ -190,7 +196,11 @@ export function openOrders(g: Game, id: number) {
       const rows = ol.orders
         .map((o, i) => {
           const st = w.stations.get(o.station);
-          const extra = [o.load !== 'if_available' ? LOAD_LABELS[o.load] : '', o.unload === 'none' ? '降ろさない' : '']
+          const extra = [
+            o.load !== 'if_available' ? LOAD_LABELS[o.load] : '',
+            o.unload === 'none' ? '降ろさない' : '',
+            o.dest ? `届け先：${acceptorName(w, o.dest)}` : '',
+          ]
             .filter(Boolean)
             .join('・');
           return `<li class="order ${i === sel ? 'sel' : ''} ${i === t.curOrder ? 'cur' : ''}" data-action="sel" data-i="${i}">
@@ -212,6 +222,7 @@ export function openOrders(g: Game, id: number) {
             ${(Object.keys(UNLOAD_LABELS) as UnloadMode[]).map((k) => `<option value="${k}" ${o?.unload === k ? 'selected' : ''}>${UNLOAD_LABELS[k]}</option>`).join('')}
           </select></label>
         </div>
+        ${o ? destField(g, t, o) : ''}
         <div class="btnrow">
           <button class="${picking ? 'on' : ''}" data-action="goto" title="地図の駅をクリック（Ctrl+クリックで満載待ち）">${ICONS.station}<span>行き先</span></button>
           <button data-action="delete" ${o ? '' : 'disabled'}>${ICONS.remove}<span>削除</span></button>
@@ -235,12 +246,43 @@ export function openOrders(g: Game, id: number) {
       const sel = g.orderSel.get(id) ?? -1;
       if (el.dataset.key === 'load') g.result(setOrderLoad(g.world, id, sel, el.value as LoadMode));
       if (el.dataset.key === 'unload') g.result(setOrderUnload(g.world, id, sel, el.value as UnloadMode));
+      if (el.dataset.key === 'dest') {
+        const [kind, did] = el.value.split(':');
+        g.result(setOrderDest(g.world, id, sel, kind === 'auto' ? null : { kind: kind as 'industry' | 'town', id: Number(did) }));
+      }
       g.wm.refreshAll();
     },
     onClose: () => {
       if (g.tool === 'order' && g.orderTrain === id) g.setTool('none');
     },
   });
+}
+
+/**
+ * 届け先の選択欄。列車が運ぶ貨物を、その駅で受け入れる先が2つ以上あるときだけ選べる
+ */
+function destField(g: Game, t: Train, o: Order): string {
+  const w = g.world;
+  const st = w.stations.get(o.station);
+  if (!st) return '';
+  const cargos = [...new Set(t.cars.map((c) => carCargo(c)).filter((c): c is Cargo => !!c))];
+  const options = new Map<string, string>();
+  for (const c of cargos) {
+    for (const a of acceptors(w, st, c)) {
+      const key = `${a.kind}:${a.id}`;
+      const label = `${acceptorName(w, a)}（${CARGO_SPECS[c].name} ×${acceptorDemand(w, a, c).toFixed(2)}）`;
+      options.set(key, options.has(key) ? options.get(key)!.replace('）', `・${CARGO_SPECS[c].name} ×${acceptorDemand(w, a, c).toFixed(2)}）`) : label);
+    }
+  }
+  if (options.size === 0) return '';
+  if (options.size === 1) {
+    return `<p class="small muted">届け先：${esc([...options.values()][0])}</p>`;
+  }
+  const cur = o.dest ? `${o.dest.kind}:${o.dest.id}` : 'auto';
+  return `<div class="field-row"><label>届け先（この駅で受け入れる先が${options.size}つあります）<select data-key="dest">
+      <option value="auto" ${cur === 'auto' ? 'selected' : ''}>自動（いちばん近い所）</option>
+      ${[...options].map(([k, v]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+    </select></label></div>`;
 }
 
 /** 指令の追加（地図で駅を選んだとき） */
@@ -265,6 +307,12 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   coach: '客車',
   logcar: '原木車',
   lumbercar: '木材車',
+  graincar: '穀物車',
+  foodcar: '冷蔵車',
+  orecar: '鉱石車',
+  coalcar: '石炭車',
+  steelcar: '鋼材車',
+  materialcar: '資材車',
   biglogcar: '大型原木車',
   biglumbercar: '大型木材車',
 };
@@ -463,36 +511,47 @@ export function openIndustry(g: Game, id: number) {
     get title() {
       return g.world.industries.get(id)?.name ?? '産業';
     },
-    width: 330,
+    width: 340,
     render: () => {
       const ind = g.world.industries.get(id);
       if (!ind) return '';
+      const spec = INDUSTRY_SPECS[ind.type];
       const cap = INDUSTRY.stockCap;
+      const out = CARGO_SPECS[spec.output];
       const tr = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
-      if (ind.type === 'forest') {
-        return `
-          <p class="lead">原木を生産する森です。近くに駅を作って運び出しましょう。</p>
-          <dl class="stats">
-            <dt>生産量</dt><dd>原木 ${n0(ind.prodRate)}t/月</dd>
-            <dt>先月の生産</dt><dd>${n0(ind.producedLastMonth)}t（輸送率 ${pct(tr)}）</dd>
-          </dl>
-          <div class="stock"><span>出荷待ち</span>${gauge(ind.outStock, cap)}<span class="num">${n0(ind.outStock)}/${cap}t</span></div>
-          <p class="muted small">輸送率（運び出された割合）が高いほど、生産量が増えやすくなります。</p>`;
-      }
-      const df = demandFactor(ind.inStock);
+      const chain = spec.inputs.length
+        ? `${spec.inputs.map((c) => cargoTag(c)).join(' ＋ ')} → ${cargoTag(spec.output)}`
+        : `→ ${cargoTag(spec.output)}`;
+      const inputs = spec.inputs
+        .map((c) => {
+          const v = ind.inputs[c] ?? 0;
+          const df = demandFactor(v);
+          return `<div class="stock"><span>${CARGO_SPECS[c].name}</span>${gauge(v, cap, v > cap * 0.8 ? 'bad' : '')}<span class="num">${n0(v)}/${cap}t</span></div>
+            <p class="small indent">買取係数 <b class="${df >= 1 ? 'pos' : 'neg'}">×${df.toFixed(2)}</b></p>`;
+        })
+        .join('');
+      const lacking = spec.inputs.length > 1 ? spec.inputs.filter((c) => (ind.inputs[c] ?? 0) < 1) : [];
+      const full = ind.outStock > cap * 0.95;
       return `
-        <p class="lead">原木を木材に加工します。木材は町に届けると家が建ちます。</p>
-        <div class="stock"><span>原木の在庫</span>${gauge(ind.inStock, cap, ind.inStock > cap * 0.8 ? 'bad' : '')}<span class="num">${n0(ind.inStock)}/${cap}t</span></div>
-        <p class="small">いまの買取係数：<b class="${df >= 1 ? 'pos' : 'neg'}">×${df.toFixed(2)}</b><span class="muted">（在庫が少ないほど高く買います）</span></p>
-        <div class="stock"><span>木材の在庫</span>${gauge(ind.outStock, cap, ind.outStock > cap * 0.95 ? 'bad' : '')}<span class="num">${n0(ind.outStock)}/${cap}t</span></div>
-        ${ind.outStock > cap * 0.95 ? '<p class="warn small">木材の置き場がいっぱいで加工が止まっています。木材を運び出してください。</p>' : ''}
+        <p class="chain">${chain}</p>
+        <p class="lead">${esc(spec.desc)}</p>
+        ${spec.inputs.length ? `<h4>材料の在庫 <small class="muted">少ないほど高く買います</small></h4>${inputs}` : ''}
+        ${lacking.length && spec.inputs.some((c) => (ind.inputs[c] ?? 0) >= 1) ? `<p class="warn small">${lacking.map((c) => CARGO_SPECS[c].name).join('・')}が足りないので動いていません。</p>` : ''}
+        <h4>製品</h4>
+        <div class="stock"><span>${out.name}</span>${gauge(ind.outStock, cap, full ? 'bad' : '')}<span class="num">${n0(ind.outStock)}/${cap}t</span></div>
+        ${full ? `<p class="warn small">${out.name}の置き場がいっぱいで、生産が止まっています。運び出してください。</p>` : ''}
         <dl class="stats">
-          <dt>加工能力</dt><dd>${n0(ind.prodRate)}t/月</dd>
-          <dt>先月の受け入れ</dt><dd>原木 ${n0(ind.receivedLastMonth)}t</dd>
-          <dt>先月の加工</dt><dd>木材 ${n0(ind.producedLastMonth)}t（輸送率 ${pct(tr)}）</dd>
-        </dl>`;
+          <dt>${spec.inputs.length ? '加工能力' : '生産量'}</dt><dd>${n0(ind.prodRate)}t/月</dd>
+          ${spec.inputs.length ? `<dt>先月の受け入れ</dt><dd>${n0(ind.receivedLastMonth)}t</dd>` : ''}
+          <dt>先月の${spec.inputs.length ? '加工' : '生産'}</dt><dd>${n0(ind.producedLastMonth)}t（輸送率 ${pct(tr)}）</dd>
+        </dl>
+        ${spec.inputs.length ? '' : '<p class="muted small">輸送率（運び出された割合）が高いほど、生産量が増えやすくなります。</p>'}`;
     },
   });
+}
+
+function cargoTag(c: Cargo): string {
+  return `<span class="tag"><span class="cargo-dot ${c}"></span>${CARGO_SPECS[c].name}</span>`;
 }
 
 // ───────────────────────── 町 ─────────────────────────
@@ -503,20 +562,24 @@ export function openTown(g: Game, id: number) {
     get title() {
       return `${g.world.towns.get(id)?.name ?? ''}町`;
     },
-    width: 310,
+    width: 320,
     render: () => {
       const t = g.world.towns.get(id);
       if (!t) return '';
+      const goods = TOWN_GOODS.map((c) => {
+        const r = t.recv[c];
+        return `<tr><th>${cargoTag(c)}</th><td class="num">${n0(r?.lm ?? 0)}t</td><td class="num">${n0(t.stock[c] ?? 0)}t</td><td class="num">×${demandFactor(t.stock[c] ?? 0, TOWN.stockCap).toFixed(2)}</td></tr>`;
+      }).join('');
       return `
         <dl class="stats">
           <dt>人口</dt><dd><b>${n0(t.population)}人</b></dd>
           <dt>建物</dt><dd>${t.houses}軒</dd>
           <dt>使われている駅</dt><dd>${t.activeStations}駅 ${t.activeStations === 0 ? '<span class="muted">（成長がとても遅い）</span>' : '<span class="pos">（成長中）</span>'}</dd>
-          <dt>届いた木材（先月）</dt><dd>${n0(t.lumberReceivedLastMonth)}t</dd>
-          <dt>建設を待つ木材</dt><dd>${n0(t.lumber)}t</dd>
-          <dt>届いた旅客（先月）</dt><dd>${n0(t.paxReceivedLastMonth)}人</dd>
+          <dt>食料品</dt><dd>${t.fed ? '<span class="pos">足りている（早く育つ）</span>' : '<span class="muted">足りない</span>'}</dd>
+          <dt>届いた旅客（先月）</dt><dd>${n0(t.recv.passengers?.lm ?? 0)}人</dd>
         </dl>
-        <p class="muted small">駅が多く使われているほど町は早く育ちます。木材を届けると、新しい家やアパートが建ちます。</p>`;
+        <table class="tbl"><tr><th></th><th class="num">先月届いた</th><th class="num">在庫</th><th class="num">買取</th></tr>${goods}</table>
+        <p class="muted small">木材で家とアパート、建設資材で高層ビルが建ちます。食料品が足りていると町が早く育ちます。駅がよく使われているほど成長が速くなります。</p>`;
     },
   });
 }
@@ -628,10 +691,10 @@ export function openIndustryList(g: Game) {
       `<ul class="list">${[...g.world.industries.values()]
         .map((ind) => {
           const tr = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
-          return `<li data-action="open" data-id="${ind.id}" class="clickable"><b>${esc(ind.name)}</b><span class="muted small">${ind.type === 'forest' ? '原木' : '原木→木材'}</span><span class="grow"></span><span class="small">輸送率 ${pct(tr)}</span></li>`;
+          return `<li data-action="open" data-id="${ind.id}" class="clickable"><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="small">輸送率 ${pct(tr)}</span></li>`;
         })
         .join('')}</ul>
-       <p class="muted small">産業チェーン：森林 →（原木）→ 製材所 →（木材）→ 町</p>`,
+       <p class="muted small">森→製材所→木材（町に家）／農場→食品工場→食料品（町が早く育つ）／鉄鉱山＋炭鉱→製鉄所→鋼材／木材＋鋼材→建材工場→建設資材（町に高層ビル）</p>`,
     onAction: (a, el) => {
       if (a === 'open') {
         const ind = g.world.industries.get(Number(el.dataset.id))!;
@@ -705,8 +768,9 @@ export function openHelp(g: Game) {
           <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
           <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
           <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
+          <li>ほかにも、農場→食品工場→<b>食料品</b>（町が早く育つ）、鉄鉱山と炭鉱→製鉄所→<b>鋼材</b>、木材と鋼材→建材工場→<b>建設資材</b>（高層ビル）。<b>相場表</b>（F10）で、どこが高く買うか見られます</li>
         </ol>
-        <p class="muted small">試作版 v0.2 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
+        <p class="muted small">試作版 v0.3 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
         <h4>画面</h4>
         <div class="btnrow">
           <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
@@ -735,6 +799,7 @@ export function openMenu(g: Game) {
         <button data-action="stations">${ICONS.station}<span>駅一覧</span></button>
         <button data-action="industries">${ICONS.industry}<span>産業一覧</span></button>
         <button data-action="requests">${ICONS.request}<span>依頼ボード</span></button>
+        <button data-action="market">${ICONS.market}<span>相場表</span></button>
         <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
         <button data-action="help">${ICONS.help}<span>操作方法</span></button>
@@ -747,20 +812,11 @@ export function openMenu(g: Game) {
       if (a === 'industries') openIndustryList(g);
       if (a === 'towns') openTownList(g);
       if (a === 'requests') openRequests(g);
+      if (a === 'market') openMarket(g);
       if (a === 'save') g.openSaveLoad();
       if (a === 'help') openHelp(g);
     },
   });
-}
-
-/** 受け入れ判定の説明（プレビュー用） */
-export function acceptanceSummary(g: Game, stationId: number): string {
-  const st = g.world.stations.get(stationId);
-  if (!st) return '';
-  const a = acceptance(g.world, st);
-  return CARGOS.filter((c) => a[c])
-    .map((c) => CARGO_SPECS[c].name)
-    .join('・');
 }
 
 // ───────────────────────── 依頼ボード ─────────────────────────
@@ -813,6 +869,67 @@ export function openRequests(g: Game) {
         const t = Number(el.dataset.tile);
         g.renderer.centerOnTile(tx(g.world, t), ty(g.world, t));
       }
+    },
+  });
+}
+
+// ───────────────────────── 相場表 ─────────────────────────
+
+/** 貨物ごとに、どこがいくらで買うか（在庫が少ないほど高い）。自分の駅で届けられる所に印 */
+export function openMarket(g: Game) {
+  g.wm.open({
+    id: 'market',
+    title: '相場表',
+    width: 400,
+    render: () => {
+      const w = g.world;
+      const cargos: Cargo[] = CARGOS.filter((c) => c !== 'passengers');
+      const sel = g.marketCargo && (cargos as Cargo[]).includes(g.marketCargo) ? g.marketCargo : cargos[0];
+      const tabs = cargos
+        .map((c) => `<button class="mtab ${c === sel ? 'on' : ''}" data-action="cargo" data-c="${c}"><span class="cargo-dot ${c}"></span>${CARGO_SPECS[c].name}</button>`)
+        .join('');
+      // 自分の駅で届けられる受け入れ先
+      const served = new Set<string>();
+      for (const st of w.stations.values()) for (const a of acceptors(w, st, sel)) served.add(`${a.kind}:${a.id}`);
+      type Row = { kind: 'industry' | 'town'; id: number; name: string; stock: number; cap: number; demand: number; tile: number };
+      const rows: Row[] = [];
+      for (const ind of w.industries.values()) {
+        if (!INDUSTRY_SPECS[ind.type].inputs.includes(sel)) continue;
+        const a = { kind: 'industry' as const, id: ind.id };
+        rows.push({ ...a, name: ind.name, stock: acceptorStock(w, a, sel), cap: INDUSTRY.stockCap, demand: acceptorDemand(w, a, sel), tile: ind.y * w.w + ind.x });
+      }
+      if (TOWN_GOODS.includes(sel)) {
+        for (const t of w.towns.values()) {
+          const a = { kind: 'town' as const, id: t.id };
+          rows.push({ ...a, name: `${t.name}町`, stock: acceptorStock(w, a, sel), cap: TOWN.stockCap, demand: acceptorDemand(w, a, sel), tile: t.cy * w.w + t.cx });
+        }
+      }
+      rows.sort((p, q) => q.demand - p.demand);
+      const producers = [...w.industries.values()].filter((i) => INDUSTRY_SPECS[i.type].output === sel);
+      const spec = CARGO_SPECS[sel];
+      return `
+        <div class="mtabs">${tabs}</div>
+        <p class="small">基本運賃 <b>${formatYen(spec.rate * 10)}</b>/t（10マスあたり）・${spec.days1}日までは満額${spec.days1 <= 8 ? '<span class="warn">（傷みやすい）</span>' : ''}</p>
+        <h4>買い取ってくれる所 <small class="muted">係数が高いほど高く買う</small></h4>
+        <ul class="list market">${rows
+          .map(
+            (r) => `<li class="clickable" data-action="goto" data-tile="${r.tile}">
+              <span class="mname">${esc(r.name)}${served.has(`${r.kind}:${r.id}`) ? '<span class="served" title="自分の駅で届けられます">駅あり</span>' : ''}</span>
+              <span class="grow"></span>${gauge(r.stock, r.cap, r.stock > r.cap * 0.8 ? 'bad' : '')}
+              <b class="num ${r.demand >= 1 ? 'pos' : 'neg'}">×${r.demand.toFixed(2)}</b></li>`,
+          )
+          .join('')}</ul>
+        <h4>つくっている所</h4>
+        <p class="small">${producers.map((i) => `<button class="link" data-action="goto" data-tile="${i.y * w.w + i.x}">${esc(i.name)}</button>`).join('・') || 'なし'}</p>
+        <p class="muted small">ゲージは在庫です。同じ所にばかり運ぶと在庫がたまって安くなるので、ほかの届け先に振り分けると得です。</p>`;
+    },
+    onAction: (a, el) => {
+      if (a === 'cargo') g.marketCargo = el.dataset.c as Cargo;
+      if (a === 'goto') {
+        const t = Number(el.dataset.tile);
+        g.renderer.centerOnTile(tx(g.world, t), ty(g.world, t));
+      }
+      g.wm.refresh('market', true);
     },
   });
 }

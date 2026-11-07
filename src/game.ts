@@ -16,7 +16,7 @@ import {
   type CmdResult,
   type UndoRecord,
 } from './sim/commands';
-import { STATION, TICKS_PER_DAY } from './sim/constants';
+import { STATION, TICKS_PER_DAY, type Cargo } from './sim/constants';
 import { generateWorld } from './sim/mapgen';
 import { step } from './sim/simulate';
 import { findPath, rectTiles, straightLine } from './sim/track';
@@ -30,6 +30,7 @@ import {
   openHelp,
   openIndustry,
   openIndustryList,
+  openMarket,
   openMenu,
   openRequests,
   openStation,
@@ -82,6 +83,8 @@ export class Game implements InputTarget {
   cloneDepot = -1;
   cloneShare = true;
   orderSel = new Map<number, number>();
+  /** 相場表で選んでいる貨物 */
+  marketCargo: Cargo | null = null;
   /** 車庫ごとに選んでいる列車（編成の組み替え用） */
   depotSel = new Map<number, number>();
   selectedTrain = -1;
@@ -167,7 +170,10 @@ export class Game implements InputTarget {
       const t = st.tiles[0];
       this.renderer.centerOnTile(tx(world, t), ty(world, t), this.touchUI ? 0.7 : 1);
     } else {
-      const ind = [...world.industries.values()];
+      // 最初の森と製材所のあいだ（はじめの目標の場所）
+      const all = [...world.industries.values()];
+      const first = [all.find((i) => i.type === 'forest'), all.find((i) => i.type === 'sawmill')].filter((i) => !!i);
+      const ind = first.length ? first : all;
       const cx = ind.reduce((s, i) => s + i.x + 1, 0) / ind.length;
       const cy = ind.reduce((s, i) => s + i.y + 1, 0) / ind.length;
       this.renderer.centerOnTile(cx, cy, this.touchUI ? 0.7 : 1);
@@ -837,7 +843,8 @@ export class Game implements InputTarget {
       if (k === 'F1' && e.shiftKey) openTrainList(this);
       else if (k === 'F1' || k === 'Pause') this.togglePause();
       else if (k === 'F3' && !e.shiftKey) this.openSaveLoad();
-      else if (!e.shiftKey && ['F2', 'F6', 'F9', 'F10', 'F11'].includes(k)) this.notYet(k);
+      else if (k === 'F10' && !e.shiftKey) openMarket(this);
+      else if (!e.shiftKey && ['F2', 'F6', 'F9', 'F11'].includes(k)) this.notYet(k);
       else if (k === 'F4' && !e.shiftKey) this.notYet('全体マップ');
       else if (k === 'F5' && !e.shiftKey) openTownList(this);
       else if (k === 'F7' && e.shiftKey) this.toggleRailToolbar();
@@ -912,6 +919,7 @@ export class Game implements InputTarget {
         <button data-a="industries" title="産業一覧 (F12)">${ICONS.industry}</button>
         <button data-a="trains" title="列車一覧 (Shift+F1)">${ICONS.train}</button>
         <button data-a="requests" title="依頼ボード" class="has-badge">${ICONS.request}<span class="badge"></span></button>
+        <button data-a="market" title="相場表 (F10)">${ICONS.market}</button>
       </div>
       <div class="tb-group">
         <button data-a="rail" title="鉄道建設 (Shift+F7)">${ICONS.rail}</button>
@@ -1036,6 +1044,9 @@ export class Game implements InputTarget {
       case 'requests':
         openRequests(this);
         break;
+      case 'market':
+        openMarket(this);
+        break;
       case 'menu':
         openMenu(this);
         break;
@@ -1110,7 +1121,7 @@ export class Game implements InputTarget {
       { done: w.depots.size >= 1 && hasAnyTrack(w), text: '駅を<b>線路</b>でつなぎ、線路の隣に<b>車庫</b>を置く' },
       { done: trains.some((t) => t.state !== 'in_depot'), text: '車庫で<b>機関車</b>と<b>原木車</b>を買い、<b>指令</b>で行き先を選んで<b>発車</b>' },
       { done: w.finance.thisYear.income + w.finance.lastYear.income > 0, text: '原木を製材所に届けて<b>お金を稼ぐ</b>' },
-      { done: [...w.towns.values()].some((t) => t.lumberReceivedThisMonth + t.lumberReceivedLastMonth > 0), text: '<b>木材</b>を町に届けて<b>家を建てる</b>' },
+      { done: [...w.towns.values()].some((t) => (t.recv.lumber?.total ?? 0) > 0), text: '<b>木材</b>を町に届けて<b>家を建てる</b>' },
     ];
     const next = steps.findIndex((s) => !s.done);
     if (this.el.guide.hidden && this.touchUI) this.el.guide.classList.add('min'); // スマホでは最初はたたんでおく

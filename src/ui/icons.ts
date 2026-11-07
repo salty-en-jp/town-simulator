@@ -27,5 +27,6 @@ export const ICONS = {
   rotate: svg('<path d="M20 12a8 8 0 11-2.34-5.66"/><path d="M20 4v5h-5"/>'),
   save: svg('<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><rect x="8" y="13" width="8" height="6"/>'),
   request: svg('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.5h6V4"/><path d="M8.5 11l2 2 4-4M8.5 17h7"/>'),
+  market: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
   skip: svg('<path d="M5 5l9 7-9 7z" fill="currentColor" stroke="none"/><path d="M18 5v14"/>'),
 };
