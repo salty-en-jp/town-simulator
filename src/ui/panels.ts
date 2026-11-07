@@ -29,8 +29,11 @@ import {
   ENGINE_TYPES,
   FINANCE,
   INDUSTRY,
+  FACTORY_TYPES,
+  INDUSTRY_ECON,
   INDUSTRY_SPECS,
   isEngine,
+  PRIMARY_TYPES,
   TOWN,
   TOWN_GOODS,
   vehicleCost,
@@ -38,9 +41,20 @@ import {
   WAGON_SPECS,
   WAGON_TYPES,
   type Cargo,
+  type IndustryType,
   type VehicleType,
 } from '../sim/constants';
 import { demandFactor } from '../sim/economy';
+import {
+  buyRights,
+  contractFee,
+  expandCost,
+  expandIndustry,
+  ownerLabel,
+  rightsPrice,
+  signContract,
+  upkeepPerMonth,
+} from '../sim/industries';
 import { daysLeft, rewardText } from '../sim/requests';
 import { acceptorDemand, acceptorName, acceptors, acceptorStock, stationAccepts } from '../sim/simulate';
 import {
@@ -54,6 +68,7 @@ import {
   tx,
   ty,
   type FinanceCategory,
+  type Industry,
   type LoadMode,
   type Order,
   type Train,
@@ -533,6 +548,7 @@ export function openIndustry(g: Game, id: number) {
       const lacking = spec.inputs.length > 1 ? spec.inputs.filter((c) => (ind.inputs[c] ?? 0) < 1) : [];
       const full = ind.outStock > cap * 0.95;
       return `
+        ${ownerSection(g, ind)}
         <p class="chain">${chain}</p>
         <p class="lead">${esc(spec.desc)}</p>
         ${spec.inputs.length ? `<h4>材料の在庫 <small class="muted">少ないほど高く買います</small></h4>${inputs}` : ''}
@@ -547,7 +563,46 @@ export function openIndustry(g: Game, id: number) {
         </dl>
         ${spec.inputs.length ? '' : '<p class="muted small">輸送率（運び出された割合）が高いほど、生産量が増えやすくなります。</p>'}`;
     },
+    onAction: (a) => {
+      if (a === 'buy') g.result(buyRights(g.world, id));
+      if (a === 'contract') g.result(signContract(g.world, id));
+      if (a === 'expand') g.result(expandIndustry(g.world, id));
+      g.wm.refreshAll();
+    },
   });
+}
+
+/** 持ち主と、権利の購入・輸送契約・増産 */
+function ownerSection(g: Game, ind: Industry): string {
+  const w = g.world;
+  const label = ownerLabel(w, ind);
+  const badge = `<span class="owner-badge ${label === '自社' ? 'own' : label === '他社' ? 'other' : label === '契約中' ? 'contract' : label === '建設中' ? 'building' : 'public'}">${label}</span>`;
+  if (ind.status === 'building') {
+    const left = Math.max(0, ind.readyDay - w.day);
+    return `<div class="owner-box">${badge}<span class="small">完成まであと${left}日</span></div>`;
+  }
+  const btn = (action: string, text: string, cost: number, title = '') =>
+    `<button data-action="${action}" ${cost > w.money ? 'disabled' : ''} title="${esc(title)}"><span>${text} ${formatYen(cost)}</span></button>`;
+  if (ind.owner === 'player') {
+    return `<div class="owner-box">${badge}<span class="small">先月の利益 <b class="pos">${formatYen(ind.dividendLastMonth)}</b>・維持費 ${formatYen(upkeepPerMonth(ind))}/月</span></div>
+      <div class="btnrow">${ind.prodRate < 400 ? btn('expand', `増産（×${INDUSTRY_ECON.expandFactor}）`, expandCost(ind)) : ''}</div>`;
+  }
+  if (ind.owner === 'public') {
+    return `<div class="owner-box">${badge}<span class="small">地元の産業です。だれでも運べます。権利を買うと、運んだ分の利益も入ります。</span></div>
+      <div class="btnrow">${btn('buy', '権利を買う', rightsPrice(ind))}</div>`;
+  }
+  const contracted = ind.contractUntil > w.day;
+  const left = contracted ? ind.contractUntil - w.day : 0;
+  const cond = `毎月${Math.round(INDUSTRY_ECON.contractMinRate * 100)}%以上運び出す`;
+  return `<div class="owner-box">${badge}<span class="small">${
+    contracted
+      ? `輸送契約：残り${left}日・条件「${cond}」${ind.contractStrikes ? `<b class="neg">（守れなかった月 ${ind.contractStrikes}/${INDUSTRY_ECON.contractMaxStrikes}）</b>` : ''}`
+      : '他社の産業です。<b>権利を買うか、輸送契約を結ぶと運べます。</b>'
+  }</span></div>
+    <div class="btnrow">
+      ${!contracted || left <= 180 ? btn('contract', contracted ? '契約を更新' : `輸送契約（${Math.round(INDUSTRY_ECON.contractDays / 365)}年）`, contractFee(ind), `条件：${cond}。${INDUSTRY_ECON.contractMaxStrikes}か月続けて守れないと打ち切り`) : ''}
+      ${btn('buy', '権利を買う', rightsPrice(ind))}
+    </div>`;
 }
 
 function cargoTag(c: Cargo): string {
@@ -589,9 +644,11 @@ export function openTown(g: Game, id: number) {
 const FIN_LABELS: Record<FinanceCategory, string> = {
   construction: '建設費',
   vehicles: '車両の購入・売却',
+  industry: '産業（権利・契約・探鉱・建設）',
   running: '列車の維持費',
-  facilities: '車庫代',
+  facilities: '車庫・産業の維持費',
   income: '運賃収入',
+  dividends: '自社の産業の利益',
   rewards: '依頼の報酬',
   interest: '借入金の利息',
 };
@@ -691,7 +748,8 @@ export function openIndustryList(g: Game) {
       `<ul class="list">${[...g.world.industries.values()]
         .map((ind) => {
           const tr = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
-          return `<li data-action="open" data-id="${ind.id}" class="clickable"><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="small">輸送率 ${pct(tr)}</span></li>`;
+          const ol = ownerLabel(g.world, ind);
+          return `<li data-action="open" data-id="${ind.id}" class="clickable"><span class="owner-badge ${ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : 'public'}">${ol}</span><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="small">輸送率 ${pct(tr)}</span></li>`;
         })
         .join('')}</ul>
        <p class="muted small">森→製材所→木材（町に家）／農場→食品工場→食料品（町が早く育つ）／鉄鉱山＋炭鉱→製鉄所→鋼材／木材＋鋼材→建材工場→建設資材（町に高層ビル）</p>`,
@@ -768,9 +826,11 @@ export function openHelp(g: Game) {
           <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
           <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
           <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
+          <li><b>産業の持ち主</b>：「地元」はだれでも運べます。「他社」は<b>権利を買う</b>か<b>輸送契約</b>を結ぶと運べます（産業をクリック）。自社の産業は運んだ分の利益が毎月入ります</li>
+          <li><b>産業をつくる</b>：お金を出して一次産業を<b>探鉱</b>（成功・失敗あり）したり、<b>工場を建てたり</b>できます。一次産業はときどき自然に見つかります</li>
           <li>ほかにも、農場→食品工場→<b>食料品</b>（町が早く育つ）、鉄鉱山と炭鉱→製鉄所→<b>鋼材</b>、木材と鋼材→建材工場→<b>建設資材</b>（高層ビル）。<b>相場表</b>（F10）で、どこが高く買うか見られます</li>
         </ol>
-        <p class="muted small">試作版 v0.3 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
+        <p class="muted small">試作版 v0.4 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
         <h4>画面</h4>
         <div class="btnrow">
           <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
@@ -800,6 +860,7 @@ export function openMenu(g: Game) {
         <button data-action="industries">${ICONS.industry}<span>産業一覧</span></button>
         <button data-action="requests">${ICONS.request}<span>依頼ボード</span></button>
         <button data-action="market">${ICONS.market}<span>相場表</span></button>
+        <button data-action="build-industry">${ICONS.industry}<span>産業をつくる</span></button>
         <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
         <button data-action="help">${ICONS.help}<span>操作方法</span></button>
@@ -813,6 +874,7 @@ export function openMenu(g: Game) {
       if (a === 'towns') openTownList(g);
       if (a === 'requests') openRequests(g);
       if (a === 'market') openMarket(g);
+      if (a === 'build-industry') openBuildIndustry(g);
       if (a === 'save') g.openSaveLoad();
       if (a === 'help') openHelp(g);
     },
@@ -930,6 +992,47 @@ export function openMarket(g: Game) {
         g.renderer.centerOnTile(tx(g.world, t), ty(g.world, t));
       }
       g.wm.refresh('market', true);
+    },
+  });
+}
+
+// ───────────────────────── 産業をつくる ─────────────────────────
+
+/** 探鉱（一次産業）と工場の建設（二次産業）の種類を選ぶ */
+export function openBuildIndustry(g: Game) {
+  g.wm.open({
+    id: 'build-industry',
+    title: '産業をつくる',
+    width: 380,
+    render: () => {
+      const w = g.world;
+      const item = (t: IndustryType, cost: number, note: string) => {
+        const spec = INDUSTRY_SPECS[t];
+        const name = spec.suffix.replace(/^の/, '');
+        const on = g.tool === 'industry' && g.industryType === t;
+        return `<button class="buy ${on ? 'on' : ''}" data-action="pick" data-t="${t}" ${cost > w.money ? 'disabled' : ''}>
+          <span class="buy-name"><span class="cargo-dot ${spec.output}"></span>${name}</span>
+          <span class="num">${formatYen(cost)}</span>
+          <span class="muted small">${note}</span></button>`;
+      };
+      const surveys = w.surveys
+        .map((s) => `<li><span>${INDUSTRY_SPECS[s.type].suffix.replace(/^の/, '')}の調査中</span><span class="grow"></span><span class="muted small">あと${Math.max(0, s.doneDay - w.day)}日</span></li>`)
+        .join('');
+      return `
+        <h4>探鉱・開発 <small class="muted">一次産業。成功すると自社の産業になります</small></h4>
+        <div class="buy-grid">${PRIMARY_TYPES.map((t) => item(t, INDUSTRY_ECON.surveyCost[t], `${CARGO_SPECS[INDUSTRY_SPECS[t].output].name}・${t === 'forest' ? '木の多い所が有利' : t === 'farm' ? '開けた所が有利' : '同じ鉱山が遠い所が有利'}`)).join('')}</div>
+        <p class="muted small">${INDUSTRY_ECON.surveyDays}日の調査のあと、成功か失敗かがわかります。失敗すると費用はもどりません。成功率は場所を選ぶと表示されます。</p>
+        ${surveys ? `<ul class="list">${surveys}</ul>` : ''}
+        <h4>工場を建てる <small class="muted">${INDUSTRY_ECON.buildDays}日で完成・自社の工場</small></h4>
+        <div class="buy-grid">${FACTORY_TYPES.map((t) => item(t, INDUSTRY_ECON.factoryPrice[t], `${INDUSTRY_SPECS[t].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}→${CARGO_SPECS[INDUSTRY_SPECS[t].output].name}`)).join('')}</div>
+        <p class="muted small">自社の産業は、運び出した製品の量に応じて毎月利益が入ります（維持費がかかります）。</p>`;
+    },
+    onAction: (a, el) => {
+      if (a === 'pick') {
+        g.startIndustryTool(el.dataset.t as IndustryType);
+        if (g.touchUI) g.wm.close('build-industry');
+      }
+      g.wm.refresh('build-industry', true);
     },
   });
 }

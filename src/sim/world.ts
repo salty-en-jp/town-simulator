@@ -4,6 +4,7 @@ import {
   CARGOS,
   ENGINE_SPECS,
   FINANCE,
+  INDUSTRY_ECON,
   INDUSTRY_SPECS,
   isEngine,
   STATION,
@@ -94,6 +95,40 @@ export interface Industry {
   /** はじめからの累計（依頼の進み具合に使う） */
   transportedTotal: number;
   receivedTotal: number;
+  /**
+   * 持ち主
+   * - player：自社（運べる・配当が入る・維持費がかかる）
+   * - public：地元の産業（だれでも運べる。権利を買えば自社になる）
+   * - other：他社（権利を買うか、輸送契約を結ばないと運べない）
+   */
+  owner: IndustryOwner;
+  /** 輸送契約の期限（ゲーム内の日。0 なら契約なし） */
+  contractUntil: number;
+  contractFrom: number;
+  /** 契約の条件を守れなかった月が続いた数 */
+  contractStrikes: number;
+  /** 建設中の工場は、完成するまで動かない */
+  status: 'active' | 'building';
+  readyDay: number;
+  dividendThisMonth: number;
+  dividendLastMonth: number;
+  /** 増産した回数 */
+  expansions: number;
+}
+
+export type IndustryOwner = 'player' | 'public' | 'other';
+
+/** 探鉱（調査中の場所） */
+export interface Survey {
+  id: number;
+  type: IndustryType;
+  x: number;
+  y: number;
+  doneDay: number;
+  /** 成功率と、あらかじめ引いておいた乱数（roll < chance なら成功） */
+  chance: number;
+  roll: number;
+  cost: number;
 }
 
 /** 届いた量の記録（今月・先月・はじめからの累計） */
@@ -192,13 +227,24 @@ export interface Train {
   trackVersion: number;
 }
 
-export type FinanceCategory = 'construction' | 'vehicles' | 'running' | 'facilities' | 'income' | 'rewards' | 'interest';
+export type FinanceCategory =
+  | 'construction'
+  | 'vehicles'
+  | 'industry'
+  | 'running'
+  | 'facilities'
+  | 'income'
+  | 'dividends'
+  | 'rewards'
+  | 'interest';
 export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
   'construction',
   'vehicles',
+  'industry',
   'running',
   'facilities',
   'income',
+  'dividends',
   'rewards',
   'interest',
 ];
@@ -239,10 +285,21 @@ export interface World {
   unlocked: Set<VehicleType>;
   requests: Request[];
   requestState: RequestState;
+  surveys: Survey[];
 }
 
 export function emptyFinance(): Record<FinanceCategory, number> {
-  return { construction: 0, vehicles: 0, running: 0, facilities: 0, income: 0, rewards: 0, interest: 0 };
+  return {
+    construction: 0,
+    vehicles: 0,
+    industry: 0,
+    running: 0,
+    facilities: 0,
+    income: 0,
+    dividends: 0,
+    rewards: 0,
+    interest: 0,
+  };
 }
 
 export function createEmptyWorld(w: number, h: number, seed: number): World {
@@ -275,6 +332,7 @@ export function createEmptyWorld(w: number, h: number, seed: number): World {
     unlocked: new Set(),
     requests: [],
     requestState: { nextCheckDay: 20, completed: 0, expired: 0, incomeTotal: 0 },
+    surveys: [],
   };
 }
 
@@ -466,4 +524,17 @@ export function newCar(world: World, type: VehicleType): Car {
 export function canBuy(world: World, type: VehicleType): boolean {
   const spec = isEngine(type) ? ENGINE_SPECS[type] : WAGON_SPECS[type];
   return !spec.locked || world.unlocked.has(type);
+}
+
+/** その産業から貨物を運び出せるか（自社・地元・契約中、かつ建設中でない） */
+export function canLoadFrom(world: World, ind: Industry): boolean {
+  if (ind.status !== 'active') return false;
+  return ind.owner !== 'other' || ind.contractUntil > world.day;
+}
+
+/** 産業の値段（権利の購入・維持費・増産・契約料の基準） */
+export function industryValue(ind: Industry): number {
+  if (isPrimary(ind.type)) return Math.round(ind.prodRate * INDUSTRY_ECON.pricePerMonthlyT);
+  const base = INDUSTRY_ECON.factoryPrice[ind.type] ?? 30_000_000;
+  return Math.round(base * Math.pow(INDUSTRY_ECON.expandFactor, ind.expansions));
 }

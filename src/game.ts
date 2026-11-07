@@ -16,7 +16,16 @@ import {
   type CmdResult,
   type UndoRecord,
 } from './sim/commands';
-import { STATION, TICKS_PER_DAY, type Cargo } from './sim/constants';
+import {
+  INDUSTRY_ECON,
+  INDUSTRY_SPECS,
+  PRIMARY_TYPES,
+  STATION,
+  TICKS_PER_DAY,
+  type Cargo,
+  type IndustryType,
+} from './sim/constants';
+import { buildFactory, startSurvey } from './sim/industries';
 import { generateWorld } from './sim/mapgen';
 import { step } from './sim/simulate';
 import { findPath, rectTiles, straightLine } from './sim/track';
@@ -30,6 +39,7 @@ import {
   openHelp,
   openIndustry,
   openIndustryList,
+  openBuildIndustry,
   openMarket,
   openMenu,
   openRequests,
@@ -54,9 +64,9 @@ import {
   type Slot,
 } from './storage';
 
-export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'order' | 'clone';
-type BuildTool = 'track' | 'station' | 'depot' | 'demolish';
-const BUILD_TOOLS: Tool[] = ['track', 'station', 'depot', 'demolish'];
+export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'industry' | 'order' | 'clone';
+type BuildTool = 'track' | 'station' | 'depot' | 'demolish' | 'industry';
+const BUILD_TOOLS: Tool[] = ['track', 'station', 'depot', 'demolish', 'industry'];
 
 const MS_PER_DAY = 2000; // 速度×1で 1日 = 2秒
 const SPEEDS = [1, 2, 4];
@@ -66,6 +76,7 @@ const TOOL_NAMES: Record<BuildTool, string> = {
   station: '駅',
   depot: '車庫',
   demolish: '解体',
+  industry: '産業',
 };
 
 interface Pending {
@@ -570,7 +581,46 @@ export class Game implements InputTarget {
         return buildDepot(w, p.b, { dry: true });
       case 'demolish':
         return demolish(w, p.a, p.b, { dry: true });
+      case 'industry':
+        return this.industryCmd(p.b, true);
     }
+  }
+
+  // ───────────────────────── 産業をつくる（探鉱・工場の建設） ─────────────────────────
+
+  /** 産業をつくるツールで選んでいる種類 */
+  industryType: IndustryType = 'sawmill';
+
+  startIndustryTool(type: IndustryType) {
+    this.industryType = type;
+    this.tool = 'none';
+    this.setTool('industry');
+    this.toast(
+      `${PRIMARY_TYPES.includes(type) ? '探鉱' : '建設'}する場所を${this.touchUI ? 'タップ' : 'クリック'}してください（${INDUSTRY_SPECS[type].w}×${INDUSTRY_SPECS[type].h}マス）`,
+      'info',
+    );
+  }
+
+  /** 押したマスを中心に、産業の左上を決める */
+  private industryOrigin(tile: number): { x: number; y: number } {
+    const spec = INDUSTRY_SPECS[this.industryType];
+    return {
+      x: tx(this.world, tile) - Math.floor((spec.w - 1) / 2),
+      y: ty(this.world, tile) - Math.floor((spec.h - 1) / 2),
+    };
+  }
+
+  private industryCmd(tile: number, dry: boolean): CmdResult & { chance?: number } {
+    const { x, y } = this.industryOrigin(tile);
+    return PRIMARY_TYPES.includes(this.industryType)
+      ? startSurvey(this.world, this.industryType, x, y, { dry })
+      : buildFactory(this.world, this.industryType, x, y, { dry });
+  }
+
+  private industryLabel(): string {
+    const primary = PRIMARY_TYPES.includes(this.industryType);
+    const name = INDUSTRY_SPECS[this.industryType].suffix.replace(/^の/, '');
+    return primary ? `探鉱：${name}` : `建設：${name}`;
   }
 
   private commit(p: Pending, remove: boolean): boolean {
@@ -589,6 +639,13 @@ export class Game implements InputTarget {
       case 'demolish':
         r = demolish(w, p.a, p.b);
         break;
+      case 'industry': {
+        r = this.industryCmd(p.b, false);
+        if (r.ok && PRIMARY_TYPES.includes(this.industryType)) {
+          this.toast(`探鉱をはじめました。${INDUSTRY_ECON.surveyDays}日後に結果がわかります`, 'info');
+        }
+        break;
+      }
     }
     const ok = this.result(r, p.b);
     if (ok && p.kind === 'depot' && r.id && !this.touchUI) {
@@ -634,6 +691,15 @@ export class Game implements InputTarget {
         return { tiles: [p.b] };
       case 'demolish':
         return { tiles: rectTiles(w, p.a, p.b) };
+      case 'industry': {
+        const { x, y } = this.industryOrigin(p.b);
+        const spec = INDUSTRY_SPECS[this.industryType];
+        const tiles: number[] = [];
+        for (let yy = y; yy < y + spec.h; yy++) {
+          for (let xx = x; xx < x + spec.w; xx++) if (xx >= 0 && yy >= 0 && xx < w.w && yy < w.h) tiles.push(yy * w.w + xx);
+        }
+        return { tiles };
+      }
     }
   }
 
@@ -644,11 +710,12 @@ export class Game implements InputTarget {
       this.renderConfirm(null, null);
       return;
     }
-    const r = this.dry(p, remove);
+    const r = this.dry(p, remove) as CmdResult & { chance?: number };
     const t = this.previewTiles(p);
-    const preview: Preview = { ...t, ok: r.ok, remove: remove && p.kind === 'track', kind: p.kind };
+    const preview: Preview = { ...t, ok: r.ok, remove: remove && p.kind === 'track', kind: p.kind === 'industry' ? 'depot' : p.kind };
     this.renderer.setOverlay({ preview });
-    const label = r.ok ? `${formatYen(r.cost)}` : (r.error ?? '');
+    const chance = r.chance !== undefined ? `・成功率${Math.round(r.chance * 100)}%` : '';
+    const label = r.ok ? `${formatYen(r.cost)}${chance}` : (r.error ?? '');
     if (this.touchUI) {
       this.renderConfirm(p, r);
     } else {
@@ -677,11 +744,13 @@ export class Game implements InputTarget {
       return;
     }
     c.hidden = false;
-    const name = p.kind === 'track' && this.removeMode ? '線路の撤去' : TOOL_NAMES[p.kind];
+    const name = p.kind === 'track' && this.removeMode ? '線路の撤去' : p.kind === 'industry' ? this.industryLabel() : TOOL_NAMES[p.kind];
+    const chance = (r as CmdResult & { chance?: number }).chance;
     c.innerHTML = `
       <div class="confirm-text ${r.ok ? '' : 'bad'}">
         <b>${name}</b>
         <span>${r.ok ? formatYen(r.cost) : esc(r.error ?? '')}</span>
+        ${r.ok && chance !== undefined ? `<small>成功率 ${Math.round(chance * 100)}%（失敗すると費用はもどりません）</small>` : ''}
         ${p.kind === 'track' && p.a === p.b ? '<small>もう一度タップで終点</small>' : ''}
       </div>
       ${p.kind === 'station' && p.a === p.b ? `<button class="round rotate" data-c="rotate" aria-label="向きを変える">${ICONS.rotate}</button>` : ''}
@@ -713,7 +782,7 @@ export class Game implements InputTarget {
     const t = sx < 0 ? -1 : this.renderer.screenToTile(sx, sy);
     this.renderer.setOverlay({ hover: t });
     if (this.touchUI) return;
-    if (t >= 0 && (this.tool === 'station' || this.tool === 'depot')) {
+    if (t >= 0 && (this.tool === 'station' || this.tool === 'depot' || this.tool === 'industry')) {
       this.hoverPending = { kind: this.tool, a: t, b: t };
       this.showPreview(this.hoverPending, false, mods);
     } else if (!this.drag) {
@@ -920,6 +989,7 @@ export class Game implements InputTarget {
         <button data-a="trains" title="列車一覧 (Shift+F1)">${ICONS.train}</button>
         <button data-a="requests" title="依頼ボード" class="has-badge">${ICONS.request}<span class="badge"></span></button>
         <button data-a="market" title="相場表 (F10)">${ICONS.market}</button>
+        <button data-a="build-industry" title="産業をつくる（探鉱・工場の建設）">${ICONS.factoryPlus}</button>
       </div>
       <div class="tb-group">
         <button data-a="rail" title="鉄道建設 (Shift+F7)">${ICONS.rail}</button>
@@ -1047,6 +1117,9 @@ export class Game implements InputTarget {
       case 'market':
         openMarket(this);
         break;
+      case 'build-industry':
+        openBuildIndustry(this);
+        break;
       case 'menu':
         openMenu(this);
         break;
@@ -1083,6 +1156,7 @@ export class Game implements InputTarget {
     on('[data-a="rail"]', this.railToolbarOpen);
     on('[data-a="t-track"]', this.tool === 'track' && !this.removeMode);
     on('[data-a="t-station"]', this.tool === 'station');
+    on('[data-a="build-industry"]', this.tool === 'industry');
     document.querySelectorAll('.axis-label').forEach(
       (el) => (el.textContent = this.stationAxis === 'auto' ? '自動' : this.stationAxis === 'x' ? '＼' : '／'),
     );

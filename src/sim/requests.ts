@@ -20,6 +20,7 @@ import {
 } from './constants';
 import { findPath } from './track';
 import {
+  canLoadFrom,
   earn,
   idx,
   isPrimary,
@@ -182,7 +183,8 @@ function makeRequest(world: World): Request | null {
   const st = world.requestState;
   const scale = 1 + st.completed * 0.35;
   const towns = [...world.towns.values()];
-  const primaries = [...world.industries.values()].filter((i) => isPrimary(i.type));
+  // 運び出せる一次産業だけ（他社で権利も契約もない産業は対象にしない）
+  const primaries = [...world.industries.values()].filter((i) => isPrimary(i.type) && canLoadFrom(world, i));
   const active = new Set(world.requests.map((r) => `${r.kind}:${r.target}:${r.target2}:${r.cargo ?? ''}`));
   const hasVisited = [...world.stations.values()].some((s) => Object.values(s.goods).some((g) => g.visited));
   const kinds: RequestKind[] = ['haul', 'deliver', 'carry_pax', 'population'];
