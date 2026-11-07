@@ -217,7 +217,7 @@ export function openOrders(g: Game, id: number) {
           <button data-action="delete" ${o ? '' : 'disabled'}>${ICONS.remove}<span>削除</span></button>
           <button data-action="skip" ${ol.orders.length ? '' : 'disabled'}>${ICONS.skip}<span>スキップ</span></button>
         </div>
-        ${picking ? `<p class="hint">${g.touchUI ? '地図の駅をタップしてください' : '地図の駅をクリック（Ctrl+クリックで「満載まで待つ」）。Esc で終了'}</p>` : ''}`;
+        ${picking ? `<p class="hint">${g.touchUI ? '地図の駅か駅名をタップ。終わったら下のバーの「完了」' : '地図の駅か駅名をクリック（Ctrl+クリックで「満載まで待つ」）。終わったら下のバーの「完了」か Esc'}</p>` : ''}`;
     },
     onAction: (a, el) => {
       const t = g.world.trains.get(id);

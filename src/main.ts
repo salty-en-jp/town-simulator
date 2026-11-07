@@ -4,7 +4,9 @@ import '@fontsource/zen-maru-gothic/700.css';
 import './style.css';
 import { Game } from './game';
 import { Renderer } from './render/renderer';
+import * as cmds from './sim/commands';
 import { formatYen } from './sim/commands';
+import * as panels from './ui/panels';
 import type { World } from './sim/world';
 import { listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence } from './storage';
 
@@ -79,6 +81,7 @@ async function main() {
 
   // 自動テスト・デバッグ用
   (window as unknown as { __game: Game }).__game = game;
+  (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels };
 }
 
 main();

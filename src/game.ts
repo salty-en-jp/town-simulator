@@ -8,6 +8,7 @@ import {
   buildStation,
   buildTrack,
   cloneTrain,
+  deleteOrder,
   demolish,
   formatYen,
   stationAxisFor,
@@ -18,7 +19,7 @@ import {
 import { STATION, TICKS_PER_DAY } from './sim/constants';
 import { generateWorld } from './sim/mapgen';
 import { step } from './sim/simulate';
-import { rectTiles, straightLine } from './sim/track';
+import { findPath, rectTiles, straightLine } from './sim/track';
 import { dateOf, tx, ty, type Axis, type Rect, type World } from './sim/world';
 import { ICONS } from './ui/icons';
 import {
@@ -115,6 +116,8 @@ export class Game implements InputTarget {
     toast: document.getElementById('toast')!,
     tip: document.getElementById('cursor-tip')!,
     guide: document.getElementById('guide')!,
+    pickbar: document.getElementById('pickbar')!,
+    labels: document.getElementById('labels')!,
   };
 
   constructor(public renderer: Renderer) {
@@ -320,11 +323,151 @@ export class Game implements InputTarget {
     if (tool !== 'clone') this.cloneDepot = -1;
     this.drag = null;
     this.clearPending();
+    // スマホでは地図を広く見せるためにウィンドウを隠す（下の選択バーの「完了」で戻る）
     this.wm.setCollapsed(this.touchUI && (tool === 'order' || tool === 'clone'));
+    this.renderer.setFaded(this.userFaded || tool === 'order');
     this.renderer.setOverlay({ preview: null });
     this.el.tip.hidden = true;
     this.updateHud();
+    this.updatePickbar();
+    this.updateRoute(true);
     this.wm.refreshAll();
+  }
+
+  // ───────────────────────── 行き先を選ぶとき ─────────────────────────
+
+  /** X キー：建物を半透明にする（OpenTTD と同じ） */
+  private userFaded = false;
+  /** 選択中に追加した指令の位置（「1つ戻す」用） */
+  private pickAdded: { i: number; append: boolean }[] = [];
+  private routeKey = '';
+
+  toggleFade() {
+    this.userFaded = !this.userFaded;
+    this.renderer.setFaded(this.userFaded || this.tool === 'order');
+    this.toast(this.userFaded ? '建物を半透明にしました（X で戻す）' : '建物の表示を戻しました', 'info');
+  }
+
+  /** 地図で駅を選んだ（地面・駅名の看板・近くのマス、どれからでも） */
+  pickStation(stationId: number, full: boolean) {
+    if (this.tool !== 'order' || !this.world.stations.has(stationId)) return;
+    const t = this.world.trains.get(this.orderTrain);
+    if (!t) return;
+    const count = () => this.world.orderLists.get(t.orderList)!.orders.length;
+    const before = count();
+    const sel = this.orderSel.get(t.id) ?? -1;
+    // 選んでいる指令の前に入る。選んでいなければ最後に足す
+    const at = sel >= 0 ? sel : before;
+    addOrderFromMap(this, t.id, stationId, full);
+    if (count() > before) this.pickAdded.push({ i: at, append: sel < 0 });
+    this.updatePickbar();
+    this.updateRoute(true);
+  }
+
+  /** 押した位置の近くにある駅（ビルに隠れていても選べるように） */
+  private stationNear(sx: number, sy: number): number {
+    const t = this.renderer.screenToTile(sx, sy);
+    const o = t >= 0 ? this.world.occ[t] : null;
+    if (o?.k === 'station') return o.id;
+    const p = this.renderer.screenToTileF(sx, sy);
+    let best = -1,
+      bd = 1.3;
+    for (const st of this.world.stations.values()) {
+      for (const tile of st.tiles) {
+        const d = Math.max(Math.abs(tx(this.world, tile) - p.x), Math.abs(ty(this.world, tile) - p.y));
+        if (d < bd) {
+          bd = d;
+          best = st.id;
+        }
+      }
+    }
+    return best;
+  }
+
+  private undoPick() {
+    const last = this.pickAdded.pop();
+    if (!last) return;
+    this.result(deleteOrder(this.world, this.orderTrain, last.i));
+    // 次に選んだ駅が、消した指令と同じ場所に入るように
+    this.orderSel.set(this.orderTrain, last.append ? -1 : last.i);
+    this.updatePickbar();
+    this.updateRoute(true);
+    this.wm.refreshAll();
+  }
+
+  /** 画面下の選択バー：指令の並び・1つ戻す・完了 */
+  private updatePickbar() {
+    const bar = this.el.pickbar;
+    if (this.tool === 'clone') {
+      bar.hidden = false;
+      this.setPickbarHtml(`<div class="pick-text"><b>クローン</b><span>複製する列車を${this.touchUI ? 'タップ' : 'クリック'}してください</span></div>
+        <button class="pick-btn" data-p="done">やめる</button>`);
+      return;
+    }
+    if (this.tool !== 'order') {
+      bar.hidden = true;
+      this.pickAdded = [];
+      return;
+    }
+    const t = this.world.trains.get(this.orderTrain);
+    if (!t) {
+      bar.hidden = true;
+      return;
+    }
+    const orders = this.world.orderLists.get(t.orderList)!.orders;
+    const chips = orders
+      .map((o, i) => {
+        const name = this.world.stations.get(o.station)?.name ?? '?';
+        const full = o.load === 'full_any' || o.load === 'full_all';
+        return `<span class="pick-chip"><i>${i + 1}</i>${esc(name)}${full ? '<small>満載</small>' : ''}</span>`;
+      })
+      .join('<span class="pick-arrow">→</span>');
+    bar.hidden = false;
+    this.setPickbarHtml(`
+      <div class="pick-text"><b>${esc(t.name)}の行き先</b>
+        <span>${this.touchUI ? '駅（または駅名）をタップ' : '駅（または駅名）をクリック・Ctrl+クリックで満載待ち'}</span></div>
+      <div class="pick-chips">${chips || '<span class="muted">まだありません</span>'}</div>
+      <button class="pick-btn" data-p="undo" ${this.pickAdded.length ? '' : 'disabled'}>1つ戻す</button>
+      <button class="pick-btn primary" data-p="done">完了</button>`);
+  }
+
+  private pickbarHtml = '';
+
+  /** 中身が変わったときだけ書き換える（押している途中でボタンが作り直されないように） */
+  private setPickbarHtml(html: string) {
+    if (html === this.pickbarHtml) return;
+    this.pickbarHtml = html;
+    this.el.pickbar.innerHTML = html;
+    const c = this.el.pickbar.querySelector('.pick-chips');
+    if (c) c.scrollLeft = c.scrollWidth;
+  }
+
+  /** 選んでいる列車の路線を地図に描く */
+  updateRoute(force = false) {
+    if (!this.world) return;
+    const id = this.tool === 'order' ? this.orderTrain : this.selectedTrain;
+    const t = this.world.trains.get(id);
+    if (!t) {
+      if (this.routeKey !== '') {
+        this.routeKey = '';
+        this.renderer.setRoute(null);
+      }
+      return;
+    }
+    const orders = this.world.orderLists.get(t.orderList)!.orders;
+    const key = `${id}:${this.world.trackVersion}:${t.curOrder}:${orders.map((o) => o.station).join(',')}`;
+    if (!force && key === this.routeKey) return;
+    this.routeKey = key;
+    const stops = orders.map((o) => o.station).filter((s) => this.world.stations.has(s));
+    const paths: (number[] | null)[] = [];
+    if (stops.length >= 2) {
+      for (let i = 0; i < stops.length; i++) {
+        const a = this.world.stations.get(stops[i])!;
+        const b = this.world.stations.get(stops[(i + 1) % stops.length])!;
+        paths.push(findPath(this.world, a.tiles[0], new Set(b.tiles)));
+      }
+    }
+    this.renderer.setRoute({ stops, paths, current: t.curOrder });
   }
 
   toggleRemove() {
@@ -355,6 +498,7 @@ export class Game implements InputTarget {
   selectTrain(id: number) {
     this.selectedTrain = id;
     this.renderer.setOverlay({ selectedTrain: id });
+    this.updateRoute(true);
   }
 
   selectStation(id: number) {
@@ -635,8 +779,8 @@ export class Game implements InputTarget {
       return;
     }
     if (this.tool === 'order') {
-      const o = t >= 0 ? this.world.occ[t] : null;
-      if (o?.k === 'station') addOrderFromMap(this, this.orderTrain, o.id, mods.ctrl);
+      const st = this.stationNear(sx, sy);
+      if (st >= 0) this.pickStation(st, mods.ctrl);
       else this.toast(touch ? '駅をタップしてください' : '駅をクリックしてください', 'info');
       return;
     }
@@ -718,6 +862,7 @@ export class Game implements InputTarget {
       else if (this.railToolbarOpen && (k === 'r' || k === 'R')) this.toggleRemove();
       else if (this.railToolbarOpen && (k === 'o' || k === 'O')) this.rotateStation();
       else if (this.railToolbarOpen && ['s', 'S', 'b', 'B', 't', 'T', '8', 'c', 'C'].includes(k)) this.notYet(k.toUpperCase());
+      else if (k === 'x' || k === 'X') this.toggleFade();
       else if (['q', 'Q', 'w', 'W', 'e', 'E'].includes(k)) this.notYet('地形の変更');
       else handled = false;
       if (handled) e.preventDefault();
@@ -826,6 +971,17 @@ export class Game implements InputTarget {
         else this.showPreview(p, this.removeMode);
       } else if (b.dataset.c === 'cancel') this.clearPending();
       else if (b.dataset.c === 'rotate') this.rotateStation();
+    });
+    this.el.pickbar.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest('[data-p]') as HTMLButtonElement | null;
+      if (!b || b.disabled) return;
+      if (b.dataset.p === 'done') this.setTool('none');
+      else if (b.dataset.p === 'undo') this.undoPick();
+    });
+    // 駅名の看板を押しても駅を選べる（ビルに隠れた駅のため）
+    this.el.labels.addEventListener('click', (e) => {
+      const el = (e.target as HTMLElement).closest('[data-station]') as HTMLElement | null;
+      if (el && this.tool === 'order') this.pickStation(Number(el.dataset.station), e.ctrlKey || e.metaKey);
     });
     this.el.guide.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('[data-g="close"]')) {
@@ -991,6 +1147,8 @@ export class Game implements InputTarget {
       this.updateHud();
       this.wm.refreshAll();
       this.updateGuide();
+      this.updateRoute();
+      if (this.tool === 'order') this.updatePickbar();
     }
     requestAnimationFrame((t) => this.loop(t));
   }
