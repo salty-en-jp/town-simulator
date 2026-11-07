@@ -1,0 +1,912 @@
+// PixiJS による描画。シミュレーションの状態を読むだけで、変更はしない。
+
+import { Application, Container, Graphics } from 'pixi.js';
+import { WAGON_SPECS } from '../sim/constants';
+import {
+  carLoad,
+  DIRS,
+  DX,
+  DY,
+  idx,
+  stationSign,
+  Terrain,
+  tx,
+  ty,
+  type Car,
+  type Rect,
+  type Train,
+  type World,
+} from '../sim/world';
+import { groundPoly, hash01, isoX, isoY, shade, TH, TW, worldToTile } from './iso';
+
+export interface Preview {
+  tiles: number[];
+  /** 線路のゴースト（タイル列をつなぐ） */
+  path?: number[];
+  ok: boolean;
+  remove?: boolean;
+  catchment?: Rect | null;
+  kind: 'track' | 'station' | 'depot' | 'demolish';
+}
+
+export interface Overlay {
+  hover: number;
+  preview: Preview | null;
+  selectedStation: number;
+  selectedTrain: number;
+}
+
+const C = {
+  bg: 0x1d2a22,
+  grassA: 0x8cbf68,
+  grassB: 0x86b862,
+  water: 0x4f93c9,
+  waterHi: 0x7db6e0,
+  shore: 0x6fa95a,
+  treeA: 0x3f7d3a,
+  treeB: 0x4f9444,
+  treeC: 0x2f6a35,
+  trunk: 0x6b4a2f,
+  ballast: 0x958a78,
+  sleeper: 0x5b4330,
+  rail: 0xe2e2e2,
+  deck: 0x8a6a4a,
+  platform: 0xd8cfbd,
+  roofStation: 0xb94a3f,
+  depot: 0x9b5b45,
+  depotRoof: 0x4d5f7a,
+  houseWalls: [0xf3e4c4, 0xf6efe2, 0xe9d7b6, 0xefe6d8],
+  houseRoofs: [0xc8553d, 0x4f74a3, 0x8a5a3c, 0x5c8a5a],
+  apt: [0xe8e2d8, 0xd9e1e6, 0xefe2cf, 0xe3dcd2],
+  tower: [0xcfd8e0, 0xbfcad6, 0xd8dde2, 0xc6d2cf],
+  window: 0x55697d,
+  sawmill: 0xa36f45,
+  sawmillRoof: 0x6d4c3a,
+  log: 0x8b5a2b,
+  logEnd: 0xd2a26b,
+  plank: 0xd9b27c,
+};
+
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2.5;
+
+export class Renderer {
+  app!: Application;
+  cam = new Container();
+  terrainG = new Graphics();
+  trackG = new Graphics();
+  objectsG = new Graphics();
+  overlayG = new Graphics();
+  trainsG = new Graphics();
+  world!: World;
+  overlay: Overlay = { hover: -1, preview: null, selectedStation: -1, selectedTrain: -1 };
+  private drawnVersion = -1;
+  private lastStaticDraw = 0;
+  private overlayDirty = true;
+  private labels = new Map<string, { el: HTMLElement; x: number; y: number; lift: number }>();
+  private floats: { el: HTMLElement; x: number; y: number; born: number }[] = [];
+  private labelsVersion = -1;
+  private lastLabelText = 0;
+
+  private constructor(
+    private host: HTMLElement,
+    private labelsEl: HTMLElement,
+  ) {}
+
+  static async create(host: HTMLElement, labelsEl: HTMLElement): Promise<Renderer> {
+    const r = new Renderer(host, labelsEl);
+    r.app = new Application();
+    await r.app.init({
+      resizeTo: host,
+      antialias: true,
+      backgroundColor: C.bg,
+      resolution: Math.min(window.devicePixelRatio || 1, 2),
+      autoDensity: true,
+      preference: 'webgl',
+    });
+    host.appendChild(r.app.canvas);
+    r.cam.addChild(r.terrainG, r.trackG, r.objectsG, r.overlayG, r.trainsG);
+    r.app.stage.addChild(r.cam);
+    return r;
+  }
+
+  get canvas(): HTMLCanvasElement {
+    return this.app.canvas;
+  }
+
+  setWorld(world: World) {
+    this.world = world;
+    this.drawnVersion = -1;
+    this.labelsVersion = -1;
+    for (const l of this.labels.values()) l.el.remove();
+    this.labels.clear();
+  }
+
+  // ───────────── カメラ ─────────────
+
+  get zoom(): number {
+    return this.cam.scale.x;
+  }
+
+  screenToTileF(sx: number, sy: number): { x: number; y: number } {
+    const px = (sx - this.cam.x) / this.zoom;
+    const py = (sy - this.cam.y) / this.zoom;
+    return worldToTile(px, py);
+  }
+
+  screenToTile(sx: number, sy: number): number {
+    const p = this.screenToTileF(sx, sy);
+    const x = Math.round(p.x),
+      y = Math.round(p.y);
+    if (x < 0 || y < 0 || x >= this.world.w || y >= this.world.h) return -1;
+    return idx(this.world, x, y);
+  }
+
+  tileToScreen(x: number, y: number, lift = 0): { x: number; y: number } {
+    return { x: this.cam.x + isoX(x, y) * this.zoom, y: this.cam.y + (isoY(x, y) - lift) * this.zoom };
+  }
+
+  panBy(dx: number, dy: number) {
+    this.cam.x += dx;
+    this.cam.y += dy;
+    this.clampCamera();
+  }
+
+  zoomAt(sx: number, sy: number, factor: number) {
+    const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, this.zoom * factor));
+    const f = z / this.zoom;
+    this.cam.x = sx - (sx - this.cam.x) * f;
+    this.cam.y = sy - (sy - this.cam.y) * f;
+    this.cam.scale.set(z);
+    this.clampCamera();
+  }
+
+  zoomStep(sx: number, sy: number, dir: 1 | -1) {
+    this.zoomAt(sx, sy, dir > 0 ? 2 : 0.5);
+  }
+
+  centerOnTile(x: number, y: number, zoom?: number) {
+    if (zoom) this.cam.scale.set(zoom);
+    const w = this.host.clientWidth,
+      h = this.host.clientHeight;
+    this.cam.x = w / 2 - isoX(x, y) * this.zoom;
+    this.cam.y = h / 2 - isoY(x, y) * this.zoom;
+    this.clampCamera();
+  }
+
+  private clampCamera() {
+    if (!this.world) return;
+    const w = this.host.clientWidth,
+      h = this.host.clientHeight;
+    const z = this.zoom;
+    const minX = isoX(0, this.world.h) * z,
+      maxX = isoX(this.world.w, 0) * z;
+    const minY = 0,
+      maxY = isoY(this.world.w, this.world.h) * z;
+    // マップの端が画面の中央より内側に入りすぎないように
+    this.cam.x = Math.min(w / 2 - minX, Math.max(w / 2 - maxX, this.cam.x));
+    this.cam.y = Math.min(h / 2 - minY, Math.max(h / 2 - maxY, this.cam.y));
+  }
+
+  setOverlay(o: Partial<Overlay>) {
+    Object.assign(this.overlay, o);
+    this.overlayDirty = true;
+  }
+
+  // ───────────── 毎フレーム ─────────────
+
+  frame(now: number) {
+    const w = this.world;
+    if (!w) return;
+    if (w.version !== this.drawnVersion && now - this.lastStaticDraw > 200) {
+      this.drawnVersion = w.version;
+      this.lastStaticDraw = now;
+      this.drawTerrain();
+      this.drawTrack();
+      this.drawObjects();
+      this.overlayDirty = true;
+    }
+    if (this.overlayDirty) {
+      this.overlayDirty = false;
+      this.drawOverlay();
+    }
+    this.drawTrains();
+    this.updateLabels(now);
+  }
+
+  // ───────────── 地形 ─────────────
+
+  private drawTerrain() {
+    const g = this.terrainG;
+    const w = this.world;
+    g.clear();
+    const groups = new Map<number, number[][]>();
+    const add = (color: number, poly: number[]) => {
+      let arr = groups.get(color);
+      if (!arr) groups.set(color, (arr = []));
+      arr.push(poly);
+    };
+    for (let y = 0; y < w.h; y++) {
+      for (let x = 0; x < w.w; x++) {
+        const t = w.terrain[idx(w, x, y)];
+        const poly = groundPoly([
+          [x - 0.5, y - 0.5],
+          [x + 0.5, y - 0.5],
+          [x + 0.5, y + 0.5],
+          [x - 0.5, y + 0.5],
+        ]);
+        if (t === Terrain.Water) add(hash01(x, y, 3) < 0.5 ? C.water : shade(C.water, 1.04), poly);
+        else add(hash01(x, y) < 0.5 ? C.grassA : C.grassB, poly);
+      }
+    }
+    for (const [color, polys] of groups) {
+      for (const p of polys) g.poly(p);
+      g.fill(color);
+    }
+    // 水面のきらめき
+    for (let y = 0; y < w.h; y++) {
+      for (let x = 0; x < w.w; x++) {
+        if (w.terrain[idx(w, x, y)] !== Terrain.Water || hash01(x, y, 9) > 0.35) continue;
+        const ox = hash01(x, y, 11) * 0.5 - 0.25,
+          oy = hash01(x, y, 12) * 0.5 - 0.25;
+        g.moveTo(isoX(x + ox - 0.12, y + oy), isoY(x + ox - 0.12, y + oy)).lineTo(
+          isoX(x + ox + 0.12, y + oy),
+          isoY(x + ox + 0.12, y + oy),
+        );
+      }
+    }
+    g.stroke({ width: 1.5, color: C.waterHi, alpha: 0.8 });
+    // マップの外枠
+    g.poly(
+      groundPoly([
+        [-0.5, -0.5],
+        [w.w - 0.5, -0.5],
+        [w.w - 0.5, w.h - 0.5],
+        [-0.5, w.h - 0.5],
+      ]),
+    ).stroke({ width: 2, color: 0x000000, alpha: 0.25 });
+  }
+
+  // ───────────── 線路 ─────────────
+
+  private drawTrack() {
+    const g = this.trackG;
+    const w = this.world;
+    g.clear();
+    const segs: [number, number, number][] = [];
+    for (let i = 0; i < w.track.length; i++) {
+      const bits = w.track[i];
+      if (!bits) continue;
+      const x = tx(w, i),
+        y = ty(w, i);
+      for (const d of DIRS) if (bits & d) segs.push([x, y, d]);
+      if (w.terrain[i] === Terrain.Water) {
+        // 橋の床
+        for (const d of DIRS) {
+          if (!(bits & d)) continue;
+          const ex = x + DX[d] * 0.5,
+            ey = y + DY[d] * 0.5;
+          g.moveTo(isoX(x, y), isoY(x, y)).lineTo(isoX(ex, ey), isoY(ex, ey));
+        }
+        g.stroke({ width: 16, color: C.deck, cap: 'round' });
+      }
+    }
+    drawRails(g, segs, 1);
+  }
+
+  // ───────────── 建物など（奥から順に） ─────────────
+
+  private drawObjects() {
+    const g = this.objectsG;
+    const w = this.world;
+    g.clear();
+    const items: { depth: number; draw: () => void }[] = [];
+    const doneIndustry = new Set<number>();
+    for (let i = 0; i < w.occ.length; i++) {
+      const x = tx(w, i),
+        y = ty(w, i);
+      const o = w.occ[i];
+      if (!o) {
+        if (w.terrain[i] === Terrain.Trees) items.push({ depth: x + y, draw: () => drawTrees(g, x, y) });
+        continue;
+      }
+      switch (o.k) {
+        case 'house':
+          items.push({ depth: x + y, draw: () => drawHouse(g, x, y, o.level, o.variant) });
+          break;
+        case 'station': {
+          const st = w.stations.get(o.id);
+          if (!st) break;
+          const isSign = stationSign(st) === i;
+          items.push({ depth: x + y - 0.1, draw: () => drawPlatform(g, x, y, st.axis, isSign) });
+          break;
+        }
+        case 'depot': {
+          const d = w.depots.get(o.id);
+          if (d) items.push({ depth: x + y, draw: () => drawDepot(g, x, y, d.dir) });
+          break;
+        }
+        case 'industry': {
+          if (doneIndustry.has(o.id)) break;
+          doneIndustry.add(o.id);
+          const ind = w.industries.get(o.id)!;
+          const depth = ind.x + ind.w - 1 + ind.y + ind.h - 1;
+          if (ind.type === 'forest') items.push({ depth, draw: () => drawForest(g, ind.x, ind.y, ind.w, ind.h) });
+          else items.push({ depth, draw: () => drawSawmill(g, ind.x, ind.y, ind.w, ind.h, ind.inStock, ind.outStock) });
+          break;
+        }
+      }
+    }
+    items.sort((a, b) => a.depth - b.depth);
+    for (const it of items) it.draw();
+  }
+
+  // ───────────── プレビュー・選択 ─────────────
+
+  private drawOverlay() {
+    const g = this.overlayG;
+    const w = this.world;
+    g.clear();
+    const o = this.overlay;
+    const pv = o.preview;
+    if (pv?.catchment) {
+      const r = pv.catchment;
+      g.poly(
+        groundPoly([
+          [r.x0 - 0.5, r.y0 - 0.5],
+          [r.x1 + 0.5, r.y0 - 0.5],
+          [r.x1 + 0.5, r.y1 + 0.5],
+          [r.x0 - 0.5, r.y1 + 0.5],
+        ]),
+      )
+        .fill({ color: 0x9fd3ff, alpha: 0.16 })
+        .stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
+    }
+    if (o.selectedStation >= 0) {
+      const st = w.stations.get(o.selectedStation);
+      if (st) for (const t of st.tiles) tileDiamond(g, tx(w, t), ty(w, t), 0xffe066, 0.35);
+    }
+    if (pv) {
+      const color = !pv.ok ? 0xff5a4a : pv.remove || pv.kind === 'demolish' ? 0xffa040 : 0xffffff;
+      for (const t of pv.tiles) tileDiamond(g, tx(w, t), ty(w, t), color, 0.32);
+      if (pv.path && pv.path.length > 1 && !pv.remove) {
+        const segs: [number, number, number][] = [];
+        for (let k = 0; k < pv.path.length; k++) {
+          const t = pv.path[k];
+          const x = tx(w, t),
+            y = ty(w, t);
+          for (const nb of [pv.path[k - 1], pv.path[k + 1]]) {
+            if (nb === undefined) continue;
+            const dx = tx(w, nb) - x,
+              dy = ty(w, nb) - y;
+            const d = DIRS.find((dd) => DX[dd] === dx && DY[dd] === dy);
+            if (d) segs.push([x, y, d]);
+          }
+        }
+        drawRails(g, segs, 0.55, pv.ok ? undefined : 0xff5a4a);
+      }
+    }
+    if (o.hover >= 0 && !pv) {
+      const x = tx(w, o.hover),
+        y = ty(w, o.hover);
+      g.poly(
+        groundPoly([
+          [x - 0.5, y - 0.5],
+          [x + 0.5, y - 0.5],
+          [x + 0.5, y + 0.5],
+          [x - 0.5, y + 0.5],
+        ]),
+      ).stroke({ width: 2, color: 0xffffff, alpha: 0.85 });
+    }
+  }
+
+  // ───────────── 列車 ─────────────
+
+  private drawTrains() {
+    const g = this.trainsG;
+    g.clear();
+    const w = this.world;
+    for (const t of w.trains.values()) {
+      if (t.state === 'in_depot') continue;
+      const poly = trainPolyline(w, t);
+      for (let k = 0; k < t.cars.length; k++) {
+        const s = 0.22 + k * 0.47;
+        const a = pointAt(poly, s);
+        const b = pointAt(poly, s + 0.2);
+        const c = pointAt(poly, s - 0.2);
+        let dx = c.x - b.x,
+          dy = c.y - b.y;
+        const len = Math.hypot(dx, dy) || 1;
+        dx /= len;
+        dy /= len;
+        drawCar(g, a.x, a.y, dx, dy, t.cars[k], t.id === this.overlay.selectedTrain);
+      }
+    }
+  }
+
+  trainAt(sx: number, sy: number): number {
+    const w = this.world;
+    let best = -1,
+      bd = 22;
+    for (const t of w.trains.values()) {
+      if (t.state === 'in_depot') continue;
+      const poly = trainPolyline(w, t);
+      for (let k = 0; k < t.cars.length; k++) {
+        const p = pointAt(poly, 0.22 + k * 0.47);
+        const s = this.tileToScreen(p.x, p.y, 6);
+        const d = Math.hypot(s.x - sx, s.y - sy);
+        if (d < bd) {
+          bd = d;
+          best = t.id;
+        }
+      }
+    }
+    return best;
+  }
+
+  // ───────────── 文字（DOMで重ねる：フォントがきれいに出る） ─────────────
+
+  private label(key: string, html: string, cls: string, x: number, y: number, lift: number) {
+    let l = this.labels.get(key);
+    if (!l) {
+      const el = document.createElement('div');
+      el.className = `map-label ${cls}`;
+      this.labelsEl.appendChild(el);
+      l = { el, x, y, lift };
+      this.labels.set(key, l);
+    }
+    if (l.el.innerHTML !== html) l.el.innerHTML = html;
+    l.x = x;
+    l.y = y;
+    l.lift = lift;
+    return l;
+  }
+
+  private updateLabels(now: number) {
+    const w = this.world;
+    if (this.labelsVersion !== w.version || now - this.lastLabelText > 1000) {
+      this.labelsVersion = w.version;
+      this.lastLabelText = now;
+      const live = new Set<string>();
+      for (const town of w.towns.values()) {
+        const k = `town${town.id}`;
+        live.add(k);
+        this.label(
+          k,
+          `<b>${esc(town.name)}町</b><span>${town.population.toLocaleString('ja-JP')}人</span>`,
+          'town',
+          town.cx,
+          town.cy,
+          36,
+        );
+      }
+      for (const st of w.stations.values()) {
+        const k = `st${st.id}`;
+        live.add(k);
+        const s = stationSign(st);
+        this.label(k, esc(st.name), 'station', tx(w, s), ty(w, s), 22);
+      }
+      for (const ind of w.industries.values()) {
+        const k = `ind${ind.id}`;
+        live.add(k);
+        this.label(k, esc(ind.name), 'industry', ind.x + (ind.w - 1) / 2, ind.y + (ind.h - 1) / 2, 46);
+      }
+      for (const [k, l] of this.labels) {
+        if (!live.has(k)) {
+          l.el.remove();
+          this.labels.delete(k);
+        }
+      }
+    }
+    const small = this.zoom < 0.4;
+    this.labelsEl.classList.toggle('far', small);
+    for (const l of this.labels.values()) {
+      const p = this.tileToScreen(l.x, l.y, l.lift);
+      l.el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
+    }
+    // 収入の浮き文字
+    this.floats = this.floats.filter((f) => {
+      const age = now - f.born;
+      if (age > 2200) {
+        f.el.remove();
+        return false;
+      }
+      const p = this.tileToScreen(f.x, f.y, 20 + age * 0.02);
+      f.el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
+      f.el.style.opacity = String(Math.min(1, (2200 - age) / 600));
+      return true;
+    });
+  }
+
+  floatText(tile: number, text: string, cls = 'income') {
+    const el = document.createElement('div');
+    el.className = `float-text ${cls}`;
+    el.textContent = text;
+    this.labelsEl.appendChild(el);
+    this.floats.push({ el, x: tx(this.world, tile), y: ty(this.world, tile), born: performance.now() });
+  }
+}
+
+// ───────────── 描画の部品 ─────────────
+
+function esc(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+}
+
+function tileDiamond(g: Graphics, x: number, y: number, color: number, alpha: number) {
+  g.poly(
+    groundPoly([
+      [x - 0.5, y - 0.5],
+      [x + 0.5, y - 0.5],
+      [x + 0.5, y + 0.5],
+      [x - 0.5, y + 0.5],
+    ]),
+  ).fill({ color, alpha });
+}
+
+/** 線路：道床 → 枕木 → レール の順に描く */
+function drawRails(g: Graphics, segs: [number, number, number][], alpha: number, tint?: number) {
+  for (const [x, y, d] of segs) {
+    const ex = x + DX[d] * 0.5,
+      ey = y + DY[d] * 0.5;
+    g.moveTo(isoX(x, y), isoY(x, y)).lineTo(isoX(ex, ey), isoY(ex, ey));
+  }
+  g.stroke({ width: 11, color: tint ?? C.ballast, alpha, cap: 'round' });
+  for (const [x, y, d] of segs) {
+    const px = DY[d] !== 0 ? 1 : 0,
+      py = DX[d] !== 0 ? 1 : 0; // 地面上で直角の向き
+    for (const f of [0.12, 0.37]) {
+      const cx = x + DX[d] * f,
+        cy = y + DY[d] * f;
+      g.moveTo(isoX(cx - px * 0.2, cy - py * 0.2), isoY(cx - px * 0.2, cy - py * 0.2)).lineTo(
+        isoX(cx + px * 0.2, cy + py * 0.2),
+        isoY(cx + px * 0.2, cy + py * 0.2),
+      );
+    }
+  }
+  g.stroke({ width: 3, color: tint ?? C.sleeper, alpha });
+  for (const [x, y, d] of segs) {
+    const px = DY[d] !== 0 ? 1 : 0,
+      py = DX[d] !== 0 ? 1 : 0;
+    for (const o of [-0.11, 0.11]) {
+      const sx = x + px * o,
+        sy = y + py * o;
+      const ex = sx + DX[d] * 0.5,
+        ey = sy + DY[d] * 0.5;
+      g.moveTo(isoX(sx, sy), isoY(sx, sy)).lineTo(isoX(ex, ey), isoY(ex, ey));
+    }
+  }
+  g.stroke({ width: 1.6, color: tint ? 0xffffff : C.rail, alpha });
+}
+
+/** 直方体（タイル座標で x0..x1, y0..y1、高さ h px） */
+function box(g: Graphics, x0: number, y0: number, x1: number, y1: number, h: number, color: number, base = 0) {
+  // +y 側の面（画面の左下）
+  g.poly([
+    ...groundPoly([[x0, y1]], base),
+    ...groundPoly([[x1, y1]], base),
+    ...groundPoly([[x1, y1]], base + h),
+    ...groundPoly([[x0, y1]], base + h),
+  ]).fill(shade(color, 0.82));
+  // +x 側の面（画面の右下）
+  g.poly([
+    ...groundPoly([[x1, y0]], base),
+    ...groundPoly([[x1, y1]], base),
+    ...groundPoly([[x1, y1]], base + h),
+    ...groundPoly([[x1, y0]], base + h),
+  ]).fill(shade(color, 0.66));
+  // 上面
+  g.poly(
+    groundPoly(
+      [
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
+      ],
+      base + h,
+    ),
+  ).fill(color);
+}
+
+/** 寄棟屋根 */
+function hipRoof(g: Graphics, x0: number, y0: number, x1: number, y1: number, base: number, rh: number, color: number) {
+  const cx = (x0 + x1) / 2,
+    cy = (y0 + y1) / 2;
+  const apex = groundPoly([[cx, cy]], base + rh);
+  const tri = (a: [number, number], b: [number, number], f: number) =>
+    g.poly([...groundPoly([a], base), ...groundPoly([b], base), ...apex]).fill(shade(color, f));
+  tri([x0, y0], [x1, y0], 1.12);
+  tri([x0, y0], [x0, y1], 1.05);
+  tri([x0, y1], [x1, y1], 0.9);
+  tri([x1, y0], [x1, y1], 0.72);
+}
+
+function windowBands(g: Graphics, x0: number, y0: number, x1: number, y1: number, h: number, floors: number) {
+  const fh = h / floors;
+  for (let f = 0; f < floors; f++) {
+    const b = f * fh + fh * 0.35,
+      t = f * fh + fh * 0.7;
+    g.poly([
+      ...groundPoly([[x0 + 0.06, y1]], b),
+      ...groundPoly([[x1 - 0.06, y1]], b),
+      ...groundPoly([[x1 - 0.06, y1]], t),
+      ...groundPoly([[x0 + 0.06, y1]], t),
+    ]).fill({ color: C.window, alpha: 0.55 });
+    g.poly([
+      ...groundPoly([[x1, y0 + 0.06]], b),
+      ...groundPoly([[x1, y1 - 0.06]], b),
+      ...groundPoly([[x1, y1 - 0.06]], t),
+      ...groundPoly([[x1, y0 + 0.06]], t),
+    ]).fill({ color: C.window, alpha: 0.65 });
+  }
+}
+
+function drawHouse(g: Graphics, x: number, y: number, level: 1 | 2 | 3, variant: number) {
+  const j = (hash01(x, y, 5) - 0.5) * 0.08;
+  if (level === 1) {
+    const s = 0.26;
+    box(g, x - s + j, y - s, x + s + j, y + s, 11, C.houseWalls[variant % 4]);
+    hipRoof(g, x - s - 0.04 + j, y - s - 0.04, x + s + 0.04 + j, y + s + 0.04, 11, 10, C.houseRoofs[variant % 4]);
+  } else if (level === 2) {
+    const s = 0.34;
+    const col = C.apt[variant % 4];
+    box(g, x - s, y - s, x + s, y + s, 26, col);
+    windowBands(g, x - s, y - s, x + s, y + s, 26, 3);
+    box(g, x - s - 0.02, y - s - 0.02, x + s + 0.02, y + s + 0.02, 2, shade(col, 0.9), 26);
+  } else {
+    const s = 0.38;
+    const col = C.tower[variant % 4];
+    box(g, x - s, y - s, x + s, y + s, 58, col);
+    windowBands(g, x - s, y - s, x + s, y + s, 58, 8);
+    box(g, x - 0.12, y - 0.12, x + 0.08, y + 0.08, 6, shade(col, 0.8), 58);
+  }
+}
+
+function drawTrees(g: Graphics, x: number, y: number) {
+  const n = 2 + Math.floor(hash01(x, y, 1) * 2);
+  const pts: { ox: number; oy: number; k: number }[] = [];
+  for (let k = 0; k < n; k++) {
+    pts.push({ ox: hash01(x, y, 10 + k) * 0.7 - 0.35, oy: hash01(x, y, 20 + k) * 0.7 - 0.35, k });
+  }
+  pts.sort((a, b) => a.ox + a.oy - (b.ox + b.oy));
+  for (const p of pts) tree(g, x + p.ox, y + p.oy, 0.8 + hash01(x, y, 30 + p.k) * 0.5, hash01(x, y, 40 + p.k));
+}
+
+function tree(g: Graphics, x: number, y: number, size: number, kind: number) {
+  const sx = isoX(x, y),
+    sy = isoY(x, y);
+  g.ellipse(sx, sy, 6 * size, 3 * size).fill({ color: 0x000000, alpha: 0.12 });
+  g.rect(sx - 1.2 * size, sy - 8 * size, 2.4 * size, 8 * size).fill(C.trunk);
+  if (kind < 0.45) {
+    // 針葉樹
+    const c = kind < 0.2 ? C.treeC : C.treeA;
+    g.poly([sx, sy - 24 * size, sx + 7 * size, sy - 6 * size, sx - 7 * size, sy - 6 * size]).fill(c);
+    g.poly([sx, sy - 24 * size, sx + 7 * size, sy - 6 * size, sx, sy - 6 * size]).fill(shade(c, 0.8));
+  } else {
+    const c = kind < 0.75 ? C.treeB : C.treeA;
+    g.circle(sx, sy - 13 * size, 7 * size).fill(c);
+    g.circle(sx - 2 * size, sy - 15 * size, 4 * size).fill(shade(c, 1.15));
+  }
+}
+
+function drawPlatform(g: Graphics, x: number, y: number, axis: 'x' | 'y', withRoof: boolean) {
+  // 線路の両側にホーム
+  const along = 0.5;
+  for (const side of [-1, 1]) {
+    if (axis === 'x') {
+      const y0 = y + side * 0.3 - 0.11,
+        y1 = y + side * 0.3 + 0.11;
+      box(g, x - along, Math.min(y0, y1), x + along, Math.max(y0, y1), 4, C.platform);
+    } else {
+      const x0 = x + side * 0.3 - 0.11,
+        x1 = x + side * 0.3 + 0.11;
+      box(g, Math.min(x0, x1), y - along, Math.max(x0, x1), y + along, 4, C.platform);
+    }
+  }
+  if (withRoof) {
+    // 駅舎の屋根（看板のあるタイル）
+    if (axis === 'x') {
+      box(g, x - 0.3, y - 0.48, x + 0.3, y - 0.36, 14, 0xe9e0cc, 4);
+      box(g, x - 0.42, y - 0.5, x + 0.42, y - 0.12, 2, C.roofStation, 18);
+    } else {
+      box(g, x - 0.48, y - 0.3, x - 0.36, y + 0.3, 14, 0xe9e0cc, 4);
+      box(g, x - 0.5, y - 0.42, x - 0.12, y + 0.42, 2, C.roofStation, 18);
+    }
+  }
+}
+
+function drawDepot(g: Graphics, x: number, y: number, dir: number) {
+  const s = 0.4;
+  box(g, x - s, y - s, x + s, y + s, 18, C.depot);
+  // 入口
+  if (dir === 4 /* S */) {
+    g.poly([
+      ...groundPoly([[x - 0.2, y + s]], 0),
+      ...groundPoly([[x + 0.2, y + s]], 0),
+      ...groundPoly([[x + 0.2, y + s]], 13),
+      ...groundPoly([[x - 0.2, y + s]], 13),
+    ]).fill(0x2a2420);
+  } else if (dir === 2 /* E */) {
+    g.poly([
+      ...groundPoly([[x + s, y - 0.2]], 0),
+      ...groundPoly([[x + s, y + 0.2]], 0),
+      ...groundPoly([[x + s, y + 0.2]], 13),
+      ...groundPoly([[x + s, y - 0.2]], 13),
+    ]).fill(0x2a2420);
+  }
+  hipRoof(g, x - s - 0.03, y - s - 0.03, x + s + 0.03, y + s + 0.03, 18, 9, C.depotRoof);
+}
+
+function drawForest(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  g.poly(
+    groundPoly([
+      [x0 - 0.5, y0 - 0.5],
+      [x0 + w - 0.5, y0 - 0.5],
+      [x0 + w - 0.5, y0 + h - 0.5],
+      [x0 - 0.5, y0 + h - 0.5],
+    ]),
+  ).fill({ color: 0x5e8f3e, alpha: 0.9 });
+  const trees: { x: number; y: number; s: number; k: number }[] = [];
+  for (let yy = 0; yy < h; yy++) {
+    for (let xx = 0; xx < w; xx++) {
+      for (let k = 0; k < 3; k++) {
+        const ox = hash01(x0 + xx, y0 + yy, 50 + k) * 0.8 - 0.4,
+          oy = hash01(x0 + xx, y0 + yy, 60 + k) * 0.8 - 0.4;
+        if (xx === w - 1 && yy === h - 1 && k > 0) continue; // 小屋の場所
+        trees.push({ x: x0 + xx + ox, y: y0 + yy + oy, s: 1 + hash01(x0 + xx, y0 + yy, 70 + k) * 0.4, k: hash01(x0 + xx, y0 + yy, 80 + k) * 0.45 });
+      }
+    }
+  }
+  trees.sort((a, b) => a.x + a.y - (b.x + b.y));
+  for (const t of trees) tree(g, t.x, t.y, t.s, t.k);
+  // 小屋と丸太の山
+  const hx = x0 + w - 1,
+    hy = y0 + h - 1;
+  box(g, hx - 0.3, hy - 0.2, hx + 0.15, hy + 0.3, 12, 0x8a6240);
+  hipRoof(g, hx - 0.34, hy - 0.24, hx + 0.19, hy + 0.34, 12, 8, 0x5a3f2c);
+  logPile(g, hx + 0.32, hy - 0.05, 3);
+}
+
+function logPile(g: Graphics, x: number, y: number, rows: number) {
+  for (let r = 0; r < rows; r++) {
+    for (let k = 0; k < rows - r; k++) {
+      const cx = x + (k - (rows - r - 1) / 2) * 0.12;
+      const sx = isoX(cx, y),
+        sy = isoY(cx, y) - 3 - r * 4.2;
+      g.ellipse(sx, sy, 2.6, 2.6).fill(C.logEnd).stroke({ width: 1, color: C.log });
+    }
+  }
+}
+
+function drawSawmill(g: Graphics, x0: number, y0: number, w: number, h: number, inStock: number, outStock: number) {
+  g.poly(
+    groundPoly([
+      [x0 - 0.5, y0 - 0.5],
+      [x0 + w - 0.5, y0 - 0.5],
+      [x0 + w - 0.5, y0 + h - 0.5],
+      [x0 - 0.5, y0 + h - 0.5],
+    ]),
+  ).fill(0xb7a98c);
+  // 原木置き場（在庫が多いほど高く積む）
+  const logRows = Math.min(4, Math.ceil(inStock / 100));
+  for (let k = 0; k < 3; k++) if (logRows > 0) logPile(g, x0 - 0.2 + k * 0.32, y0 - 0.15, logRows);
+  // 工場
+  box(g, x0 + 0.1, y0 - 0.4, x0 + w - 0.5, y0 + h - 0.55, 24, C.sawmill);
+  // のこぎり屋根
+  for (let k = 0; k < 3; k++) {
+    const a = x0 + 0.1 + k * ((w - 0.6) / 3);
+    const b = a + (w - 0.6) / 3;
+    g.poly([
+      ...groundPoly([[a, y0 - 0.4]], 24),
+      ...groundPoly([[b, y0 - 0.4]], 24),
+      ...groundPoly([[b, y0 + h - 0.55]], 24),
+      ...groundPoly([[a, y0 + h - 0.55]], 24),
+      ...groundPoly([[a, y0 + h - 0.55]], 32),
+      ...groundPoly([[a, y0 - 0.4]], 32),
+    ]).fill(shade(C.sawmillRoof, 1 + k * 0.05));
+  }
+  // 煙突
+  box(g, x0 + w - 0.95, y0 - 0.35, x0 + w - 0.75, y0 - 0.15, 46, 0x7a6a62);
+  // 木材置き場
+  const planks = Math.min(5, Math.ceil(outStock / 80));
+  for (let k = 0; k < planks; k++) {
+    box(g, x0 + 0.3, y0 + h - 0.45, x0 + 1.2, y0 + h - 0.15, 2.4, k % 2 ? C.plank : shade(C.plank, 0.92), k * 2.6);
+  }
+}
+
+// 列車の描画
+
+function trainPolyline(w: World, t: Train): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  const a = t.path[0];
+  const ax = tx(w, a),
+    ay = ty(w, a);
+  if (t.path.length > 1) {
+    const b = t.path[1];
+    pts.push({ x: ax + (tx(w, b) - ax) * t.progress, y: ay + (ty(w, b) - ay) * t.progress });
+  }
+  pts.push({ x: ax, y: ay });
+  for (const p of t.trail) pts.push({ x: tx(w, p), y: ty(w, p) });
+  return pts;
+}
+
+function pointAt(poly: { x: number; y: number }[], s: number): { x: number; y: number } {
+  if (s <= 0 || poly.length === 1) return poly[0];
+  let rem = s;
+  for (let k = 0; k + 1 < poly.length; k++) {
+    const a = poly[k],
+      b = poly[k + 1];
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d >= rem && d > 0) return { x: a.x + ((b.x - a.x) * rem) / d, y: a.y + ((b.y - a.y) * rem) / d };
+    rem -= d;
+  }
+  // 足りなければ最後の方向に延ばす
+  const a = poly[poly.length - 2] ?? poly[0],
+    b = poly[poly.length - 1];
+  const d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return { x: b.x + ((b.x - a.x) * rem) / d, y: b.y + ((b.y - a.y) * rem) / d };
+}
+
+const CAR_COLORS: Record<string, number> = {
+  engine: 0x2f3b4a,
+  coach: 0x3d7a5a,
+  logcar: 0x7a4f2c,
+  lumbercar: 0x9a7a52,
+};
+
+function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car: Car, selected: boolean) {
+  const len = car.type === 'engine' ? 0.44 : 0.42;
+  const wid = 0.22;
+  const h = car.type === 'engine' ? 9 : car.type === 'coach' ? 9 : 5;
+  const px = -dy,
+    py = dx;
+  const corners: [number, number][] = [
+    [x + (dx * len) / 2 + (px * wid) / 2, y + (dy * len) / 2 + (py * wid) / 2],
+    [x + (dx * len) / 2 - (px * wid) / 2, y + (dy * len) / 2 - (py * wid) / 2],
+    [x - (dx * len) / 2 - (px * wid) / 2, y - (dy * len) / 2 - (py * wid) / 2],
+    [x - (dx * len) / 2 + (px * wid) / 2, y - (dy * len) / 2 + (py * wid) / 2],
+  ];
+  const color = CAR_COLORS[car.type];
+  const base = 2;
+  // 影
+  g.poly(groundPoly(corners)).fill({ color: 0x000000, alpha: 0.18 });
+  // 手前を向いた側面
+  for (let k = 0; k < 4; k++) {
+    const a = corners[k],
+      b = corners[(k + 1) % 4];
+    const mx = (a[0] + b[0]) / 2 - x,
+      my = (a[1] + b[1]) / 2 - y;
+    if (mx + my <= 0) continue;
+    g.poly([...groundPoly([a], base), ...groundPoly([b], base), ...groundPoly([b], base + h), ...groundPoly([a], base + h)]).fill(
+      shade(color, mx > my ? 0.68 : 0.84),
+    );
+  }
+  g.poly(groundPoly(corners, base + h)).fill(color);
+  if (selected) g.poly(groundPoly(corners, base + h)).stroke({ width: 2, color: 0xffe066 });
+
+  if (car.type === 'engine') {
+    // 煙突とライン
+    const fx = x + dx * 0.14,
+      fy = y + dy * 0.14;
+    g.ellipse(isoX(fx, fy), isoY(fx, fy) - base - h - 3, 2.2, 3.2).fill(0x1b2129);
+    const s0 = groundPoly([[x - dx * 0.2, y - dy * 0.2]], base + h - 3),
+      s1 = groundPoly([[x + dx * 0.2, y + dy * 0.2]], base + h - 3);
+    g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: 1.5, color: 0xc0443a });
+  } else if (car.type === 'coach') {
+    g.poly(groundPoly(corners.map(([cx, cy]) => [x + (cx - x) * 0.8, y + (cy - y) * 0.6] as [number, number]), base + h)).fill(
+      shade(color, 1.2),
+    );
+  } else {
+    const spec = WAGON_SPECS[car.type];
+    const fill = carLoad(car) / spec.capacity;
+    if (fill > 0.02) {
+      const ch = 2 + fill * 5;
+      const inner = corners.map(([cx, cy]) => [x + (cx - x) * 0.85, y + (cy - y) * 0.75] as [number, number]);
+      g.poly(groundPoly(inner, base + h + ch)).fill(car.type === 'logcar' ? C.logEnd : C.plank);
+      g.poly(groundPoly(inner, base + h + ch)).stroke({ width: 1, color: car.type === 'logcar' ? C.log : 0x9a7a52, alpha: 0.8 });
+    }
+  }
+}
+
+export { TW, TH };

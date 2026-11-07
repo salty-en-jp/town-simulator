@@ -1,0 +1,28 @@
+// ツールバー用のオリジナルアイコン（SVG）
+
+const svg = (body: string) =>
+  `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+
+export const ICONS = {
+  pause: svg('<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/>'),
+  play: svg('<path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none"/>'),
+  fast: svg('<path d="M3 6l8 6-8 6zM12 6l8 6-8 6z" fill="currentColor" stroke="none"/>'),
+  money: svg('<circle cx="12" cy="12" r="9"/><path d="M8 7l4 5 4-5M12 12v6M8.5 13h7M8.5 16h7"/>'),
+  train: svg('<rect x="5" y="3" width="14" height="13" rx="3"/><path d="M5 10h14M9 20l-2 2M15 20l2 2"/><circle cx="9" cy="13" r="1" fill="currentColor"/><circle cx="15" cy="13" r="1" fill="currentColor"/><path d="M8 16l-1 4h10l-1-4"/>'),
+  station: svg('<path d="M3 10l9-6 9 6"/><path d="M5 10v9h14v-9"/><path d="M9 19v-5h6v5"/>'),
+  industry: svg('<path d="M3 20V10l5 3V10l5 3V6h3v14z"/><path d="M17 6V3h3v17"/><path d="M3 20h18"/>'),
+  rail: svg('<path d="M8 3L5 21M16 3l3 18"/><path d="M6.5 7h11M6 12h12M5.5 17h13"/>'),
+  depot: svg('<path d="M3 11l9-7 9 7v9H3z"/><path d="M8 20v-6h8v6"/>'),
+  demolish: svg('<rect x="8" y="9" width="8" height="12" rx="1.5"/><path d="M12 9V6c0-2 2-3 4-3"/><path d="M18 2l1.5 1.5M20 5h2M17 0.5V0"/>'),
+  remove: svg('<path d="M5 5l14 14M19 5L5 19"/>'),
+  undo: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/>'),
+  help: svg('<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 .5c0 2-2.5 2-2.5 4"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/>'),
+  menu: svg('<path d="M4 6h16M4 12h16M4 18h16"/>'),
+  close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  pin: svg('<path d="M9 3h6l-1 6 3 3H7l3-3z"/><path d="M12 12v9"/>'),
+  check: svg('<path d="M4 12l5 5L20 6"/>'),
+  center: svg('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'),
+  orders: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.5"/><circle cx="4.5" cy="12" r="1.5"/><circle cx="4.5" cy="18" r="1.5"/>'),
+  clone: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/>'),
+  skip: svg('<path d="M5 5l9 7-9 7z" fill="currentColor" stroke="none"/><path d="M18 5v14"/>'),
+};

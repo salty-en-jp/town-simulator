@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1f332b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ツナグマチ" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="交通をつなぎ、お金を稼ぎ、街を育てる経営シミュレーション（試作版）" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f332b'/%3E%3Cpath d='M6 22h20M9 22l2-12M23 22l-2-12M8 18h16M9 14h14' stroke='%23f2c14e' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <title>ツナグマチ</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="stage"></div>
+      <div id="labels"></div>
+      <div id="cursor-tip" hidden></div>
+      <nav id="toolbar" aria-label="ツールバー"></nav>
+      <div id="railbar" hidden></div>
+      <div id="mobile-top"></div>
+      <div id="mobile-tools"></div>
+      <div id="windows"></div>
+      <aside id="guide" hidden></aside>
+      <div id="confirm" hidden></div>
+      <div id="toast" role="status" aria-live="polite"></div>
+      <footer id="statusbar"></footer>
+    </div>
+
+    <div id="title">
+      <div class="title-inner">
+        <p class="title-kicker">交通をつなぎ、街を育てる</p>
+        <h1 class="logo">ツナグマチ</h1>
+        <div class="logo-rail" aria-hidden="true"><span></span></div>
+        <button id="start-btn" class="start-btn">はじめる</button>
+        <p class="title-note">試作版（フェーズ0）</p>
+        <p class="title-hint pc-only">右ドラッグで移動 ・ ホイールでズーム ・ OpenTTD と同じ操作です</p>
+        <p class="title-hint touch-only">横向きがおすすめ ・ ホーム画面に追加すると全画面で遊べます</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
