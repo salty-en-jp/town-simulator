@@ -1,0 +1,23 @@
+{
+  "name": "tsunagumachi",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource/dotgothic16": "^5.3.1",
+    "@fontsource/zen-maru-gothic": "^5.3.1",
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}
