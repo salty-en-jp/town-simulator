@@ -29,5 +29,8 @@ export const ICONS = {
   request: svg('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.5h6V4"/><path d="M8.5 11l2 2 4-4M8.5 17h7"/>'),
   market: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
   factoryPlus: svg('<path d="M3 20V11l5 3v-3l5 3V8h3v12z"/><path d="M3 20h13"/><path d="M19 3v6M16 6h6"/>'),
+  pencil: svg('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
+  up: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+  down: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),
   skip: svg('<path d="M5 5l9 7-9 7z" fill="currentColor" stroke="none"/><path d="M18 5v14"/>'),
 };

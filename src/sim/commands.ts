@@ -945,6 +945,44 @@ export function skipOrder(world: World, trainId: number, to?: number): CmdResult
   return { ok: true, cost: 0 };
 }
 
+// ───────────────────────── 名前・指令の並べ替え ─────────────────────────
+
+export type NamedKind = 'station' | 'train' | 'town' | 'industry';
+export const MAX_NAME = 20;
+
+/** 駅・列車・町・産業の名前を変える */
+export function rename(world: World, kind: NamedKind, id: number, name: string): CmdResult {
+  const n = name.replace(/\s+/g, ' ').trim();
+  if (!n) return fail('名前を入れてください');
+  if ([...n].length > MAX_NAME) return fail(`名前は${MAX_NAME}文字までです`);
+  const target =
+    kind === 'station' ? world.stations.get(id) : kind === 'train' ? world.trains.get(id) : kind === 'town' ? world.towns.get(id) : world.industries.get(id);
+  if (!target) return fail('見つかりません');
+  target.name = n;
+  if (kind === 'town') (target as { custom?: boolean }).custom = true;
+  world.version++;
+  return { ok: true, cost: 0 };
+}
+
+/** 指令を上（-1）か下（+1）に動かす。共有している列車の「今の指令」もいっしょに動く */
+export function moveOrder(world: World, trainId: number, index: number, to: number): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t) return fail('列車がありません');
+  const ol = world.orderLists.get(t.orderList)!;
+  const n = ol.orders.length;
+  if (index < 0 || index >= n || to < 0 || to >= n || index === to) return fail('動かせません');
+  const [o] = ol.orders.splice(index, 1);
+  ol.orders.splice(to, 0, o);
+  for (const tr of sharers(world, ol.id)) {
+    const c = tr.curOrder;
+    if (c === index) tr.curOrder = to;
+    else if (index < c && to >= c) tr.curOrder = c - 1;
+    else if (index > c && to <= c) tr.curOrder = c + 1;
+    tr.trackVersion = -1;
+  }
+  return { ok: true, cost: 0 };
+}
+
 /** その駅に止まる列車（指令を共有している列車はまとめる） */
 export function stationTrains(world: World, stationId: number): { orderList: number; trains: Train[] }[] {
   const out = new Map<number, Train[]>();

@@ -53,6 +53,7 @@ import {
   type Town,
   type Train,
   type World,
+  townLabel,
 } from './world';
 
 // ───────────────────────── 受け入れ判定（キャッシュ付き） ─────────────────────────
@@ -122,7 +123,7 @@ export function acceptors(world: World, st: Station, cargo: Cargo): Acceptor[] {
 }
 
 export function acceptorName(world: World, a: { kind: 'industry' | 'town'; id: number }): string {
-  return a.kind === 'industry' ? (world.industries.get(a.id)?.name ?? '?') : `${world.towns.get(a.id)?.name ?? '?'}町`;
+  return a.kind === 'industry' ? (world.industries.get(a.id)?.name ?? '?') : (world.towns.has(a.id) ? townLabel(world.towns.get(a.id)!) : '?');
 }
 
 /** 受け入れ先の今の在庫（多いほど安く買う） */
@@ -603,7 +604,7 @@ function townsDaily(world: World, ctx: DayContext) {
       if (before < m && town.population >= m) {
         pushEvent(world, {
           type: 'news',
-          text: `${town.name}町の人口が${m.toLocaleString('ja-JP')}人を超えました！`,
+          text: `${townLabel(town)}の人口が${m.toLocaleString('ja-JP')}人を超えました！`,
           tone: 'good',
           tile: idx(world, town.cx, town.cy),
         });

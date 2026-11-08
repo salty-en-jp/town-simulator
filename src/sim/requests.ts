@@ -34,6 +34,7 @@ import {
   ty,
   type Station,
   type World,
+  townLabel,
 } from './world';
 
 export type RequestKind = 'deliver' | 'haul' | 'carry_pax' | 'population' | 'connect' | 'rating' | 'income';
@@ -236,9 +237,9 @@ function makeRequest(world: World): Request | null {
       const goal = round(info.goal * scale, 10);
       r = {
         ...base,
-        from: `${t.name}町`,
-        title: `${t.name}町に${cname}を届けて`,
-        desc: `${cname}を${goal}t、${t.name}町に届けてください。${info.why}`,
+        from: `${townLabel(t)}`,
+        title: `${townLabel(t)}に${cname}を届けて`,
+        desc: `${cname}を${goal}t、${townLabel(t)}に届けてください。${info.why}`,
         target: t.id,
         cargo,
         goal,
@@ -254,9 +255,9 @@ function makeRequest(world: World): Request | null {
       const goal = round(80 * scale, 10);
       r = {
         ...base,
-        from: `${t.name}町`,
-        title: `${t.name}町へお客さんを`,
-        desc: `${CARGO_SPECS.passengers.name}を${goal}人、${t.name}町の駅へ運んでください。`,
+        from: `${townLabel(t)}`,
+        title: `${townLabel(t)}へお客さんを`,
+        desc: `${CARGO_SPECS.passengers.name}を${goal}人、${townLabel(t)}の駅へ運んでください。`,
         target: t.id,
         goal,
         deadlineDay: world.day + 365,
@@ -271,9 +272,9 @@ function makeRequest(world: World): Request | null {
       const goal = round(Math.max(t.population * 1.3, t.population + 60), 50);
       r = {
         ...base,
-        from: `${t.name}町`,
-        title: `${t.name}町を人口${goal.toLocaleString('ja-JP')}人に`,
-        desc: `${t.name}町の人口を${goal.toLocaleString('ja-JP')}人にしてください。駅を使い、木材を届けると早く育ちます。`,
+        from: `${townLabel(t)}`,
+        title: `${townLabel(t)}を人口${goal.toLocaleString('ja-JP')}人に`,
+        desc: `${townLabel(t)}の人口を${goal.toLocaleString('ja-JP')}人にしてください。駅を使い、木材を届けると早く育ちます。`,
         target: t.id,
         goal,
         deadlineDay: world.day + 730,
@@ -291,8 +292,8 @@ function makeRequest(world: World): Request | null {
         B = world.towns.get(p[1])!;
       r = {
         ...base,
-        from: `${A.name}町`,
-        title: `${A.name}町と${B.name}町を線路でつないで`,
+        from: `${townLabel(A)}`,
+        title: `${townLabel(A)}と${townLabel(B)}を線路でつないで`,
         desc: `両方の町の近くに駅をつくり、線路でつないでください。`,
         target: A.id,
         target2: B.id,

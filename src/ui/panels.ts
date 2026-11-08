@@ -15,6 +15,8 @@ import {
   sellTrain,
   sellVehicle,
   sendToDepot,
+  moveOrder,
+  rename,
   setOrderDest,
   setOrderLoad,
   setOrderSplit,
@@ -77,6 +79,7 @@ import {
   type Order,
   type Train,
   type UnloadMode,
+  townLabel,
 } from '../sim/world';
 import type { Game } from '../game';
 import { lineChart, monthsAgo, shortYen, sparkline } from './chart';
@@ -135,6 +138,14 @@ export function openTrain(g: Game, id: number) {
   g.selectTrain(id);
   g.wm.open({
     id: `train-${id}`,
+    rename: {
+      get: () => g.world.trains.get(id)?.name ?? '',
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'train', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
       return g.world.trains.get(id)?.name ?? '列車';
     },
@@ -285,7 +296,7 @@ export function openOrders(g: Game, id: number) {
           ]
             .filter(Boolean)
             .join('・');
-          return `<li class="order ${i === sel ? 'sel' : ''} ${i === t.curOrder ? 'cur' : ''}" data-action="sel" data-i="${i}">
+          return `<li class="order ${i === sel ? 'sel' : ''} ${i === t.curOrder ? 'cur' : ''}" data-action="sel" data-i="${i}" ${g.touchUI ? '' : 'draggable="true"'}>
             <span class="oi">${i === t.curOrder ? '▶' : ''}${i + 1}:</span>
             <span>${esc(st?.name ?? '?')}へ${extra ? `<small>（${esc(extra)}）</small>` : ''}</span></li>`;
         })
@@ -305,8 +316,10 @@ export function openOrders(g: Game, id: number) {
           </select></label>
         </div>
         ${o ? destField(g, t, o) : ''}
-        <div class="btnrow">
+        <div class="btnrow wrap order-actions">
           <button class="${picking ? 'on' : ''}" data-action="goto" title="地図の駅をクリック（Ctrl+クリックで満載待ち）">${ICONS.station}<span>行き先</span></button>
+          <button data-action="up" ${o && sel > 0 ? '' : 'disabled'} title="上へ" aria-label="上へ">${ICONS.up}</button>
+          <button data-action="down" ${o && sel < ol.orders.length - 1 ? '' : 'disabled'} title="下へ" aria-label="下へ">${ICONS.down}</button>
           <button data-action="delete" ${o ? '' : 'disabled'}>${ICONS.remove}<span>削除</span></button>
           <button data-action="skip" ${ol.orders.length ? '' : 'disabled'}>${ICONS.skip}<span>スキップ</span></button>
         </div>
@@ -316,7 +329,11 @@ export function openOrders(g: Game, id: number) {
       const t = g.world.trains.get(id);
       if (!t) return;
       if (a === 'sel') g.orderSel.set(id, Number(el.dataset.i));
-      else if (a === 'goto') g.startOrderPick(id);
+      else if (a === 'up' || a === 'down') {
+        const sel = g.orderSel.get(id) ?? -1;
+        const to = sel + (a === 'up' ? -1 : 1);
+        if (g.result(moveOrder(g.world, id, sel, to))) g.orderSel.set(id, to);
+      } else if (a === 'goto') g.startOrderPick(id);
       else if (a === 'delete') {
         const sel = g.orderSel.get(id) ?? -1;
         g.result(deleteOrder(g.world, id, sel));
@@ -346,6 +363,10 @@ export function openOrders(g: Game, id: number) {
         if (split.every((x) => x.w === 0)) target!.w = 1;
         g.result(setOrderSplit(g.world, id, sel, split));
       }
+      g.wm.refreshAll();
+    },
+    onReorder: (from, to) => {
+      if (g.result(moveOrder(g.world, id, from, to))) g.orderSel.set(id, to);
       g.wm.refreshAll();
     },
     onClose: () => {
@@ -602,6 +623,14 @@ export function openStation(g: Game, id: number) {
   g.selectStation(id);
   g.wm.open({
     id: `station-${id}`,
+    rename: {
+      get: () => g.world.stations.get(id)?.name ?? '',
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'station', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
       return g.world.stations.get(id)?.name ?? '駅';
     },
@@ -661,6 +690,14 @@ function stationTrainsSection(g: Game, stationId: number): string {
 export function openIndustry(g: Game, id: number) {
   g.wm.open({
     id: `industry-${id}`,
+    rename: {
+      get: () => g.world.industries.get(id)?.name ?? '',
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'industry', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
       return g.world.industries.get(id)?.name ?? '産業';
     },
@@ -774,8 +811,16 @@ function cargoTag(c: Cargo): string {
 export function openTown(g: Game, id: number) {
   g.wm.open({
     id: `town-${id}`,
+    rename: {
+      get: () => (g.world.towns.has(id) ? townLabel(g.world.towns.get(id)!) : ''),
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'town', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
-      return `${g.world.towns.get(id)?.name ?? ''}町`;
+      return `${g.world.towns.has(id) ? townLabel(g.world.towns.get(id)!) : ''}`;
     },
     width: 320,
     render: () => {
@@ -934,7 +979,7 @@ export function openTownList(g: Game) {
       `<ul class="list">${[...g.world.towns.values()]
         .map(
           (t) =>
-            `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(t.name)}町</b><span class="grow"></span><span class="num">${n0(t.population)}人</span></li>`,
+            `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(townLabel(t))}</b><span class="grow"></span><span class="num">${n0(t.population)}人</span></li>`,
         )
         .join('')}</ul>`,
     onAction: (a, el) => {
@@ -988,6 +1033,7 @@ export function openHelp(g: Game) {
           <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
           <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
           <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
+          <li>駅・列車・町・産業の<b>名前</b>は、ウィンドウのタイトルの横の鉛筆ボタンで変えられます。指令は<b>↑↓</b>（PCはドラッグでも）で並べ替えられます</li>
           <li><b>産業の持ち主</b>：「地元」はだれでも運べます。「他社」は<b>権利を買う</b>か<b>輸送契約</b>を結ぶと運べます（産業をクリック）。自社の産業は運んだ分の利益が毎月入ります</li>
           <li><b>産業をつくる</b>：お金を出して一次産業を<b>探鉱</b>（成功・失敗あり）したり、<b>工場を建てたり</b>できます。一次産業はときどき自然に見つかります</li>
           <li>ほかにも、農場→食品工場→<b>食料品</b>（町が早く育つ）、鉄鉱山と炭鉱→製鉄所→<b>鋼材</b>、木材と鋼材→建材工場→<b>建設資材</b>（高層ビル）。<b>相場表</b>（F10）で、どこが高く買うか見られます</li>
@@ -1125,7 +1171,7 @@ export function openMarket(g: Game) {
       if (TOWN_GOODS.includes(sel)) {
         for (const t of w.towns.values()) {
           const a = { kind: 'town' as const, id: t.id };
-          rows.push({ ...a, name: `${t.name}町`, stock: acceptorStock(w, a, sel), cap: TOWN.stockCap, demand: acceptorDemand(w, a, sel), tile: t.cy * w.w + t.cx });
+          rows.push({ ...a, name: `${townLabel(t)}`, stock: acceptorStock(w, a, sel), cap: TOWN.stockCap, demand: acceptorDemand(w, a, sel), tile: t.cy * w.w + t.cx });
         }
       }
       rows.sort((p, q) => q.demand - p.demand);

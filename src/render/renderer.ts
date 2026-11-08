@@ -18,6 +18,7 @@ import {
   type Rect,
   type Train,
   type World,
+  townLabel,
 } from '../sim/world';
 import { groundPoly, hash01, isoX, isoY, shade, TH, TW, worldToTile } from './iso';
 
@@ -559,7 +560,7 @@ export class Renderer {
         live.add(k);
         this.label(
           k,
-          `<b>${esc(town.name)}町</b><span>${town.population.toLocaleString('ja-JP')}人</span>`,
+          `<b>${esc(townLabel(town))}</b><span>${town.population.toLocaleString('ja-JP')}人</span>`,
           'town',
           town.cx,
           town.cy,

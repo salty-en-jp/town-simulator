@@ -142,7 +142,10 @@ export interface Received {
 
 export interface Town {
   id: number;
+  /** 元の名前（「桜川」）。駅や産業の名前にも使う */
   name: string;
+  /** プレイヤーが名前を変えたら true（そのときは「町」をつけずに表示する） */
+  custom?: boolean;
   cx: number;
   cy: number;
   /** 町が貯めている貨物（木材・食料品・建設資材） */
@@ -563,4 +566,9 @@ export function industryValue(ind: Industry): number {
   if (isPrimary(ind.type)) return Math.round(ind.prodRate * INDUSTRY_ECON.pricePerMonthlyT);
   const base = INDUSTRY_ECON.factoryPrice[ind.type] ?? 30_000_000;
   return Math.round(base * Math.pow(INDUSTRY_ECON.expandFactor, ind.expansions));
+}
+
+/** 町の表示名：ふつうは「桜川町」、名前を変えた町は書いたとおり */
+export function townLabel(t: { name: string; custom?: boolean }): string {
+  return t.custom ? t.name : `${t.name}町`;
 }

@@ -14,6 +14,10 @@ export interface WindowSpec {
   onAction?: (action: string, el: HTMLElement, ev: MouseEvent) => void;
   onChange?: (el: HTMLInputElement | HTMLSelectElement) => void;
   onClose?: () => void;
+  /** 名前を変えられるウィンドウ（タイトルの横に鉛筆ボタン） */
+  rename?: { get: () => string; set: (name: string) => boolean };
+  /** draggable な行（data-i）をドラッグで並べ替えたとき（PC） */
+  onReorder?: (from: number, to: number) => void;
 }
 
 interface Win {
@@ -23,6 +27,7 @@ interface Win {
   titleEl: HTMLElement;
   sticky: boolean;
   lastHtml: string;
+  editing: boolean;
 }
 
 export class WindowManager {
@@ -53,13 +58,14 @@ export class WindowManager {
     el.innerHTML = `
       <header class="win-title">
         <span class="win-title-text"></span>
+        ${spec.rename ? `<button class="win-btn win-rename" title="名前を変える" aria-label="名前を変える">${ICONS.pencil}</button>` : ''}
         <button class="win-btn win-pin" title="固定（Delete キーで閉じない）" aria-label="固定">${ICONS.pin}</button>
         <button class="win-btn win-close" title="閉じる" aria-label="閉じる">${ICONS.close}</button>
       </header>
       <div class="win-body"></div>`;
     const titleEl = el.querySelector('.win-title-text') as HTMLElement;
     const body = el.querySelector('.win-body') as HTMLElement;
-    const win: Win = { spec, el, body, titleEl, sticky: false, lastHtml: '' };
+    const win: Win = { spec, el, body, titleEl, sticky: false, lastHtml: '', editing: false };
     titleEl.textContent = spec.title;
     this.root.appendChild(el);
     this.wins.set(spec.id, win);
@@ -68,6 +74,8 @@ export class WindowManager {
     this.refresh(spec.id, true);
 
     el.querySelector('.win-close')!.addEventListener('click', () => this.close(spec.id));
+    el.querySelector('.win-rename')?.addEventListener('click', () => this.startRename(win));
+    this.makeReorderable(win);
     el.querySelector('.win-pin')!.addEventListener('click', () => {
       win.sticky = !win.sticky;
       el.classList.toggle('sticky', win.sticky);
@@ -120,7 +128,81 @@ export class WindowManager {
       w.lastHtml = html;
       if (key) (w.body.querySelector(`[data-key="${key}"]`) as HTMLElement | null)?.focus();
     }
-    w.titleEl.textContent = w.spec.title;
+    if (!w.editing) w.titleEl.textContent = w.spec.title;
+  }
+
+  /** 行をドラッグして並べ替える（PC のマウス操作） */
+  private makeReorderable(w: Win) {
+    let from = -1;
+    const row = (e: Event) => (e.target as HTMLElement).closest('[draggable="true"][data-i]') as HTMLElement | null;
+    w.el.addEventListener('dragstart', (e) => {
+      const r = row(e);
+      if (!r || !w.spec.onReorder) return;
+      from = Number(r.dataset.i);
+      r.classList.add('dragging');
+      e.dataTransfer?.setData('text/plain', String(from));
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    });
+    w.el.addEventListener('dragover', (e) => {
+      const r = row(e);
+      if (from < 0 || !r) return;
+      e.preventDefault();
+      w.el.querySelectorAll('.drop-target').forEach((x) => x.classList.remove('drop-target'));
+      r.classList.add('drop-target');
+    });
+    const clear = () => {
+      from = -1;
+      w.el.querySelectorAll('.dragging, .drop-target').forEach((x) => x.classList.remove('dragging', 'drop-target'));
+    };
+    w.el.addEventListener('drop', (e) => {
+      const r = row(e);
+      if (from >= 0 && r) {
+        e.preventDefault();
+        const to = Number(r.dataset.i);
+        if (to !== from) w.spec.onReorder?.(from, to);
+      }
+      clear();
+    });
+    w.el.addEventListener('dragend', clear);
+  }
+
+  /** タイトルをその場で書き換える（Enter・欄の外を押すと決定、Esc で取り消し） */
+  private startRename(w: Win) {
+    const r = w.spec.rename;
+    if (!r || w.editing) return;
+    w.editing = true;
+    const input = document.createElement('input');
+    input.className = 'win-rename-input';
+    input.value = r.get();
+    input.maxLength = 20;
+    input.setAttribute('aria-label', '新しい名前');
+    w.titleEl.textContent = '';
+    w.titleEl.appendChild(input);
+    w.el.classList.add('renaming');
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = (save: boolean) => {
+      if (done) return;
+      done = true;
+      const ok = save ? r.set(input.value) : true;
+      if (!ok) {
+        // うまくいかなかったら（空の名前など）もう一度
+        done = false;
+        input.focus();
+        return;
+      }
+      w.editing = false;
+      w.el.classList.remove('renaming');
+      w.titleEl.textContent = w.spec.title;
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Escape') finish(false);
+    });
+    input.addEventListener('blur', () => finish(true));
+    input.addEventListener('pointerdown', (e) => e.stopPropagation());
   }
 
   refreshAll(): void {
