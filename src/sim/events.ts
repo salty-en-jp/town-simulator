@@ -3,14 +3,15 @@
 // 方針：プレイヤーの持ち物（線路・駅・列車・お金）には直接の損害を出さない。
 // 何度でもやり直しやすい今のバランスをこわさないため。
 
+import { startRebuild } from './market';
 import { DIRS, DX, DY, idx, inBounds, pushEvent, townLabel, tx, ty, type Town, type World } from './world';
 
 export const EVENTS = {
   /** 1か月に火事が起きる確率（家1軒あたり）と上限 */
   firePerHouse: 1 / 400,
   fireMax: 0.1,
-  /** これより小さい町では起きない */
-  fireMinHouses: 8,
+  /** これより小さい町（村）では起きない。町（1,000人）から */
+  fireMinPopulation: 1000,
   /** 燃え広がる確率と、燃える家の上限 */
   fireSpread: 0.45,
   fireMaxHouses: 4,
@@ -55,13 +56,15 @@ export function startFire(world: World, town: Town, at?: number): number {
     tone: 'bad',
     tile: first,
   });
+  // 焼けた家を建て直すため、しばらく木材・建設資材が高く売れる
+  startRebuild(world, town.id, burned.length);
   return burned.length;
 }
 
 /** 毎月：町ごとに、家の数に応じた確率で火事が起きる */
 export function eventsMonthly(world: World) {
   for (const town of world.towns.values()) {
-    if (town.houses < EVENTS.fireMinHouses) continue;
+    if (town.population < EVENTS.fireMinPopulation) continue;
     const p = Math.min(EVENTS.fireMax, town.houses * EVENTS.firePerHouse);
     if (world.rng.chance(p)) startFire(world, town);
   }

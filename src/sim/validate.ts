@@ -312,6 +312,23 @@ export function checkSavedWorld(v: unknown): void {
     }),
   );
 
+  optional(s.market, () => cargoNums(s.market, 'market'));
+  optional(s.booms, () =>
+    arr(s.booms, 'booms', 50).forEach((x, i) => {
+      const p = `booms[${i}]`;
+      const b = obj(x, p);
+      id(b.id, `${p}.id`);
+      oneOf(b.kind, ['rush', 'rebuild', 'shortage', 'tourism'], `${p}.kind`);
+      const t = obj(b.target, `${p}.target`);
+      oneOf(t.kind, ['town', 'industry'], `${p}.target.kind`);
+      id(t.id, `${p}.target.id`);
+      oneOf(b.cargo, CARGO_SET, `${p}.cargo`);
+      num(b.mul, `${p}.mul`, 0, 10);
+      num(b.from, `${p}.from`);
+      num(b.until, `${p}.until`);
+    }),
+  );
+
   const hist = obj(s.history, 'history');
   for (const k of ['income', 'expense', 'money', 'assets']) numArr(hist[k], `history.${k}`);
 }

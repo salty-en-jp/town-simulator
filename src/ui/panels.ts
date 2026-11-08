@@ -66,6 +66,7 @@ import {
   signContract,
   upkeepPerMonth,
 } from '../sim/industries';
+import { activeBooms, BOOM_LABEL, boomPlace, boomTile, marketIndex, type Boom } from '../sim/market';
 import { daysLeft, rewardText } from '../sim/requests';
 import { acceptorDemand, acceptorName, acceptors, acceptorStock, stationAccepts } from '../sim/simulate';
 import {
@@ -828,6 +829,7 @@ export function openIndustry(g: Game, id: number) {
       return `
         <div class="ind-status ${status.tone}"><i></i>${esc(status.text)}</div>
         ${ownerSection(g, ind)}
+        ${boomBox(g, { kind: 'industry', id })}
         <p class="chain">${chain}</p>
         <p class="lead">${esc(spec.desc)}</p>
         ${spec.inputs.length ? `<h4>材料の在庫 <small class="muted">少ないほど高く買います</small></h4>${inputs}` : ''}
@@ -910,6 +912,18 @@ function cargoTag(c: Cargo): string {
 
 // ───────────────────────── 町 ─────────────────────────
 
+/** その場所で起きているブーム */
+function boomBox(g: Game, target: Boom['target']): string {
+  const list = activeBooms(g.world).filter((b) => b.target.kind === target.kind && b.target.id === target.id);
+  if (!list.length) return '';
+  return list
+    .map(
+      (b) =>
+        `<div class="boom-box"><b>${BOOM_LABEL[b.kind]}</b><span>${b.cargo === 'passengers' ? 'この町へ来る旅客の運賃' : `${CARGO_SPECS[b.cargo].name}の買取`} ×${b.mul.toFixed(1)}${b.kind === 'tourism' ? '・旅客も増える' : ''}</span><small>あと${Math.max(0, b.until - g.world.day)}日</small></div>`,
+    )
+    .join('');
+}
+
 export function openTown(g: Game, id: number) {
   g.wm.open({
     id: `town-${id}`,
@@ -930,9 +944,10 @@ export function openTown(g: Game, id: number) {
       if (!t) return '';
       const goods = TOWN_GOODS.map((c) => {
         const r = t.recv[c];
-        return `<tr><th>${cargoTag(c)}</th><td class="num">${n0(r?.lm ?? 0)}t</td><td class="num">${n0(t.stock[c] ?? 0)}t</td><td class="num">×${demandFactor(t.stock[c] ?? 0, TOWN.stockCap).toFixed(2)}</td></tr>`;
+        return `<tr><th>${cargoTag(c)}</th><td class="num">${n0(r?.lm ?? 0)}t</td><td class="num">${n0(t.stock[c] ?? 0)}t</td><td class="num">×${acceptorDemand(g.world, { kind: 'town', id }, c).toFixed(2)}</td></tr>`;
       }).join('');
       return `
+        ${boomBox(g, { kind: 'town', id })}
         <dl class="stats">
           <dt>人口</dt><dd><b>${n0(t.population)}人</b></dd>
           <dt>建物</dt><dd>${t.houses}軒</dd>
@@ -1455,33 +1470,47 @@ export function openMarket(g: Game) {
         }
       }
       rows.sort((p, q) => q.demand - p.demand);
+      const boomed = new Set(activeBooms(w).filter((b) => b.cargo === sel).map((b) => `${b.target.kind}:${b.target.id}`));
       const producers = [...w.industries.values()].filter((i) => INDUSTRY_SPECS[i.type].output === sel);
       const spec = CARGO_SPECS[sel];
       return `
         <div class="mtabs">${tabs}</div>
+        ${boomList(g)}
         <p class="small">基本運賃 <b>${formatYen(spec.rate * 10)}</b>/t（10マスあたり）・${spec.days1}日までは満額${spec.days1 <= 8 ? '<span class="warn">（傷みやすい）</span>' : ''}</p>
+        <p class="small">いまの相場 <b class="num ${marketIndex(w, sel) >= 1 ? 'pos' : 'neg'}">×${marketIndex(w, sel).toFixed(2)}</b> <span class="muted">（毎月ゆっくり上下します。下の係数に入っています）</span></p>
         <h4>買い取ってくれる所 <small class="muted">係数が高いほど高く買う</small></h4>
         <ul class="list market">${rows
           .map(
             (r) => `<li class="clickable" data-action="goto" data-tile="${r.tile}">
-              <span class="mname">${esc(r.name)}${served.has(`${r.kind}:${r.id}`) ? '<span class="served" title="自分の駅で届けられます">駅あり</span>' : ''}</span>
+              <span class="mname">${esc(r.name)}${served.has(`${r.kind}:${r.id}`) ? '<span class="served" title="自分の駅で届けられます">駅あり</span>' : ''}${boomed.has(`${r.kind}:${r.id}`) ? '<span class="boom-tag">ブーム</span>' : ''}</span>
               <span class="grow"></span>${gauge(r.stock, r.cap, r.stock > r.cap * 0.8 ? 'bad' : '')}
               <b class="num ${r.demand >= 1 ? 'pos' : 'neg'}">×${r.demand.toFixed(2)}</b></li>`,
           )
           .join('')}</ul>
         <h4>つくっている所</h4>
         <p class="small">${producers.map((i) => `<button class="link" data-action="goto" data-tile="${i.y * w.w + i.x}">${esc(i.name)}</button>`).join('・') || 'なし'}</p>
-        <p class="muted small">ゲージは在庫です。同じ所にばかり運ぶと在庫がたまって安くなるので、ほかの届け先に振り分けると得です。</p>`;
+        <p class="muted small">ゲージは在庫です。同じ所にばかり運ぶと在庫がたまって安くなるので、ほかの届け先に振り分けると得です。ブームの所は期間限定で高く買います。</p>`;
     },
     onAction: (a, el) => {
       if (a === 'cargo') g.marketCargo = el.dataset.c as Cargo;
       if (a === 'goto') {
         const t = Number(el.dataset.tile);
-        g.renderer.centerOnTile(tx(g.world, t), ty(g.world, t));
+        if (t >= 0) g.renderer.centerOnTile(tx(g.world, t), ty(g.world, t));
       }
       g.wm.refresh('market', true);
     },
   });
+}
+
+/** いま起きているブームの一覧（相場表の上） */
+function boomList(g: Game): string {
+  const list = activeBooms(g.world);
+  if (!list.length) return '<p class="muted small">いまはブームはありません。起きるとお知らせが出ます。</p>';
+  return `<h4>いまのブーム</h4><ul class="list booms">${list
+    .map(
+      (b) => `<li class="clickable" data-action="goto" data-tile="${boomTile(g.world, b)}"><span class="boom-tag">${BOOM_LABEL[b.kind]}</span><b>${esc(boomPlace(g.world, b))}</b><span class="small"><span class="cargo-dot ${b.cargo}"></span>${CARGO_SPECS[b.cargo].name} ×${b.mul.toFixed(1)}</span><span class="grow"></span><span class="small muted">あと${Math.max(0, b.until - g.world.day)}日</span></li>`,
+    )
+    .join('')}</ul>`;
 }
 
 // ───────────────────────── 産業をつくる ─────────────────────────

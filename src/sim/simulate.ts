@@ -19,6 +19,7 @@ import {
 import { cargoIncome, demandFactor } from './economy';
 import { replaceEngine } from './commands';
 import { eventsMonthly } from './events';
+import { boomMul, marketIndex, marketMonthly, tourismPaxMul } from './market';
 import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
 import { updateRequests } from './requests';
 import { findPath } from './track';
@@ -155,8 +156,9 @@ export function acceptorStock(world: World, a: { kind: 'industry' | 'town'; id: 
 
 /** 受け入れ先の買取係数（在庫が少ないほど高い。旅客は 1） */
 export function acceptorDemand(world: World, a: { kind: 'industry' | 'town'; id: number }, cargo: Cargo): number {
-  if (cargo === 'passengers') return 1;
-  return demandFactor(acceptorStock(world, a, cargo), a.kind === 'industry' ? INDUSTRY.stockCap : TOWN.stockCap);
+  const boom = boomMul(world, a, cargo);
+  if (cargo === 'passengers') return boom;
+  return demandFactor(acceptorStock(world, a, cargo), a.kind === 'industry' ? INDUSTRY.stockCap : TOWN.stockCap) * marketIndex(world, cargo) * boom;
 }
 
 // ───────────────────────── 列車 ─────────────────────────
@@ -499,14 +501,15 @@ function industriesDaily(world: World, ctx: DayContext) {
 }
 
 function housesDaily(world: World, ctx: DayContext) {
-  for (const tiles of ctx.housesByTown.values()) {
+  for (const [townId, tiles] of ctx.housesByTown) {
+    const mul = tourismPaxMul(world, townId);
     for (const t of tiles) {
       const o = world.occ[t];
       if (o?.k !== 'house') continue;
       const x = tx(world, t),
         y = ty(world, t);
       const cands = bestStations(world, ctx, 'passengers', (r) => rectContains(r, x, y));
-      handToStations(cands, 'passengers', HOUSE_PAX_PER_DAY[o.level]);
+      handToStations(cands, 'passengers', HOUSE_PAX_PER_DAY[o.level] * mul);
     }
   }
 }
@@ -734,6 +737,7 @@ function monthly(world: World) {
   }
   industriesOwnershipMonthly(world);
   eventsMonthly(world);
+  marketMonthly(world);
   recordCompany(world);
   for (const town of world.towns.values()) {
     for (const r of Object.values(town.recv)) {
