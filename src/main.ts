@@ -10,6 +10,7 @@ import * as panels from './ui/panels';
 import * as events from './sim/events';
 import * as sim from './sim/simulate';
 import type { World } from './sim/world';
+import { VERSION } from './version';
 import { listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence } from './storage';
 
 async function main() {
@@ -21,6 +22,7 @@ async function main() {
   const seedParam = Number(params.get('seed'));
   const seed = Number.isFinite(seedParam) && seedParam > 0 ? seedParam : Math.floor(Math.random() * 1e9);
   requestPersistence();
+  document.getElementById('title-version')!.textContent = `試作版 v${VERSION}`;
 
   const leaveTitle = async () => {
     // 文字が揃ってから表示する（フォントの読み込み待ち。遅くても1.5秒で進む）
@@ -81,9 +83,12 @@ async function main() {
   });
   if (params.has('autostart')) startNew();
 
-  // 自動テスト・デバッグ用
-  (window as unknown as { __game: Game }).__game = game;
-  (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim, events };
+  // 自動テスト・デバッグ用の入口。公開版には入れない
+  // （開発サーバー、または VITE_TEST_HOOKS=1 でビルドしたときだけ）
+  if (import.meta.env.DEV || import.meta.env.VITE_TEST_HOOKS === '1') {
+    (window as unknown as { __game: Game }).__game = game;
+    (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim, events };
+  }
 }
 
 main();

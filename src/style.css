@@ -139,9 +139,25 @@ input {
   font-size: 12px;
 }
 
+/* 遠くまでズームアウトしたとき：駅と産業は小さな札にする（消さない） */
 #labels.far .map-label.station,
 #labels.far .map-label.industry {
+  font-size: 10px;
+  padding: 2px 4px 1px;
+  max-width: 7em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.9;
+}
+
+#labels.far .map-label.industry small,
+#labels.far .map-label .ord {
   display: none;
+}
+
+#labels.far .map-label.town {
+  font-size: 13px;
+  padding: 4px 7px 3px;
 }
 
 .float-text {
@@ -1262,6 +1278,10 @@ body.touch .orders li {
   body.touch #confirm:not([hidden]) {
     bottom: calc(var(--safe-b) + 16px);
   }
+
+  body.touch.has-sheet #mobile-tools {
+    display: none;
+  }
 }
 
 body.touch #guide {
@@ -1905,7 +1925,8 @@ body.picking .map-label.station:hover {
 }
 
 body.picking #labels.far .map-label.station {
-  display: block;
+  font-size: 12px;
+  max-width: none;
 }
 
 /* ───────────── 新しい貨物・貨車の色 ───────────── */
@@ -2444,4 +2465,219 @@ body.touch #confirm .confirm-info {
 .float-text.fire {
   font-size: 22px;
   text-shadow: none;
+}
+
+/* ───────────── v0.5.2：保存の合図・ヘルプのタブ・取扱説明書・お知らせの履歴 ───────────── */
+
+#saved {
+  position: absolute;
+  right: calc(var(--safe-r) + 12px);
+  bottom: calc(var(--safe-b) + 38px);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px 3px;
+  border-radius: 999px;
+  background: rgba(20, 30, 26, 0.82);
+  color: var(--rail-ink);
+  font-family: var(--font-game);
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
+  pointer-events: none;
+}
+
+#saved svg {
+  width: 14px;
+  height: 14px;
+}
+
+#saved.show {
+  opacity: 1;
+  transform: none;
+}
+
+body.touch #saved {
+  bottom: calc(var(--safe-b) + 12px);
+  right: auto;
+  left: 50%;
+  top: auto;
+  transform: translate(-50%, 4px);
+}
+
+body.touch #saved.show {
+  transform: translate(-50%, 0);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: -2px 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabs button {
+  flex: 1;
+  padding: 7px 4px 6px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-game);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tabs button.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+body.touch .tabs button {
+  min-height: 42px;
+}
+
+.relnote h4 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.relnote h4 small {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.relnote .tag {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f3dcc0;
+  color: #7a4a1c;
+}
+
+.relnote ul,
+details.manual ol {
+  margin: 4px 0 10px;
+  padding-left: 1.3em;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+details.manual {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  margin-bottom: 6px;
+}
+
+details.manual summary {
+  padding: 8px 10px;
+  font-family: var(--font-game);
+  font-size: 14px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+details.manual[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+details.manual > div {
+  padding: 4px 12px 8px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+details.manual p {
+  margin: 6px 0;
+}
+
+.news-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.news-log li {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: 6px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.news-log li.link {
+  cursor: pointer;
+}
+
+.news-log li.link:hover {
+  background: var(--paper-2);
+}
+
+.news-log .d {
+  color: var(--ink-soft);
+  font-size: 11px;
+  padding-top: 2px;
+}
+
+.news-log li.bad .t {
+  color: var(--bad);
+}
+
+.news-log li.good .t {
+  color: var(--good);
+}
+
+/* ───────────── v0.5.4：一覧の並べ替え・絞り込み ───────────── */
+
+.list-ctl {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.list-ctl label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.list-ctl select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+body.touch .list-ctl select {
+  min-height: 40px;
+  font-size: 15px;
+}
+
+.g-sub {
+  margin: 4px 12px 2px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+#guide.min .g-sub {
+  display: none;
 }

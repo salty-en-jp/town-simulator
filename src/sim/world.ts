@@ -159,6 +159,8 @@ export interface Town {
   population: number;
   houses: number;
   activeStations: number;
+  /** 毎月の人口の記録（右詰め：最後が先月）。v0.5.4 から。古いセーブにはないので、ないときは空から */
+  popHist?: number[];
 }
 
 export type LoadMode = 'if_available' | 'full_any' | 'full_all' | 'none';

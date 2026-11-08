@@ -13,6 +13,8 @@ export interface WindowSpec {
   /** data-action を持つ要素がクリックされたとき */
   onAction?: (action: string, el: HTMLElement, ev: MouseEvent) => void;
   onChange?: (el: HTMLInputElement | HTMLSelectElement) => void;
+  /** スライダーを動かしている最中（値は確定しない。見た目だけ更新する） */
+  onInput?: (el: HTMLInputElement, body: HTMLElement) => void;
   onClose?: () => void;
   /** 名前を変えられるウィンドウ（タイトルの横に鉛筆ボタン） */
   rename?: { get: () => string; set: (name: string) => boolean };
@@ -28,6 +30,9 @@ interface Win {
   sticky: boolean;
   lastHtml: string;
   editing: boolean;
+  /** スライダーなどをつかんでいる間は書き換えない */
+  holding: boolean;
+  release?: () => void;
 }
 
 export class WindowManager {
@@ -65,7 +70,7 @@ export class WindowManager {
       <div class="win-body"></div>`;
     const titleEl = el.querySelector('.win-title-text') as HTMLElement;
     const body = el.querySelector('.win-body') as HTMLElement;
-    const win: Win = { spec, el, body, titleEl, sticky: false, lastHtml: '', editing: false };
+    const win: Win = { spec, el, body, titleEl, sticky: false, lastHtml: '', editing: false, holding: false };
     titleEl.textContent = spec.title;
     this.root.appendChild(el);
     this.wins.set(spec.id, win);
@@ -87,8 +92,32 @@ export class WindowManager {
     });
     el.addEventListener('change', (ev) => {
       const t = ev.target as HTMLInputElement | HTMLSelectElement;
+      win.holding = false;
       win.spec.onChange?.(t);
+      // 選び終わった項目にフォーカスが残ると、次の書き換えが止まったままになる
+      if (t.tagName === 'SELECT' || (t as HTMLInputElement).type === 'range') t.blur();
+      this.refresh(win.spec.id);
     });
+    el.addEventListener('input', (ev) => {
+      const t = ev.target as HTMLInputElement;
+      if (t.type === 'range') win.spec.onInput?.(t, win.body);
+    });
+    // スライダーをつかんでいる間は、定期的な書き換えで手から離れないようにする
+    // ボタンも同じ：押している間に書き換わると、指を離したときのタップが消えてしまう
+    win.body.addEventListener('pointerdown', () => {
+      win.holding = true;
+    });
+    const release = () => {
+      if (!win.holding) return;
+      // click は pointerup のあとに届くので、少し待ってから書き換える
+      window.setTimeout(() => {
+        win.holding = false;
+        this.refresh(win.spec.id);
+      }, 60);
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    win.release = release;
     this.makeDraggable(win);
   }
 
@@ -96,6 +125,10 @@ export class WindowManager {
     const w = this.wins.get(id);
     if (!w) return;
     w.el.remove();
+    if (w.release) {
+      window.removeEventListener('pointerup', w.release);
+      window.removeEventListener('pointercancel', w.release);
+    }
     this.wins.delete(id);
     w.spec.onClose?.();
     this.updateTouchStack();
@@ -119,14 +152,23 @@ export class WindowManager {
   refresh(id: string, force = false): void {
     const w = this.wins.get(id);
     if (!w) return;
+    const active = document.activeElement as HTMLElement | null;
+    const inside = !!active && w.body.contains(active);
+    // スライダーをつかんでいる間・選択肢を開いている間は書き換えない（値が戻ってしまうため）
+    if (!force && (w.holding || (inside && active!.tagName === 'SELECT'))) {
+      if (!w.editing) w.titleEl.textContent = w.spec.title;
+      return;
+    }
     const html = w.spec.render();
     if (force || html !== w.lastHtml) {
       // 入力中の要素は書き換えで消えないよう、フォーカスを覚えておく
-      const active = document.activeElement as HTMLElement | null;
-      const key = active && w.body.contains(active) ? active.dataset.key : undefined;
+      const key = inside ? active!.dataset.key : undefined;
+      // 書き換えてもスクロール位置を保つ（スマホで上に戻ってしまうのを防ぐ）
+      const top = w.body.scrollTop;
       w.body.innerHTML = html;
       w.lastHtml = html;
-      if (key) (w.body.querySelector(`[data-key="${key}"]`) as HTMLElement | null)?.focus();
+      if (w.body.scrollTop !== top) w.body.scrollTop = top;
+      if (key) (w.body.querySelector(`[data-key="${key}"]`) as HTMLElement | null)?.focus({ preventScroll: true });
     }
     if (!w.editing) w.titleEl.textContent = w.spec.title;
   }
@@ -228,6 +270,8 @@ export class WindowManager {
   private updateTouchStack() {
     const list = [...this.wins.values()].sort((a, b) => +a.el.style.zIndex - +b.el.style.zIndex);
     list.forEach((w, i) => w.el.classList.toggle('behind', this.touchMode && i < list.length - 1));
+    // 縦持ちのスマホでは、パネルが出ている間は右の道具ボタンを下げる（重なるため）
+    document.body.classList.toggle('has-sheet', list.length > 0);
   }
 
   private place(w: Win) {

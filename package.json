@@ -1,11 +1,12 @@
 {
   "name": "tsunagumachi",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:test": "VITE_TEST_HOOKS=1 npm run build",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

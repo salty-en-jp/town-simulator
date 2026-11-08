@@ -740,6 +740,7 @@ function monthly(world: World) {
       r!.lm = r!.m;
       r!.m = 0;
     }
+    pushHist((town.popHist ??= []), town.population);
   }
 }
 

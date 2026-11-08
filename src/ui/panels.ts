@@ -1,5 +1,7 @@
 // 各ウィンドウの中身（HTML）とボタンの動作
 
+import { VERSION } from '../version';
+import { manualHtml, releaseNotesHtml } from './manual';
 import {
   addOrder,
   attachVehicle,
@@ -69,9 +71,11 @@ import { acceptorDemand, acceptorName, acceptors, acceptorStock, stationAccepts 
 import {
   canBuy,
   carCapacity,
+  canLoadFrom,
   carCargo,
   carLoad,
   FINANCE_CATEGORIES,
+  isPrimary,
   stationSign,
   trainEngine,
   tx,
@@ -80,6 +84,8 @@ import {
   type Industry,
   type LoadMode,
   type Order,
+  type Station,
+  type Town,
   type Train,
   type UnloadMode,
   townLabel,
@@ -450,6 +456,16 @@ export function openOrders(g: Game, id: number) {
         g.result(setOrderSplit(g.world, id, sel, split));
       }
       g.wm.refreshAll();
+    },
+    onInput: (el, body) => {
+      // 動かしている最中も割合（%）を表示し直す。値は指を離したときに決める
+      if (!el.dataset.key?.startsWith('splitw-')) return;
+      const inputs = [...body.querySelectorAll<HTMLInputElement>('.split input[type="range"]')];
+      const sum = inputs.reduce((n, i) => n + Number(i.value), 0) || 1;
+      for (const i of inputs) {
+        const out = i.parentElement?.querySelector('.num');
+        if (out) out.textContent = `${Math.round((Number(i.value) / sum) * 100)}%`;
+      }
     },
     onReorder: (from, to) => {
       if (g.result(moveOrder(g.world, id, from, to))) g.orderSel.set(id, to);
@@ -925,7 +941,13 @@ export function openTown(g: Game, id: number) {
           <dt>届いた旅客（先月）</dt><dd>${n0(t.recv.passengers?.lm ?? 0)}人</dd>
         </dl>
         <table class="tbl"><tr><th></th><th class="num">先月届いた</th><th class="num">在庫</th><th class="num">買取</th></tr>${goods}</table>
-        <p class="muted small">木材で家とアパート、建設資材で高層ビルが建ちます。食料品が足りていると町が早く育ちます。駅がよく使われているほど成長が速くなります。</p>`;
+        <p class="muted small">木材で家とアパート、建設資材で高層ビルが建ちます。食料品が足りていると町が早く育ちます。駅がよく使われているほど成長が速くなります。</p>
+        <h4>人口の移り変わり</h4>
+        ${lineChart([{ name: '人口', color: '#2c4a3e', data: t.popHist ?? [] }], {
+          height: 100,
+          xLeft: monthsAgo(Math.max(1, t.popHist?.length ?? 0)),
+          xRight: '先月',
+        })}`;
     },
   });
 }
@@ -980,24 +1002,75 @@ export function openFinance(g: Game) {
 
 // ───────────────────────── 一覧 ─────────────────────────
 
+// 並べ替え・絞り込み（ウィンドウを閉じても、遊んでいる間は覚えておく）
+const listState = new Map<string, { sort: string; filter: string }>();
+
+function listCtl(id: string, sorts: [string, string][], filters: [string, string][] = []) {
+  const st = listState.get(id) ?? { sort: sorts[0][0], filter: filters[0]?.[0] ?? 'all' };
+  listState.set(id, st);
+  const opt = (list: [string, string][], cur: string) => list.map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v}</option>`).join('');
+  const html = `<div class="list-ctl">
+      <label>並べ方<select data-key="sort">${opt(sorts, st.sort)}</select></label>
+      ${filters.length ? `<label>表示<select data-key="filter">${opt(filters, st.filter)}</select></label>` : ''}
+    </div>`;
+  return { ...st, html };
+}
+
+function listChange(g: Game, id: string, el: HTMLInputElement | HTMLSelectElement) {
+  const st = listState.get(id);
+  if (!st) return;
+  if (el.dataset.key === 'sort') st.sort = el.value;
+  if (el.dataset.key === 'filter') st.filter = el.value;
+  g.wm.refresh(id, true);
+}
+
+const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name, 'ja');
+const emptyFilter = '<p class="muted small">この条件に合うものはありません。</p>';
+
 export function openTrainList(g: Game) {
   g.wm.open({
     id: 'trains',
     title: '列車一覧',
-    width: 380,
+    width: 400,
     render: () => {
-      const list = [...g.world.trains.values()];
+      let list = [...g.world.trains.values()];
       if (!list.length) return '<p class="muted">列車がありません。車庫をクリックして列車を買いましょう。</p>';
-      return `<ul class="list">${list
+      const c = listCtl(
+        'trains',
+        [
+          ['id', '買った順'],
+          ['profit', '今年の利益が多い順'],
+          ['loss', '今年の利益が少ない順'],
+          ['month', '先月の利益が多い順'],
+          ['name', '名前順'],
+        ],
+        [
+          ['all', 'すべて'],
+          ['red', '先月赤字の列車'],
+          ['stopped', '止まっている列車'],
+          ['moving', '走っている列車'],
+        ],
+      );
+      const last = (t: Train) => t.hist.at(-1) ?? 0;
+      const stopped = (t: Train) => t.state === 'in_depot' || t.state === 'stopped' || t.state === 'no_path';
+      if (c.filter === 'red') list = list.filter((t) => last(t) < 0);
+      if (c.filter === 'stopped') list = list.filter(stopped);
+      if (c.filter === 'moving') list = list.filter((t) => !stopped(t));
+      if (c.sort === 'profit') list.sort((a, b) => b.profitThisYear - a.profitThisYear);
+      if (c.sort === 'loss') list.sort((a, b) => a.profitThisYear - b.profitThisYear);
+      if (c.sort === 'month') list.sort((a, b) => last(b) - last(a));
+      if (c.sort === 'name') list.sort(byName);
+      return `${c.html}${list.length ? '' : emptyFilter}<ul class="list">${list
         .map((t) => {
           const s = trainStatus(g, t);
-          return `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(t.name)}</b><span class="small ${s.tone === 'bad' ? 'neg' : 'muted'} ellipsis">${esc(s.text.replace(' — クリックで発車', ''))}</span><span class="grow"></span>${sparkline(t.hist.slice(-12), (t.hist.at(-1) ?? 0) >= 0 ? '#2f8a4a' : '#c0443a')}<span class="num ${t.profitThisYear >= 0 ? 'pos' : 'neg'}">${formatYen(t.profitThisYear)}</span></li>`;
+          return `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(t.name)}</b><span class="small ${s.tone === 'bad' ? 'neg' : 'muted'} ellipsis">${esc(s.text.replace(' — クリックで発車', ''))}</span><span class="grow"></span>${sparkline(t.hist.slice(-12), last(t) >= 0 ? '#2f8a4a' : '#c0443a')}<span class="num ${t.profitThisYear >= 0 ? 'pos' : 'neg'}">${formatYen(t.profitThisYear)}</span></li>`;
         })
         .join('')}</ul>`;
     },
     onAction: (a, el) => {
       if (a === 'open') openTrain(g, Number(el.dataset.id));
     },
+    onChange: (el) => listChange(g, 'trains', el),
   });
 }
 
@@ -1005,16 +1078,42 @@ export function openStationList(g: Game) {
   g.wm.open({
     id: 'stations',
     title: '駅一覧',
-    width: 340,
+    width: 360,
     render: () => {
-      const list = [...g.world.stations.values()];
+      let list = [...g.world.stations.values()];
       if (!list.length) return '<p class="muted">駅がありません。鉄道建設ツールの「駅」で作れます。</p>';
-      return `<ul class="list">${list
+      const c = listCtl(
+        'stations',
+        [
+          ['id', '建てた順'],
+          ['waiting', '待っている荷物が多い順'],
+          ['rating', '評価が低い順'],
+          ['name', '名前順'],
+        ],
+        [
+          ['all', 'すべて'],
+          ['waiting', '荷物が待っている駅'],
+          ['unused', '列車が来ていない駅'],
+        ],
+      );
+      const waitSum = (st: Station) => CARGOS.reduce((n, k) => n + st.goods[k].waiting, 0);
+      const rating = (st: Station) => {
+        const r = CARGOS.filter((k) => st.goods[k].visited).map((k) => st.goods[k].rating);
+        return r.length ? Math.min(...r) : 999;
+      };
+      const unused = (st: Station) => stationTrains(g.world, st.id).length === 0;
+      if (c.filter === 'waiting') list = list.filter((st) => waitSum(st) >= 1);
+      if (c.filter === 'unused') list = list.filter(unused);
+      if (c.sort === 'waiting') list.sort((a, b) => waitSum(b) - waitSum(a));
+      if (c.sort === 'rating') list.sort((a, b) => rating(a) - rating(b));
+      if (c.sort === 'name') list.sort(byName);
+      return `${c.html}${list.length ? '' : emptyFilter}<ul class="list">${list
         .map((st) => {
-          const waiting = CARGOS.filter((c) => st.goods[c].waiting >= 1)
-            .map((c) => `<span class="tag"><span class="cargo-dot ${c}"></span>${n0(st.goods[c].waiting)}${CARGO_SPECS[c].unit}</span>`)
+          const waiting = CARGOS.filter((k) => st.goods[k].waiting >= 1)
+            .map((k) => `<span class="tag"><span class="cargo-dot ${k}"></span>${n0(st.goods[k].waiting)}${CARGO_SPECS[k].unit}</span>`)
             .join('');
-          return `<li data-action="open" data-id="${st.id}" class="clickable"><b>${esc(st.name)}</b><span class="grow"></span>${waiting}</li>`;
+          const r = rating(st);
+          return `<li data-action="open" data-id="${st.id}" class="clickable"><b>${esc(st.name)}</b>${r < 999 ? `<span class="small muted">評価 ${pct(r / 255)}</span>` : ''}<span class="grow"></span>${waiting}</li>`;
         })
         .join('')}</ul>`;
     },
@@ -1028,24 +1127,56 @@ export function openStationList(g: Game) {
         }
       }
     },
+    onChange: (el) => listChange(g, 'stations', el),
   });
 }
+
+const TONE_ORDER: Record<string, number> = { bad: 0, warn: 1, mute: 2, good: 3 };
 
 export function openIndustryList(g: Game) {
   g.wm.open({
     id: 'industries',
     title: '産業一覧',
-    width: 340,
-    render: () =>
-      `<ul class="list">${[...g.world.industries.values()]
-        .map((ind) => {
-          const tr = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
-          const ol = ownerLabel(g.world, ind);
-          const stt = industryStatus(g.world, ind);
-          return `<li data-action="open" data-id="${ind.id}" class="clickable"><span class="owner-badge ${ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : 'public'}">${ol}</span><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="ind-st ${stt.tone}" title="${esc(stt.text)}"><i></i>${STATUS_SHORT[stt.code]}</span><span class="small muted">${pct(tr)}</span></li>`;
+    width: 380,
+    render: () => {
+      const w = g.world;
+      const c = listCtl(
+        'industries',
+        [
+          ['id', '見つかった順'],
+          ['status', '困っている順'],
+          ['rate', '運び出しが少ない順'],
+          ['type', '種類順'],
+          ['name', '名前順'],
+        ],
+        [
+          ['all', 'すべて'],
+          ['own', '自社の産業'],
+          ['usable', '運び出せる産業'],
+          ['trouble', '順調でない産業'],
+          ['primary', '一次産業（森・農場・鉱山）'],
+          ['factory', '工場'],
+        ],
+      );
+      const rate = (ind: Industry) => (ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0);
+      const types = Object.keys(INDUSTRY_SPECS);
+      let list = [...w.industries.values()].map((ind) => ({ ind, stt: industryStatus(w, ind), ol: ownerLabel(w, ind), name: ind.name }));
+      if (c.filter === 'own') list = list.filter((x) => x.ind.owner === 'player');
+      if (c.filter === 'usable') list = list.filter((x) => canLoadFrom(w, x.ind));
+      if (c.filter === 'trouble') list = list.filter((x) => x.stt.code !== 'ok');
+      if (c.filter === 'primary') list = list.filter((x) => isPrimary(x.ind.type));
+      if (c.filter === 'factory') list = list.filter((x) => !isPrimary(x.ind.type));
+      if (c.sort === 'status') list.sort((a, b) => (TONE_ORDER[a.stt.tone] ?? 2) - (TONE_ORDER[b.stt.tone] ?? 2));
+      if (c.sort === 'rate') list.sort((a, b) => rate(a.ind) - rate(b.ind));
+      if (c.sort === 'type') list.sort((a, b) => types.indexOf(a.ind.type) - types.indexOf(b.ind.type));
+      if (c.sort === 'name') list.sort(byName);
+      return `${c.html}${list.length ? '' : emptyFilter}<ul class="list">${list
+        .map(({ ind, stt, ol }) => {
+          return `<li data-action="open" data-id="${ind.id}" class="clickable"><span class="owner-badge ${ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : 'public'}">${ol}</span><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((k) => CARGO_SPECS[k].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="ind-st ${stt.tone}" title="${esc(stt.text)}"><i></i>${STATUS_SHORT[stt.code]}</span><span class="small muted">${pct(rate(ind))}</span></li>`;
         })
         .join('')}</ul>
-       <p class="muted small">森→製材所→木材（町に家）／農場→食品工場→食料品（町が早く育つ）／鉄鉱山＋炭鉱→製鉄所→鋼材／木材＋鋼材→建材工場→建設資材（町に高層ビル）</p>`,
+       <p class="muted small">森→製材所→木材（町に家）／農場→食品工場→食料品（町が早く育つ）／鉄鉱山＋炭鉱→製鉄所→鋼材／木材＋鋼材→建材工場→建設資材（町に高層ビル）</p>`;
+    },
     onAction: (a, el) => {
       if (a === 'open') {
         const ind = g.world.industries.get(Number(el.dataset.id))!;
@@ -1053,6 +1184,7 @@ export function openIndustryList(g: Game) {
         openIndustry(g, ind.id);
       }
     },
+    onChange: (el) => listChange(g, 'industries', el),
   });
 }
 
@@ -1060,14 +1192,28 @@ export function openTownList(g: Game) {
   g.wm.open({
     id: 'towns',
     title: '町一覧',
-    width: 300,
-    render: () =>
-      `<ul class="list">${[...g.world.towns.values()]
-        .map(
-          (t) =>
-            `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(townLabel(t))}</b><span class="grow"></span><span class="num">${n0(t.population)}人</span></li>`,
-        )
-        .join('')}</ul>`,
+    width: 320,
+    render: () => {
+      const c = listCtl('towns', [
+        ['pop', '人口が多い順'],
+        ['growth', '先月よく育った順'],
+        ['name', '名前順'],
+      ]);
+      const growth = (t: Town) => {
+        const h = t.popHist ?? [];
+        return h.length >= 2 ? h[h.length - 1] - h[h.length - 2] : 0;
+      };
+      const list = [...g.world.towns.values()].map((t) => ({ t, name: townLabel(t) }));
+      if (c.sort === 'pop') list.sort((a, b) => b.t.population - a.t.population);
+      if (c.sort === 'growth') list.sort((a, b) => growth(b.t) - growth(a.t));
+      if (c.sort === 'name') list.sort(byName);
+      return `${c.html}<ul class="list">${list
+        .map(({ t, name }) => {
+          const d = growth(t);
+          return `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(name)}</b>${(t.popHist?.length ?? 0) > 1 ? sparkline(t.popHist!.slice(-12), '#2c4a3e') : ''}<span class="grow"></span>${d ? `<span class="small ${d > 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${n0(d)}</span>` : ''}<span class="num">${n0(t.population)}人</span></li>`;
+        })
+        .join('')}</ul>`;
+    },
     onAction: (a, el) => {
       if (a === 'open') {
         const t = g.world.towns.get(Number(el.dataset.id))!;
@@ -1075,18 +1221,60 @@ export function openTownList(g: Game) {
         openTown(g, t.id);
       }
     },
+    onChange: (el) => listChange(g, 'towns', el),
   });
 }
 
 // ───────────────────────── ヘルプ・メニュー ─────────────────────────
 
-export function openHelp(g: Game) {
+export type HelpTab = 'keys' | 'manual' | 'notes';
+let helpTab: HelpTab = 'keys';
+
+const HELP_TABS: [HelpTab, string][] = [
+  ['keys', '操作方法'],
+  ['manual', '取扱説明書'],
+  ['notes', 'リリースノート'],
+];
+
+export function openHelp(g: Game, tab?: HelpTab) {
+  if (tab) helpTab = tab;
   g.wm.open({
     id: 'help',
-    title: '操作方法',
-    width: 460,
+    title: 'ヘルプ',
+    width: 480,
     render: () => `
-      <div class="help">
+      <div class="tabs" role="tablist">
+        ${HELP_TABS.map(([k, v]) => `<button role="tab" data-action="tab-${k}" class="${helpTab === k ? 'on' : ''}">${v}</button>`).join('')}
+      </div>
+      <div class="help">${helpTab === 'manual' ? manualHtml() : helpTab === 'notes' ? releaseNotesHtml() : helpKeysHtml(g)}</div>`,
+    onAction: (a, el) => {
+      if (a.startsWith('tab-')) {
+        helpTab = a.slice(4) as HelpTab;
+        const body = el.closest('.win-body');
+        g.wm.refresh('help', true);
+        if (body) body.scrollTop = 0;
+        return;
+      }
+      if (a === 'ui-auto') g.setUiPref('auto');
+      if (a === 'ui-pc') g.setUiPref('pc');
+      if (a === 'ui-touch') g.setUiPref('touch');
+      g.wm.refresh('help', true);
+    },
+  });
+}
+
+function helpKeysHtml(g: Game): string {
+  return `${KEYS_HTML}
+        <p class="muted small">試作版 v${VERSION} です。信号・橋とトンネルのツール・地形変更はまだありません。列車どうしはぶつかりません。遊び方は「取扱説明書」、これまでの変更は「リリースノート」をどうぞ。</p>
+        <h4>画面</h4>
+        <div class="btnrow">
+          <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
+          <button data-action="ui-pc" class="${g.uiPref === 'pc' ? 'on' : ''}"><span>PC</span></button>
+          <button data-action="ui-touch" class="${g.uiPref === 'touch' ? 'on' : ''}"><span>スマホ</span></button>
+        </div>`;
+}
+
+const KEYS_HTML = `
         <h4>PC（OpenTTD と同じ操作）</h4>
         <table class="tbl keys">
           <tr><th>右ドラッグ</th><td>地図を動かす</td></tr>
@@ -1112,31 +1300,35 @@ export function openHelp(g: Game) {
           <tr><th>タップ ／ 長押し</th><td>選ぶ ／ 情報を見る</td></tr>
           <tr><th>✓ ／ ✕</th><td>プレビューを確定 ／ 取り消し</td></tr>
           <tr><th>撤去ボタン</th><td>PC の Ctrl の代わり</td></tr>
-        </table>
-        <h4>遊び方</h4>
-        <ol class="steps">
-          <li>森と製材所の近くに<b>駅</b>を建てて、<b>線路</b>でつなぐ</li>
-          <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
-          <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
-          <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
-          <li>駅・列車・町・産業の<b>名前</b>は、ウィンドウのタイトルの横の鉛筆ボタンで変えられます。指令は<b>↑↓</b>（PCはドラッグでも）で並べ替えられます。列車のウィンドウの「<b>機関車を交換</b>」で、貨車と指令はそのままに機関車だけを替えられます（まとめて替えることもできます）</li>
-          <li><b>産業の持ち主</b>：「地元」はだれでも運べます。「他社」は<b>権利を買う</b>か<b>輸送契約</b>を結ぶと運べます（産業をクリック）。自社の産業は運んだ分の利益が毎月入ります</li>
-          <li><b>産業をつくる</b>：お金を出して一次産業を<b>探鉱</b>（成功・失敗あり）したり、<b>工場を建てたり</b>できます。一次産業はときどき自然に見つかります</li>
-          <li>ほかにも、農場→食品工場→<b>食料品</b>（町が早く育つ）、鉄鉱山と炭鉱→製鉄所→<b>鋼材</b>、木材と鋼材→建材工場→<b>建設資材</b>（高層ビル）。<b>相場表</b>（F10）で、どこが高く買うか見られます</li>
-        </ol>
-        <p class="muted small">試作版 v0.5.1 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
-        <h4>画面</h4>
-        <div class="btnrow">
-          <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
-          <button data-action="ui-pc" class="${g.uiPref === 'pc' ? 'on' : ''}"><span>PC</span></button>
-          <button data-action="ui-touch" class="${g.uiPref === 'touch' ? 'on' : ''}"><span>スマホ</span></button>
-        </div>
-      </div>`,
-    onAction: (a) => {
-      if (a === 'ui-auto') g.setUiPref('auto');
-      if (a === 'ui-pc') g.setUiPref('pc');
-      if (a === 'ui-touch') g.setUiPref('touch');
-      g.wm.refresh('help', true);
+        </table>`;
+
+// ───────────────────────── お知らせの履歴 ─────────────────────────
+
+export function openNews(g: Game) {
+  g.wm.open({
+    id: 'news',
+    title: 'お知らせの履歴',
+    width: 400,
+    render: () => {
+      const log = g.newsLog;
+      if (!log.length) return '<p class="muted">まだお知らせはありません。</p>';
+      return `
+        <p class="muted small">新しい順・${log.length}件（この遊んでいる間のぶん）。行を押すとその場所へ移動します。</p>
+        <ul class="news-log">
+          ${[...log]
+            .reverse()
+            .map(
+              (n, i) => `<li class="${esc(n.tone)}${n.tile >= 0 ? ' link' : ''}" ${n.tile >= 0 ? `data-action="go" data-i="${log.length - 1 - i}"` : ''}>
+                <span class="d num">${n.date}</span><span class="t">${esc(n.text)}</span></li>`,
+            )
+            .join('')}
+        </ul>`;
+    },
+    onAction: (a, el) => {
+      if (a === 'go') {
+        const n = g.newsLog[Number(el.dataset.i)];
+        if (n && n.tile >= 0) g.centerOnTile(n.tile);
+      }
     },
   });
 }
@@ -1157,7 +1349,8 @@ export function openMenu(g: Game) {
         <button data-action="build-industry">${ICONS.industry}<span>産業をつくる</span></button>
         <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
-        <button data-action="help">${ICONS.help}<span>操作方法</span></button>
+        <button data-action="news">${ICONS.news}<span>お知らせ</span></button>
+        <button data-action="help">${ICONS.help}<span>ヘルプ</span></button>
       </div>`,
     onAction: (a) => {
       g.wm.close('menu');
@@ -1171,6 +1364,7 @@ export function openMenu(g: Game) {
       if (a === 'build-industry') openBuildIndustry(g);
       if (a === 'save') g.openSaveLoad();
       if (a === 'help') openHelp(g);
+      if (a === 'news') openNews(g);
     },
   });
 }

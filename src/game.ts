@@ -46,6 +46,7 @@ import {
   openBuildIndustry,
   openMarket,
   openMenu,
+  openNews,
   openRequests,
   openStation,
   openStationList,
@@ -55,6 +56,7 @@ import {
   openTrainList,
 } from './ui/panels';
 import { WindowManager } from './ui/windows';
+import { VERSION } from './version';
 import {
   deleteSave,
   exportSave,
@@ -121,6 +123,11 @@ export class Game implements InputTarget {
   private toastTimer = 0;
   private newsTimer = 0;
   private lastNewsTile = -1;
+  /** お知らせの履歴（遊んでいる間のぶん。セーブには入れない） */
+  newsLog: { date: string; text: string; tone: string; tile: number }[] = [];
+  private savedTimer = 0;
+  private savedEl: HTMLElement | null = null;
+  private fromSave = false;
   private mouse = { x: -1, y: -1 };
   private started = false;
 
@@ -165,12 +172,15 @@ export class Game implements InputTarget {
   }
 
   newGame(seed: number) {
-    this.startWorld(generateWorld(seed));
+    this.startWorld(generateWorld(seed), false);
   }
 
   /** 世界を差し替える（新しいゲーム・ロード） */
-  startWorld(world: World) {
+  startWorld(world: World, fromSave = true) {
     this.world = world;
+    this.fromSave = fromSave;
+    this.newsLog = [];
+    this.lastNewsTile = -1;
     this.renderer.setWorld(world);
     this.undoStack = [];
     this.depotSel.clear();
@@ -194,9 +204,10 @@ export class Game implements InputTarget {
       this.renderer.centerOnTile(cx, cy, this.touchUI ? 0.7 : 1);
     }
     this.started = true;
-    this.guideClosed = false;
+    this.guideClosed = -1;
     this.updateHud();
     this.updateGuide();
+    this.noticeNewVersion();
     if (!this.loopStarted) {
       this.loopStarted = true;
       requestAnimationFrame((t) => this.loop(t));
@@ -212,7 +223,7 @@ export class Game implements InputTarget {
 
   private autosaveAgain = false;
 
-  autosave() {
+  autosave(show = false) {
     if (!this.started) return;
     if (this.saving) {
       // 保存中なら、終わったらもう一度（最新の状態を残す）
@@ -221,14 +232,52 @@ export class Game implements InputTarget {
     }
     this.saving = true;
     saveTo('auto', this.world)
+      .then(() => {
+        if (show) this.showSaved();
+      })
       .catch(() => this.toast('オートセーブに失敗しました', 'bad'))
       .finally(() => {
         this.saving = false;
         if (this.autosaveAgain) {
           this.autosaveAgain = false;
-          this.autosave();
+          this.autosave(show);
         }
       });
+  }
+
+  /** オートセーブが終わった合図（画面のすみに小さく） */
+  private showSaved() {
+    if (!this.savedEl) {
+      this.savedEl = document.createElement('div');
+      this.savedEl.id = 'saved';
+      this.savedEl.setAttribute('aria-hidden', 'true');
+      this.savedEl.innerHTML = `${ICONS.save}<span>保存しました</span>`;
+      document.getElementById('app')!.appendChild(this.savedEl);
+    }
+    const el = this.savedEl;
+    el.classList.add('show');
+    window.clearTimeout(this.savedTimer);
+    this.savedTimer = window.setTimeout(() => el.classList.remove('show'), 1600);
+  }
+
+  /** 新しい版で初めて遊ぶとき、リリースノートを1回だけ見せる */
+  private noticeNewVersion() {
+    let seen: string | null = null;
+    try {
+      seen = localStorage.getItem('tsunagu.version');
+      localStorage.setItem('tsunagu.version', VERSION);
+    } catch {
+      return;
+    }
+    if (seen === VERSION) return;
+    // はじめて遊ぶ人には出さない（前の版で遊んでいた人だけ）
+    if (seen === null && !this.fromSave) return;
+    openHelp(this, 'notes');
+    this.toast(`v${VERSION} になりました。変わったところはリリースノートで見られます`, 'good');
+  }
+
+  centerOnTile(tile: number) {
+    this.renderer.centerOnTile(tx(this.world, tile), ty(this.world, tile));
   }
 
   async refreshSaveMetas() {
@@ -250,7 +299,7 @@ export class Game implements InputTarget {
             ? `<span>${metaLabel(m)}・${formatYen(m.money)}</span><small class="muted">人口 ${m.population.toLocaleString('ja-JP')}人・列車 ${m.trains}本・保存 ${new Date(m.savedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>`
             : '<span class="muted">空き</span>';
           return `<li class="slot">
-            <div class="thumb">${m?.thumb ? `<img src="${m.thumb}" alt="">` : ''}</div>
+            <div class="thumb">${m?.thumb?.startsWith('data:image/') ? `<img src="${esc(m.thumb)}" alt="">` : ''}</div>
             <div class="slot-info"><b>${name}</b>${info}</div>
             <div class="slot-btns">
               ${slot !== 'auto' ? `<button class="small-btn" data-action="save" data-slot="${slot}">${ICONS.save}セーブ</button>` : ''}
@@ -1091,7 +1140,7 @@ export class Game implements InputTarget {
       <button data-a="t-close" class="rb-close" title="閉じる">${ICONS.close}</button>`;
     this.el.status.innerHTML = `
       <span class="sb-date"></span>
-      <button class="sb-news" title="クリックでその場所へ"></button>
+      <button class="sb-news" title="クリックでその場所へ・お知らせの履歴"></button>
       <span class="sb-money"></span>`;
     this.el.mtop.innerHTML = `
       <span class="m-money"></span>
@@ -1115,7 +1164,8 @@ export class Game implements InputTarget {
     };
     for (const el of [tb, rb, this.el.mtop, this.el.mtools]) el.addEventListener('click', onClick);
     this.el.status.querySelector('.sb-news')!.addEventListener('click', () => {
-      if (this.lastNewsTile >= 0) this.renderer.centerOnTile(tx(this.world, this.lastNewsTile), ty(this.world, this.lastNewsTile));
+      if (this.lastNewsTile >= 0) this.centerOnTile(this.lastNewsTile);
+      openNews(this);
     });
     this.el.confirm.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('[data-c]') as HTMLButtonElement | null;
@@ -1141,14 +1191,16 @@ export class Game implements InputTarget {
     this.el.guide.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('[data-g="close"]')) {
         this.el.guide.hidden = true;
-        this.guideClosed = true;
+        this.guideClosed = this.guideStage;
       } else if ((e.target as HTMLElement).closest('[data-g="toggle"]')) {
         this.el.guide.classList.toggle('min');
       }
     });
   }
 
-  private guideClosed = false;
+  /** 閉じた段階（次の段階になったら、また出す） */
+  private guideClosed = -1;
+  private guideStage = 0;
 
   private hudAction(a: string) {
     switch (a) {
@@ -1262,26 +1314,48 @@ export class Game implements InputTarget {
   // ───────────────────────── はじめのガイド ─────────────────────────
 
   private updateGuide() {
-    if (this.guideClosed || !this.world) return;
+    if (!this.world) return;
     const w = this.world;
-    const forest = [...w.industries.values()].find((i) => i.type === 'forest');
-    const saw = [...w.industries.values()].find((i) => i.type === 'sawmill');
+    const inds = [...w.industries.values()];
+    const towns = [...w.towns.values()];
+    const forest = inds.find((i) => i.type === 'forest');
+    const saw = inds.find((i) => i.type === 'sawmill');
     const trains = [...w.trains.values()];
-    const steps = [
+    const delivered = (c: 'lumber' | 'food' | 'materials') => towns.some((t) => (t.recv[c]?.total ?? 0) > 0);
+    const first = [
       { done: w.stations.size >= 2, text: `${esc(forest?.name ?? '森')}と${esc(saw?.name ?? '製材所')}の近くに<b>駅</b>を建てる` },
       { done: w.depots.size >= 1 && hasAnyTrack(w), text: '駅を<b>線路</b>でつなぎ、線路の隣に<b>車庫</b>を置く' },
       { done: trains.some((t) => t.state !== 'in_depot'), text: '車庫で<b>機関車</b>と<b>原木車</b>を買い、<b>指令</b>で行き先を選んで<b>発車</b>' },
       { done: w.finance.thisYear.income + w.finance.lastYear.income > 0, text: '原木を製材所に届けて<b>お金を稼ぐ</b>' },
-      { done: [...w.towns.values()].some((t) => (t.recv.lumber?.total ?? 0) > 0), text: '<b>木材</b>を町に届けて<b>家を建てる</b>' },
+      { done: delivered('lumber'), text: '<b>木材</b>を町に届けて<b>家を建てる</b>' },
     ];
-    const next = steps.findIndex((s) => !s.done);
+    // 第2段階：新しい仕組みを一通りさわってみる
+    const pop = towns.reduce((n, t) => n + t.population, 0);
+    const second = [
+      { done: w.requestState.completed >= 1, text: '<b>依頼ボード</b>の依頼を1つ達成する' },
+      { done: delivered('food'), text: '農場→食品工場とつないで、<b>食料品</b>を町に届ける（町が早く育つ）' },
+      { done: inds.some((i) => i.contractFrom > 0 || i.contractUntil > 0), text: '他社の産業と<b>輸送契約</b>を結ぶ（産業をクリック）' },
+      { done: inds.some((i) => i.owner === 'player'), text: '<b>自社の産業</b>を持つ（権利を買う・探鉱・工場の建設）' },
+      { done: delivered('materials'), text: '<b>建設資材</b>を町に届けて<b>高層ビル</b>を建てる' },
+      { done: pop >= 3000, text: `町の人口を合わせて<b>3,000人</b>にする（いま ${pop.toLocaleString('ja-JP')}人）` },
+    ];
+    const stage = first.every((x) => x.done) ? 1 : 0;
+    this.guideStage = stage;
+    if (stage <= this.guideClosed) return;
+    const steps = stage === 0 ? first : second;
+    const next = steps.findIndex((x) => !x.done);
     if (this.el.guide.hidden && this.touchUI) this.el.guide.classList.add('min'); // スマホでは最初はたたんでおく
     this.el.guide.hidden = false;
-    this.el.guide.innerHTML = `
-      <header><button data-g="toggle" class="g-title">はじめの目標 <small>${steps.filter((s) => s.done).length}/${steps.length}</small></button><button data-g="close" aria-label="閉じる">${ICONS.close}</button></header>
-      <ol>${steps.map((s, i) => `<li class="${s.done ? 'done' : i === next ? 'next' : ''}">${s.text}</li>`).join('')}</ol>
-      ${next === -1 ? '<p class="g-done">達成！ あとは自由に路線を広げましょう</p>' : ''}`;
+    const html = `
+      <header><button data-g="toggle" class="g-title">${stage === 0 ? 'はじめの目標' : '次の目標'} <small>${steps.filter((x) => x.done).length}/${steps.length}</small></button><button data-g="close" aria-label="閉じる">${ICONS.close}</button></header>
+      <ol>${steps.map((x, i) => `<li class="${x.done ? 'done' : i === next ? 'next' : ''}">${x.text}</li>`).join('')}</ol>
+      ${next === -1 ? '<p class="g-done">ぜんぶ達成！ あとは自由に路線と街を育てましょう</p>' : stage === 1 ? '<p class="g-sub">どれからでも。くわしくはヘルプの「取扱説明書」へ</p>' : ''}`;
+    if (this.guideHtml !== html) {
+      this.guideHtml = html;
+      this.el.guide.innerHTML = html;
+    }
   }
+  private guideHtml = '';
 
   // ───────────────────────── ループ ─────────────────────────
 
@@ -1300,7 +1374,7 @@ export class Game implements InputTarget {
     const m = dateOf(this.world.day).m;
     if (m !== this.lastAutoMonth) {
       this.lastAutoMonth = m;
-      this.autosave();
+      this.autosave(true);
     }
     this.drainEvents();
     this.renderer.frame(now);
@@ -1332,6 +1406,9 @@ export class Game implements InputTarget {
 
   private news(text: string, tone: string, tile: number) {
     this.lastNewsTile = tile;
+    const d = dateOf(this.world.day);
+    this.newsLog.push({ date: `${d.y}/${d.m}/${d.d}`, text, tone, tile });
+    if (this.newsLog.length > 100) this.newsLog.shift();
     const sn = this.el.status.querySelector('.sb-news') as HTMLElement;
     sn.textContent = text;
     sn.className = `sb-news show ${tone}`;
