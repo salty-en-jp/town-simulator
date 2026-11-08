@@ -637,6 +637,8 @@ function createTrain(world: World, depot: Depot, cars: Car[], orderList?: number
     incomeThisStop: 0,
     profitThisYear: 0,
     profitLastYear: 0,
+    profitThisMonth: 0,
+    hist: [],
     trackVersion: -1,
   };
   world.trains.set(id, train);
@@ -943,11 +945,76 @@ export function skipOrder(world: World, trainId: number, to?: number): CmdResult
   return { ok: true, cost: 0 };
 }
 
+/** その駅に止まる列車（指令を共有している列車はまとめる） */
+export function stationTrains(world: World, stationId: number): { orderList: number; trains: Train[] }[] {
+  const out = new Map<number, Train[]>();
+  for (const t of world.trains.values()) {
+    const ol = world.orderLists.get(t.orderList);
+    if (!ol || !ol.orders.some((o) => o.station === stationId)) continue;
+    const arr = out.get(ol.id) ?? [];
+    arr.push(t);
+    out.set(ol.id, arr);
+  }
+  return [...out].map(([orderList, trains]) => ({ orderList, trains }));
+}
+
+/**
+ * 指令の中の駅を、別の駅に差し替える（駅を解体する前などに）。
+ * orderLists を省くと、その駅を使うすべての指令が対象。差し替えで同じ駅が続いたら1つにまとめる
+ */
+export function replaceStationInOrders(
+  world: World,
+  from: number,
+  to: number,
+  orderLists?: number[],
+): CmdResult & { count?: number } {
+  if (from === to) return fail('同じ駅です');
+  if (!world.stations.has(to)) return fail('駅がありません');
+  const targets = orderLists ?? stationTrains(world, from).map((g) => g.orderList);
+  let count = 0;
+  for (const olId of targets) {
+    const ol = world.orderLists.get(olId);
+    if (!ol) continue;
+    for (const o of ol.orders) {
+      if (o.station !== from) continue;
+      o.station = to;
+      o.dest = null;
+      o.split = null;
+      count++;
+    }
+    // 同じ駅が続いたら1つにまとめる（最後と最初も）
+    for (let i = ol.orders.length - 1; i > 0; i--) {
+      if (ol.orders[i].station === ol.orders[i - 1].station) ol.orders.splice(i, 1);
+    }
+    while (ol.orders.length > 1 && ol.orders[0].station === ol.orders[ol.orders.length - 1].station) ol.orders.pop();
+    for (const t of sharers(world, olId)) {
+      if (t.curOrder >= ol.orders.length) t.curOrder = 0;
+      t.trackVersion = -1;
+      if (t.state === 'loading' && t.stoppedAt === from) {
+        t.state = 'running';
+        t.stoppedAt = -1;
+      }
+    }
+  }
+  if (!count) return fail('差し替える指令がありません');
+  return { ok: true, cost: 0, count };
+}
+
+/** 振り分けの割合を決める（null なら振り分けない） */
+export function setOrderSplit(world: World, trainId: number, index: number, split: (Dest & { w: number })[] | null): CmdResult {
+  const o = getOrder(world, trainId, index);
+  if (!o) return fail('指令がありません');
+  o.split = split && split.some((s) => s.w > 0) ? split : null;
+  if (o.split) o.dest = null;
+  return { ok: true, cost: 0 };
+}
+
 /** 届け先を選ぶ（null ならいちばん近い受け入れ先） */
 export function setOrderDest(world: World, trainId: number, index: number, dest: Dest | null): CmdResult {
   const o = getOrder(world, trainId, index);
   if (!o) return fail('指令がありません');
   o.dest = dest;
+  o.split = null;
   return { ok: true, cost: 0 };
 }
 

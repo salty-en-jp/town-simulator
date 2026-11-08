@@ -22,9 +22,9 @@ import {
 import type { VehicleType } from './constants';
 
 export const SAVE_FORMAT = 'tsunagumachi';
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 /** これより古いセーブは読み込まない（試作版のあいだは変換しない） */
-export const OLDEST_SUPPORTED = 3;
+export const OLDEST_SUPPORTED = 4;
 
 interface SavedWorld {
   w: number;
@@ -55,6 +55,9 @@ interface SavedWorld {
   requests: Request[];
   requestState: RequestState;
   surveys: Survey[];
+  monthIndex: number;
+  monthFin: Record<FinanceCategory, number>;
+  history: World['history'];
 }
 
 export interface SaveFile {
@@ -115,6 +118,9 @@ export function toSaveFile(w: World): SaveFile {
       requests: w.requests,
       requestState: w.requestState,
       surveys: w.surveys,
+      monthIndex: w.monthIndex,
+      monthFin: w.monthFin,
+      history: w.history,
     },
   };
 }
@@ -183,5 +189,8 @@ export function deserializeWorld(text: string): World {
     requests: s.requests ?? [],
     requestState: s.requestState,
     surveys: s.surveys ?? [],
+    monthIndex: s.monthIndex,
+    monthFin: { ...emptyFinance(), ...s.monthFin },
+    history: s.history,
   };
 }
