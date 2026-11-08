@@ -1,5 +1,7 @@
 // PixiJS による描画。シミュレーションの状態を読むだけで、変更はしない。
 
+// CSP（eval を禁止）の下でも動くようにする。公開版は eval を許していない
+import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics } from 'pixi.js';
 import { CARGO_SPECS, INDUSTRY_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
 import { industryStatus, ownerLabel } from '../sim/industries';

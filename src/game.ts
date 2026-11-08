@@ -299,7 +299,7 @@ export class Game implements InputTarget {
             ? `<span>${metaLabel(m)}・${formatYen(m.money)}</span><small class="muted">人口 ${m.population.toLocaleString('ja-JP')}人・列車 ${m.trains}本・保存 ${new Date(m.savedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>`
             : '<span class="muted">空き</span>';
           return `<li class="slot">
-            <div class="thumb">${m?.thumb ? `<img src="${m.thumb}" alt="">` : ''}</div>
+            <div class="thumb">${m?.thumb?.startsWith('data:image/') ? `<img src="${esc(m.thumb)}" alt="">` : ''}</div>
             <div class="slot-info"><b>${name}</b>${info}</div>
             <div class="slot-btns">
               ${slot !== 'auto' ? `<button class="small-btn" data-action="save" data-slot="${slot}">${ICONS.save}セーブ</button>` : ''}

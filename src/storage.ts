@@ -5,7 +5,7 @@
 // ・iPhone の Safari は、7日間開かなかったサイトのデータを消すことがある。
 //   ホーム画面に追加したアプリは対象外なので、そちらをすすめる。念のため書き出しも用意
 
-import { deserializeWorld, serializeWorld } from './sim/save';
+import { deserializeWorld, MAX_SAVE_CHARS, SaveError, serializeWorld } from './sim/save';
 import { dateOf, Terrain, type World } from './sim/world';
 
 export type Slot = 'auto' | '1' | '2' | '3';
@@ -177,14 +177,43 @@ async function gzip(text: string): Promise<Blob> {
   return new Response(stream).blob();
 }
 
+/** 読み込むファイルの大きさの上限（圧縮したまま・広げたあと） */
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_TEXT_BYTES = MAX_SAVE_CHARS;
+
+/** 上限を超えたら途中でやめて読む（とても大きく広がる圧縮ファイルでも固まらない） */
+async function readLimited(stream: ReadableStream<Uint8Array>, limit: number): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      throw new SaveError('セーブデータが大きすぎます');
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) {
+    all.set(c, o);
+    o += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 async function readMaybeGzip(file: Blob): Promise<string> {
+  if (file.size > MAX_FILE_BYTES) throw new SaveError('ファイルが大きすぎます（ツナグマチのセーブではないかもしれません）');
   const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
   if (head[0] === 0x1f && head[1] === 0x8b) {
     const DS = (globalThis as { DecompressionStream?: typeof DecompressionStream }).DecompressionStream;
     if (!DS) throw new Error('この端末では圧縮されたセーブを読めません');
-    return new Response(file.stream().pipeThrough(new DS('gzip'))).text();
+    return readLimited(file.stream().pipeThrough(new DS('gzip')), MAX_TEXT_BYTES);
   }
-  return file.text();
+  return readLimited(file.stream(), MAX_TEXT_BYTES);
 }
 
 export function saveFileName(w: World): string {

@@ -1,7 +1,7 @@
 # ツナグマチ
 
 交通をつなぎ、お金を稼ぎ、街を育てる経営 × 都市発展シミュレーション。
-PC と スマホ（iPhone）のブラウザで遊べます。いまは **試作版 v0.5.2** です。
+PC と スマホ（iPhone）のブラウザで遊べます。いまは **試作版 v0.5.3** です。
 
 - 遊ぶ: https://salty-en-jp.github.io/town-simulator/ （`main` ブランチに入ると自動で公開されます）
 - 企画書: [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)
@@ -61,6 +61,7 @@ npm install
 npm run dev       # 開発サーバー（スマホからは同じWi-Fiで表示されるURLへ）
 npm test          # シミュレーションのテスト
 npm run build     # 本番ビルド（dist/）
+npm run build:test # 自動テスト用のビルド（window.__game・__debug を出す。公開しない）
 ```
 
 URL に `?seed=12345` を付けると同じマップで遊べます。
@@ -77,6 +78,7 @@ src/
     events.ts     イベント（火事）
     requests.ts   依頼ボード（まったりミッション）
     save.ts       セーブデータの形式（版番号つき）
+    validate.ts   セーブの読み込み時の検査（形・種類・範囲）
     track.ts      経路探索・ドラッグの形
     mapgen.ts     マップ生成
   render/    PixiJS による斜め見下ろしの描画

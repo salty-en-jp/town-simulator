@@ -83,9 +83,12 @@ async function main() {
   });
   if (params.has('autostart')) startNew();
 
-  // 自動テスト・デバッグ用
-  (window as unknown as { __game: Game }).__game = game;
-  (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim, events };
+  // 自動テスト・デバッグ用の入口。公開版には入れない
+  // （開発サーバー、または VITE_TEST_HOOKS=1 でビルドしたときだけ）
+  if (import.meta.env.DEV || import.meta.env.VITE_TEST_HOOKS === '1') {
+    (window as unknown as { __game: Game }).__game = game;
+    (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim, events };
+  }
 }
 
 main();

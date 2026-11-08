@@ -20,6 +20,7 @@ import {
   type World,
 } from './world';
 import type { VehicleType } from './constants';
+import { checkSavedWorld, SaveCheckError } from './validate';
 
 export const SAVE_FORMAT = 'tsunagumachi';
 export const SAVE_VERSION = 4;
@@ -131,6 +132,9 @@ export function serializeWorld(w: World): string {
 
 export class SaveError extends Error {}
 
+/** これより大きいセーブは読み込まない（ブラウザが固まるのを防ぐ。ふつうは数百KB） */
+export const MAX_SAVE_CHARS = 30_000_000;
+
 /** 古い版のセーブを今の形に直す（1.0 になったら、ここに変換を足していく） */
 function migrate(file: SaveFile): SaveFile {
   return file;
@@ -138,21 +142,34 @@ function migrate(file: SaveFile): SaveFile {
 
 export function deserializeWorld(text: string): World {
   let file: SaveFile;
+  if (text.length > MAX_SAVE_CHARS) throw new SaveError('セーブデータが大きすぎます');
   try {
     file = JSON.parse(text);
   } catch {
     throw new SaveError('セーブデータが壊れています');
   }
-  if (!file || file.format !== SAVE_FORMAT) throw new SaveError('ツナグマチのセーブデータではありません');
+  if (!file || typeof file !== 'object' || file.format !== SAVE_FORMAT) throw new SaveError('ツナグマチのセーブデータではありません');
+  if (typeof file.version !== 'number') throw new SaveError('セーブデータが壊れています');
   if (file.version > SAVE_VERSION) throw new SaveError('新しい版のセーブデータです。ページを再読み込みしてください');
   if (file.version < OLDEST_SUPPORTED) throw new SaveError('試作版の古いセーブデータのため読み込めません。「はじめから」で新しく始めてください');
   file = migrate(file);
+  try {
+    checkSavedWorld(file.world);
+  } catch (e) {
+    if (e instanceof SaveCheckError) throw new SaveError(`セーブデータが壊れているため読み込めません（${e.message}）`);
+    throw e;
+  }
   const s = file.world;
   const n = s.w * s.h;
   const occ: (Occupant | null)[] = new Array(n).fill(null);
   for (const [i, o] of s.occ) occ[i] = o;
-  const terrain = b64ToBytes(s.terrain);
-  const track = b64ToBytes(s.track);
+  let terrain: Uint8Array, track: Uint8Array;
+  try {
+    terrain = b64ToBytes(s.terrain);
+    track = b64ToBytes(s.track);
+  } catch {
+    throw new SaveError('セーブデータが壊れています');
+  }
   if (terrain.length !== n || track.length !== n) throw new SaveError('セーブデータが壊れています');
   const rng = new Rng(0);
   rng.state = s.rng >>> 0;

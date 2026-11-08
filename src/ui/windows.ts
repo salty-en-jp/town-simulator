@@ -103,13 +103,17 @@ export class WindowManager {
       if (t.type === 'range') win.spec.onInput?.(t, win.body);
     });
     // スライダーをつかんでいる間は、定期的な書き換えで手から離れないようにする
-    el.addEventListener('pointerdown', (ev) => {
-      if ((ev.target as HTMLInputElement).type === 'range') win.holding = true;
+    // ボタンも同じ：押している間に書き換わると、指を離したときのタップが消えてしまう
+    win.body.addEventListener('pointerdown', () => {
+      win.holding = true;
     });
     const release = () => {
       if (!win.holding) return;
-      win.holding = false;
-      this.refresh(win.spec.id);
+      // click は pointerup のあとに届くので、少し待ってから書き換える
+      window.setTimeout(() => {
+        win.holding = false;
+        this.refresh(win.spec.id);
+      }, 60);
     };
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
