@@ -31,6 +31,8 @@ export interface Preview {
   catchment?: Rect | null;
   /** 駅の向き（ゴーストの線路をこの向きに描く） */
   axis?: 'x' | 'y';
+  /** 範囲に入る産業の枠（ok=運べる） */
+  marks?: { x: number; y: number; w: number; h: number; ok: boolean }[];
   kind: 'track' | 'station' | 'depot' | 'demolish';
 }
 
@@ -442,6 +444,18 @@ export class Renderer {
       )
         .fill({ color: 0x9fd3ff, alpha: 0.16 })
         .stroke({ width: 2, color: 0xffffff, alpha: 0.6 });
+    }
+    for (const m of pv?.marks ?? []) {
+      g.poly(
+        groundPoly([
+          [m.x - 0.5, m.y - 0.5],
+          [m.x + m.w - 0.5, m.y - 0.5],
+          [m.x + m.w - 0.5, m.y + m.h - 0.5],
+          [m.x - 0.5, m.y + m.h - 0.5],
+        ]),
+      )
+        .fill({ color: m.ok ? 0x5fd17a : 0x9a9a9a, alpha: 0.22 })
+        .stroke({ width: 3, color: m.ok ? 0x2f8a4a : 0x6a6a6a, alpha: 0.9 });
     }
     if (o.selectedStation >= 0) {
       const st = w.stations.get(o.selectedStation);

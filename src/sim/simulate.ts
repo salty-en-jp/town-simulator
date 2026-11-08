@@ -18,6 +18,7 @@ import {
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
 import { replaceEngine } from './commands';
+import { eventsMonthly } from './events';
 import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
 import { updateRequests } from './requests';
 import { findPath } from './track';
@@ -84,10 +85,14 @@ export function acceptance(world: World, st: Station): Acceptance {
   }
   const hit = c.map.get(st.id);
   if (hit) return hit;
-  const r = stationCatchment(world, st);
   const sign = stationSign(st);
-  const sx = tx(world, sign),
-    sy = ty(world, sign);
+  const acc = acceptanceForRect(world, stationCatchment(world, st), tx(world, sign), ty(world, sign));
+  c.map.set(st.id, acc);
+  return acc;
+}
+
+/** 範囲（駅の集客範囲など）で受け入れる貨物と、その受け入れ先。(sx, sy) は駅の看板の位置 */
+export function acceptanceForRect(world: World, r: Rect, sx: number, sy: number): Acceptance {
   let houses = 0;
   const towns = new Map<number, { n: number; dist: number }>();
   for (let y = r.y0; y <= r.y1; y++) {
@@ -115,9 +120,23 @@ export function acceptance(world: World, st: Station): Acceptance {
     for (const cargo of TOWN_GOODS) add(cargo, { kind: 'town', id, dist: e.dist });
   }
   for (const list of Object.values(by)) list!.sort((p, q) => p.dist - q.dist);
-  const acc: Acceptance = { houses, by };
-  c.map.set(st.id, acc);
-  return acc;
+  return { houses, by };
+}
+
+/** 範囲から集められる貨物：産業（運べるかどうかも）と、家から出る旅客 */
+export function suppliesForRect(world: World, r: Rect): { industries: Industry[]; houses: number; paxPerMonth: number } {
+  const industries = [...world.industries.values()].filter((ind) => rectOverlapsIndustry(r, ind));
+  let houses = 0,
+    pax = 0;
+  for (let y = r.y0; y <= r.y1; y++) {
+    for (let x = r.x0; x <= r.x1; x++) {
+      const o = world.occ[idx(world, x, y)];
+      if (o?.k !== 'house') continue;
+      houses++;
+      pax += HOUSE_PAX_PER_DAY[o.level] * 30;
+    }
+  }
+  return { industries, houses, paxPerMonth: Math.round(pax) };
 }
 
 export function acceptors(world: World, st: Station, cargo: Cargo): Acceptor[] {
@@ -714,6 +733,7 @@ function monthly(world: World) {
     if (isPrimary(ind.type) && canLoadFrom(world, ind)) changeProduction(world, ind);
   }
   industriesOwnershipMonthly(world);
+  eventsMonthly(world);
   recordCompany(world);
   for (const town of world.towns.values()) {
     for (const r of Object.values(town.recv)) {

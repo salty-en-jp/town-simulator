@@ -263,7 +263,9 @@ export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
 
 export type GameEvent =
   | { type: 'news'; text: string; tile?: number; tone?: 'good' | 'info' | 'bad' }
-  | { type: 'income'; amount: number; tile: number };
+  | { type: 'income'; amount: number; tile: number }
+  /** 画面の演出（火事など） */
+  | { type: 'fx'; kind: 'fire'; tiles: number[] };
 
 export interface World {
   w: number;
