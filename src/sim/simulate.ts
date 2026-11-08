@@ -9,12 +9,15 @@ import {
   INDUSTRY,
   INDUSTRY_SPECS,
   STATION,
+  vehicleName,
+  vehicleValue,
   TICKS_PER_DAY,
   TOWN,
   TOWN_GOODS,
   type Cargo,
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
+import { replaceEngine } from './commands';
 import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
 import { updateRequests } from './requests';
 import { findPath } from './track';
@@ -33,6 +36,7 @@ import {
   isPrimary,
   manhattan,
   pushEvent,
+  pushHist,
   recvOf,
   rectContains,
   rectOverlapsIndustry,
@@ -51,6 +55,7 @@ import {
   type Town,
   type Train,
   type World,
+  townLabel,
 } from './world';
 
 // ───────────────────────── 受け入れ判定（キャッシュ付き） ─────────────────────────
@@ -120,7 +125,7 @@ export function acceptors(world: World, st: Station, cargo: Cargo): Acceptor[] {
 }
 
 export function acceptorName(world: World, a: { kind: 'industry' | 'town'; id: number }): string {
-  return a.kind === 'industry' ? (world.industries.get(a.id)?.name ?? '?') : `${world.towns.get(a.id)?.name ?? '?'}町`;
+  return a.kind === 'industry' ? (world.industries.get(a.id)?.name ?? '?') : (world.towns.has(a.id) ? townLabel(world.towns.get(a.id)!) : '?');
 }
 
 /** 受け入れ先の今の在庫（多いほど安く買う） */
@@ -196,6 +201,21 @@ function arrive(world: World, t: Train) {
       t.heading = 'order';
       t.trail = [];
       t.trackVersion = -1;
+      if (t.engineSwap) {
+        // 機関車を交換して、そのまま元の指令で走り出す
+        const swap = t.engineSwap;
+        const r = replaceEngine(world, t.id, swap.type, { sellOld: swap.sellOld });
+        if (r.ok) {
+          t.engineSwap = null;
+          t.state = 'running';
+          t.path = [tile];
+          t.progress = 0;
+          pushEvent(world, { type: 'news', text: `${t.name}の機関車を${vehicleName(swap.type)}に交換しました`, tone: 'good', tile });
+        } else {
+          pushEvent(world, { type: 'news', text: `${t.name}：機関車を交換できませんでした（${r.error}）。車庫で止まっています`, tone: 'bad', tile });
+        }
+        return;
+      }
       pushEvent(world, { type: 'news', text: `${t.name}が車庫に入りました`, tone: 'info', tile });
       return;
     }
@@ -260,6 +280,7 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
       world.requestState.incomeTotal += income;
       t.incomeThisStop += income;
       t.profitThisYear += income;
+      t.profitThisMonth += income;
     }
     car.packets = car.packets.filter((p) => p.amount > 0.0001);
     if (delivered >= limit) break;
@@ -277,6 +298,24 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
     }
   }
   return delivered;
+}
+
+/**
+ * 振り分けて降ろす：受け入れ先ごとの割合で分ける。
+ * 受け入れ先がいっぱいで入りきらない分は、ほかの振り分け先に回す
+ */
+function deliverSplit(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: number, split: (Dest & { w: number })[]): number {
+  const list = acceptors(world, st, cargo);
+  const targets = split.filter((s) => s.w > 0 && list.some((a) => a.kind === s.kind && a.id === s.id));
+  if (!targets.length) return deliver(world, t, st, cargo, maxAmount, null);
+  const sum = targets.reduce((a, s) => a + s.w, 0);
+  let done = 0;
+  for (const s of targets) done += deliver(world, t, st, cargo, (maxAmount * s.w) / sum, s);
+  for (const s of targets) {
+    if (done >= maxAmount - 0.001) break;
+    done += deliver(world, t, st, cargo, maxAmount - done, s);
+  }
+  return done;
 }
 
 function cargoesOf(t: Train): Cargo[] {
@@ -307,7 +346,9 @@ function loadingTick(world: World, t: Train, dt: number) {
   if (order.unload === 'if_accepted') {
     for (const cargo of cargoesOf(t)) {
       const nCars = t.cars.filter((c) => carCargo(c) === cargo).length;
-      if (deliver(world, t, st, cargo, perCar * nCars, order.dest) > 0) busy = true;
+      const amount = perCar * nCars;
+      const got = order.split?.length ? deliverSplit(world, t, st, cargo, amount, order.split) : deliver(world, t, st, cargo, amount, order.dest);
+      if (got > 0) busy = true;
     }
   }
 
@@ -580,7 +621,7 @@ function townsDaily(world: World, ctx: DayContext) {
       if (before < m && town.population >= m) {
         pushEvent(world, {
           type: 'news',
-          text: `${town.name}町の人口が${m.toLocaleString('ja-JP')}人を超えました！`,
+          text: `${townLabel(town)}の人口が${m.toLocaleString('ja-JP')}人を超えました！`,
           tone: 'good',
           tile: idx(world, town.cx, town.cy),
         });
@@ -650,7 +691,11 @@ function daily(world: World) {
 function monthly(world: World) {
   let running = 0;
   for (const t of world.trains.values()) {
-    if (t.state !== 'in_depot') running += ENGINE_SPECS[trainEngine(t)].runningCostPerYear / 12;
+    const cost = t.state !== 'in_depot' ? ENGINE_SPECS[trainEngine(t)].runningCostPerYear / 12 : 0;
+    running += cost;
+    // 列車ごとの毎月の利益（運賃 − 維持費）を記録
+    pushHist(t.hist, Math.round(t.profitThisMonth - cost));
+    t.profitThisMonth = 0;
   }
   if (running > 0) spend(world, 'running', Math.round(running));
   const depotFee = Math.round((world.depots.size * COSTS.depotPerYear) / 12);
@@ -659,6 +704,9 @@ function monthly(world: World) {
   if (interest > 0) spend(world, 'interest', interest);
 
   for (const ind of world.industries.values()) {
+    pushHist(ind.hist.p, Math.round(ind.producedThisMonth));
+    pushHist(ind.hist.t, Math.round(ind.transportedThisMonth));
+    pushHist(ind.hist.r, Math.round(ind.receivedThisMonth));
     ind.producedLastMonth = ind.producedThisMonth;
     ind.transportedLastMonth = ind.transportedThisMonth;
     ind.receivedLastMonth = ind.receivedThisMonth;
@@ -666,12 +714,38 @@ function monthly(world: World) {
     if (isPrimary(ind.type) && canLoadFrom(world, ind)) changeProduction(world, ind);
   }
   industriesOwnershipMonthly(world);
+  recordCompany(world);
   for (const town of world.towns.values()) {
     for (const r of Object.values(town.recv)) {
       r!.lm = r!.m;
       r!.m = 0;
     }
   }
+}
+
+/** 会社の毎月の記録：収入・支出・所持金・車両の資産価値 */
+function recordCompany(world: World) {
+  let income = 0,
+    expense = 0;
+  for (const v of Object.values(world.monthFin)) {
+    if (v > 0) income += v;
+    else expense -= v;
+  }
+  const h = world.history;
+  pushHist(h.income, Math.round(income));
+  pushHist(h.expense, Math.round(expense));
+  pushHist(h.money, Math.round(world.money));
+  pushHist(h.assets, Math.round(vehicleAssets(world)));
+  world.monthFin = emptyFinance();
+  world.monthIndex++;
+}
+
+/** 持っている車両の今の値段の合計（減価償却後） */
+export function vehicleAssets(world: World): number {
+  let v = 0;
+  for (const t of world.trains.values()) for (const c of t.cars) v += vehicleValue(c.type, world.day - c.built);
+  for (const d of world.depots.values()) for (const c of d.stored) v += vehicleValue(c.type, world.day - c.built);
+  return v;
 }
 
 /** 輸送率（運び出された割合）が高いほど生産が増えやすい */

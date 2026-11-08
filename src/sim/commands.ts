@@ -637,6 +637,8 @@ function createTrain(world: World, depot: Depot, cars: Car[], orderList?: number
     incomeThisStop: 0,
     profitThisYear: 0,
     profitLastYear: 0,
+    profitThisMonth: 0,
+    hist: [],
     trackVersion: -1,
   };
   world.trains.set(id, train);
@@ -859,6 +861,7 @@ export function sendToDepot(world: World, id: number): CmdResult {
   if (t.state === 'in_depot') return fail('もう車庫にいます');
   if (world.depots.size === 0) return fail('車庫がありません（線路の隣に車庫を建ててください）');
   t.heading = t.heading === 'depot' ? 'order' : 'depot';
+  if (t.heading === 'order') t.engineSwap = null;
   t.trackVersion = -1;
   if (t.state === 'loading') {
     t.state = 'running';
@@ -943,11 +946,201 @@ export function skipOrder(world: World, trainId: number, to?: number): CmdResult
   return { ok: true, cost: 0 };
 }
 
+// ───────────────────────── 名前・指令の並べ替え ─────────────────────────
+
+export type NamedKind = 'station' | 'train' | 'town' | 'industry';
+export const MAX_NAME = 20;
+
+/** 駅・列車・町・産業の名前を変える */
+export function rename(world: World, kind: NamedKind, id: number, name: string): CmdResult {
+  const n = name.replace(/\s+/g, ' ').trim();
+  if (!n) return fail('名前を入れてください');
+  if ([...n].length > MAX_NAME) return fail(`名前は${MAX_NAME}文字までです`);
+  const target =
+    kind === 'station' ? world.stations.get(id) : kind === 'train' ? world.trains.get(id) : kind === 'town' ? world.towns.get(id) : world.industries.get(id);
+  if (!target) return fail('見つかりません');
+  target.name = n;
+  if (kind === 'town') (target as { custom?: boolean }).custom = true;
+  world.version++;
+  return { ok: true, cost: 0 };
+}
+
+/** 指令を上（-1）か下（+1）に動かす。共有している列車の「今の指令」もいっしょに動く */
+export function moveOrder(world: World, trainId: number, index: number, to: number): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t) return fail('列車がありません');
+  const ol = world.orderLists.get(t.orderList)!;
+  const n = ol.orders.length;
+  if (index < 0 || index >= n || to < 0 || to >= n || index === to) return fail('動かせません');
+  const [o] = ol.orders.splice(index, 1);
+  ol.orders.splice(to, 0, o);
+  for (const tr of sharers(world, ol.id)) {
+    const c = tr.curOrder;
+    if (c === index) tr.curOrder = to;
+    else if (index < c && to >= c) tr.curOrder = c - 1;
+    else if (index > c && to <= c) tr.curOrder = c + 1;
+    tr.trackVersion = -1;
+  }
+  return { ok: true, cost: 0 };
+}
+
+// ───────────────────────── 機関車の交換 ─────────────────────────
+
+/**
+ * 車庫にいる列車の機関車だけを替える（貨車と指令はそのまま）。
+ * 留置線に同じ種類の機関車があればそれを使い、なければ買う。古い機関車は留置線に置くか売る
+ */
+export function replaceEngine(
+  world: World,
+  trainId: number,
+  type: EngineType,
+  opts: { sellOld?: boolean; dry?: boolean } = {},
+): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t) return fail('列車がありません');
+  if (t.state !== 'in_depot') return fail('車庫に入れてから交換してください');
+  const depot = world.depots.get(t.depotId);
+  if (!depot) return fail('車庫がありません');
+  const old = t.cars[0];
+  if (old.type === type) return fail(`もう${vehicleName(type)}です`);
+  const spare = depot.stored.find((c) => c.type === type);
+  if (!spare && !canBuy(world, type)) return fail(`${vehicleName(type)}はまだ買えません`);
+  const cost = spare ? 0 : vehicleCost(type);
+  const refund = opts.sellOld ? carValue(world, old) : 0;
+  if (opts.dry) return { ok: true, cost: cost - refund };
+  if (cost > world.money + refund) return fail(`資金が足りません（${formatYen(cost - refund)} 必要）`, cost);
+  if (spare) depot.stored.splice(depot.stored.indexOf(spare), 1);
+  else spend(world, 'vehicles', cost);
+  t.cars[0] = spare ?? newCar(world, type);
+  if (opts.sellOld) earn(world, 'vehicles', refund);
+  else depot.stored.push(old);
+  return { ok: true, cost: cost - refund };
+}
+
+/**
+ * まとめて機関車を替える。車庫にいる列車はすぐ、走っている列車は
+ * いちばん近い車庫に入ったときに替えて、そのまま元の指令で走り出す
+ */
+export function scheduleEngineSwap(
+  world: World,
+  trainIds: number[],
+  type: EngineType,
+  sellOld: boolean,
+): CmdResult & { now?: number; later?: number } {
+  if (!canBuy(world, type) && ![...world.depots.values()].some((d) => d.stored.some((c) => c.type === type))) {
+    return fail(`${vehicleName(type)}はまだ買えません`);
+  }
+  let now = 0,
+    later = 0,
+    cost = 0;
+  let lastError = '';
+  for (const id of trainIds) {
+    const t = world.trains.get(id);
+    if (!t || t.cars[0]?.type === type) continue;
+    if (t.state === 'in_depot') {
+      const r = replaceEngine(world, id, type, { sellOld });
+      if (r.ok) {
+        now++;
+        cost += r.cost;
+      } else lastError = r.error ?? '';
+      continue;
+    }
+    if (!world.depots.size) return fail('車庫がありません（線路の隣に車庫を建ててください）');
+    t.engineSwap = { type, sellOld };
+    t.heading = 'depot';
+    t.trackVersion = -1;
+    if (t.state === 'loading') {
+      t.state = 'running';
+      t.stoppedAt = -1;
+    }
+    later++;
+  }
+  if (!now && !later) return fail(lastError || '交換する列車がありません');
+  return { ok: true, cost, now, later };
+}
+
+/** 交換待ちを取りやめる（元の指令に戻る） */
+export function cancelEngineSwap(world: World, trainId: number): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t?.engineSwap) return fail('交換待ちではありません');
+  t.engineSwap = null;
+  if (t.heading === 'depot') {
+    t.heading = 'order';
+    t.trackVersion = -1;
+  }
+  return { ok: true, cost: 0 };
+}
+
+/** その駅に止まる列車（指令を共有している列車はまとめる） */
+export function stationTrains(world: World, stationId: number): { orderList: number; trains: Train[] }[] {
+  const out = new Map<number, Train[]>();
+  for (const t of world.trains.values()) {
+    const ol = world.orderLists.get(t.orderList);
+    if (!ol || !ol.orders.some((o) => o.station === stationId)) continue;
+    const arr = out.get(ol.id) ?? [];
+    arr.push(t);
+    out.set(ol.id, arr);
+  }
+  return [...out].map(([orderList, trains]) => ({ orderList, trains }));
+}
+
+/**
+ * 指令の中の駅を、別の駅に差し替える（駅を解体する前などに）。
+ * orderLists を省くと、その駅を使うすべての指令が対象。差し替えで同じ駅が続いたら1つにまとめる
+ */
+export function replaceStationInOrders(
+  world: World,
+  from: number,
+  to: number,
+  orderLists?: number[],
+): CmdResult & { count?: number } {
+  if (from === to) return fail('同じ駅です');
+  if (!world.stations.has(to)) return fail('駅がありません');
+  const targets = orderLists ?? stationTrains(world, from).map((g) => g.orderList);
+  let count = 0;
+  for (const olId of targets) {
+    const ol = world.orderLists.get(olId);
+    if (!ol) continue;
+    for (const o of ol.orders) {
+      if (o.station !== from) continue;
+      o.station = to;
+      o.dest = null;
+      o.split = null;
+      count++;
+    }
+    // 同じ駅が続いたら1つにまとめる（最後と最初も）
+    for (let i = ol.orders.length - 1; i > 0; i--) {
+      if (ol.orders[i].station === ol.orders[i - 1].station) ol.orders.splice(i, 1);
+    }
+    while (ol.orders.length > 1 && ol.orders[0].station === ol.orders[ol.orders.length - 1].station) ol.orders.pop();
+    for (const t of sharers(world, olId)) {
+      if (t.curOrder >= ol.orders.length) t.curOrder = 0;
+      t.trackVersion = -1;
+      if (t.state === 'loading' && t.stoppedAt === from) {
+        t.state = 'running';
+        t.stoppedAt = -1;
+      }
+    }
+  }
+  if (!count) return fail('差し替える指令がありません');
+  return { ok: true, cost: 0, count };
+}
+
+/** 振り分けの割合を決める（null なら振り分けない） */
+export function setOrderSplit(world: World, trainId: number, index: number, split: (Dest & { w: number })[] | null): CmdResult {
+  const o = getOrder(world, trainId, index);
+  if (!o) return fail('指令がありません');
+  o.split = split && split.some((s) => s.w > 0) ? split : null;
+  if (o.split) o.dest = null;
+  return { ok: true, cost: 0 };
+}
+
 /** 届け先を選ぶ（null ならいちばん近い受け入れ先） */
 export function setOrderDest(world: World, trainId: number, index: number, dest: Dest | null): CmdResult {
   const o = getOrder(world, trainId, index);
   if (!o) return fail('指令がありません');
   o.dest = dest;
+  o.split = null;
   return { ok: true, cost: 0 };
 }
 

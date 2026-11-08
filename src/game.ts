@@ -10,6 +10,8 @@ import {
   cloneTrain,
   deleteOrder,
   demolish,
+  replaceStationInOrders,
+  stationTrains,
   formatYen,
   stationAxisFor,
   trackPath,
@@ -64,7 +66,7 @@ import {
   type Slot,
 } from './storage';
 
-export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'industry' | 'order' | 'clone';
+export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'industry' | 'order' | 'clone' | 'replace';
 type BuildTool = 'track' | 'station' | 'depot' | 'demolish' | 'industry';
 const BUILD_TOOLS: Tool[] = ['track', 'station', 'depot', 'demolish', 'industry'];
 
@@ -341,8 +343,8 @@ export class Game implements InputTarget {
     this.drag = null;
     this.clearPending();
     // スマホでは地図を広く見せるためにウィンドウを隠す（下の選択バーの「完了」で戻る）
-    this.wm.setCollapsed(this.touchUI && (tool === 'order' || tool === 'clone'));
-    this.renderer.setFaded(this.userFaded || tool === 'order');
+    this.wm.setCollapsed(this.touchUI && (tool === 'order' || tool === 'clone' || tool === 'replace'));
+    this.renderer.setFaded(this.userFaded || tool === 'order' || tool === 'replace');
     this.renderer.setOverlay({ preview: null });
     this.el.tip.hidden = true;
     this.updateHud();
@@ -365,8 +367,35 @@ export class Game implements InputTarget {
     this.toast(this.userFaded ? '建物を半透明にしました（X で戻す）' : '建物の表示を戻しました', 'info');
   }
 
+  // ───────── 駅の差し替え（駅ウィンドウの一覧から） ─────────
+
+  replaceFrom = -1;
+  /** 差し替える指令（省くと、その駅を使うすべての指令） */
+  replaceLists: number[] | undefined;
+
+  startReplace(from: number, lists?: number[]) {
+    this.tool = 'none';
+    this.replaceFrom = from;
+    this.replaceLists = lists;
+    this.setTool('replace');
+  }
+
+  private doReplace(to: number) {
+    const from = this.world.stations.get(this.replaceFrom);
+    const r = replaceStationInOrders(this.world, this.replaceFrom, to, this.replaceLists);
+    if (this.result(r)) {
+      this.toast(`${r.count}件の指令を、${from?.name ?? ''}から${this.world.stations.get(to)!.name}に差し替えました`, 'good');
+      this.setTool('none');
+    }
+    this.wm.refreshAll();
+  }
+
   /** 地図で駅を選んだ（地面・駅名の看板・近くのマス、どれからでも） */
   pickStation(stationId: number, full: boolean) {
+    if (this.tool === 'replace' && this.world.stations.has(stationId)) {
+      this.doReplace(stationId);
+      return;
+    }
     if (this.tool !== 'order' || !this.world.stations.has(stationId)) return;
     const t = this.world.trains.get(this.orderTrain);
     if (!t) return;
@@ -415,6 +444,14 @@ export class Game implements InputTarget {
   /** 画面下の選択バー：指令の並び・1つ戻す・完了 */
   private updatePickbar() {
     const bar = this.el.pickbar;
+    if (this.tool === 'replace') {
+      bar.hidden = false;
+      const from = this.world.stations.get(this.replaceFrom);
+      const n = this.replaceLists ? this.replaceLists.length : stationTrains(this.world, this.replaceFrom).length;
+      this.setPickbarHtml(`<div class="pick-text"><b>${esc(from?.name ?? '')}の代わり</b><span>新しい行き先の駅を${this.touchUI ? 'タップ' : 'クリック'}（${n}組の指令を差し替えます）</span></div>
+        <button class="pick-btn" data-p="done">やめる</button>`);
+      return;
+    }
     if (this.tool === 'clone') {
       bar.hidden = false;
       this.setPickbarHtml(`<div class="pick-text"><b>クローン</b><span>複製する列車を${this.touchUI ? 'タップ' : 'クリック'}してください</span></div>
@@ -853,7 +890,7 @@ export class Game implements InputTarget {
       this.showPreview(this.pending, this.removeMode);
       return;
     }
-    if (this.tool === 'order') {
+    if (this.tool === 'order' || this.tool === 'replace') {
       const st = this.stationNear(sx, sy);
       if (st >= 0) this.pickStation(st, mods.ctrl);
       else this.toast(touch ? '駅をタップしてください' : '駅をクリックしてください', 'info');
@@ -1059,7 +1096,7 @@ export class Game implements InputTarget {
     // 駅名の看板を押しても駅を選べる（ビルに隠れた駅のため）
     this.el.labels.addEventListener('click', (e) => {
       const el = (e.target as HTMLElement).closest('[data-station]') as HTMLElement | null;
-      if (el && this.tool === 'order') this.pickStation(Number(el.dataset.station), e.ctrlKey || e.metaKey);
+      if (el && (this.tool === 'order' || this.tool === 'replace')) this.pickStation(Number(el.dataset.station), e.ctrlKey || e.metaKey);
     });
     this.el.guide.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('[data-g="close"]')) {
@@ -1164,7 +1201,7 @@ export class Game implements InputTarget {
     on('[data-a="t-demolish"], [data-a="demolish"]', this.tool === 'demolish');
     on('[data-a="t-remove"]', this.removeMode);
     this.el.railbar.hidden = !this.railToolbarOpen || this.touchUI;
-    document.body.classList.toggle('picking', this.tool === 'order' || this.tool === 'clone');
+    document.body.classList.toggle('picking', this.tool === 'order' || this.tool === 'clone' || this.tool === 'replace');
     if (!w) return;
     const d = dateOf(w.day);
     const date = `${d.y}年${d.m}月${d.d}日`;

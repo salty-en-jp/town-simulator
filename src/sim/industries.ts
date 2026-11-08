@@ -134,6 +134,7 @@ export function addIndustry(
     dividendThisMonth: 0,
     dividendLastMonth: 0,
     expansions: 0,
+    hist: { p: [], t: [], r: [] },
   };
   world.industries.set(id, ind);
   for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) world.occ[idx(world, xx, yy)] = { k: 'industry', id };
@@ -403,4 +404,35 @@ export function ownerLabel(world: World, ind: Industry): string {
   if (ind.owner === 'player') return '自社';
   if (ind.owner === 'public') return '地元';
   return canLoadFrom(world, ind) ? '契約中' : '他社';
+}
+
+export type IndustryStatusCode = 'ok' | 'low' | 'unserved' | 'full' | 'lacking' | 'idle' | 'locked' | 'building';
+
+/** 産業がうまく動いているか（理由と、どうすればよいか） */
+export function industryStatus(world: World, ind: Industry): { code: IndustryStatusCode; text: string; tone: 'good' | 'warn' | 'bad' | 'mute' } {
+  const spec = INDUSTRY_SPECS[ind.type];
+  if (ind.status === 'building') return { code: 'building', text: `建設中（あと${Math.max(0, ind.readyDay - world.day)}日）`, tone: 'mute' };
+  if (!canLoadFrom(world, ind)) return { code: 'locked', text: '他社の産業です（権利か輸送契約で運べます）', tone: 'mute' };
+  if (ind.outStock > 500 * 0.95) {
+    return { code: 'full', text: `${CARGO_SPECS[spec.output].name}の置き場がいっぱいで止まっています。運び出してください`, tone: 'bad' };
+  }
+  if (spec.inputs.length) {
+    const have = spec.inputs.filter((c) => (ind.inputs[c] ?? 0) >= 1);
+    const recent = ind.receivedThisMonth + ind.receivedLastMonth > 0;
+    if (!have.length && !recent) {
+      return { code: 'idle', text: `材料（${spec.inputs.map((c) => CARGO_SPECS[c].name).join('・')}）が届いていません`, tone: 'warn' };
+    }
+    if (have.length < spec.inputs.length && spec.inputs.length > 1) {
+      const lack = spec.inputs.filter((c) => !have.includes(c)).map((c) => CARGO_SPECS[c].name);
+      return { code: 'lacking', text: `${lack.join('・')}が足りないので止まっています`, tone: 'bad' };
+    }
+  }
+  const produced = ind.producedLastMonth || ind.producedThisMonth;
+  const moved = ind.transportedLastMonth || ind.transportedThisMonth;
+  if (produced > 0 && moved <= 0) {
+    return { code: 'unserved', text: '運び出されていません（近くに駅がない、または列車が積みに来ていません）', tone: 'warn' };
+  }
+  const pct = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 1;
+  if (pct < 0.4) return { code: 'low', text: `運び出しが少なめです（先月の輸送率${Math.round(pct * 100)}%）`, tone: 'warn' };
+  return { code: 'ok', text: `順調です（先月の輸送率${Math.round(pct * 100)}%）`, tone: 'good' };
 }

@@ -114,6 +114,8 @@ export interface Industry {
   dividendLastMonth: number;
   /** 増産した回数 */
   expansions: number;
+  /** 毎月の記録（右詰め：最後が先月）。生産・運び出し・受け入れ */
+  hist: { p: number[]; t: number[]; r: number[] };
 }
 
 export type IndustryOwner = 'player' | 'public' | 'other';
@@ -140,7 +142,10 @@ export interface Received {
 
 export interface Town {
   id: number;
+  /** 元の名前（「桜川」）。駅や産業の名前にも使う */
   name: string;
+  /** プレイヤーが名前を変えたら true（そのときは「町」をつけずに表示する） */
+  custom?: boolean;
   cx: number;
   cy: number;
   /** 町が貯めている貨物（木材・食料品・建設資材） */
@@ -171,6 +176,8 @@ export interface Order {
   unload: UnloadMode;
   /** 届け先。なければいちばん近い受け入れ先 */
   dest?: Dest | null;
+  /** 振り分け：受け入れ先ごとの割合（1両の荷を複数の届け先に分けて降ろす） */
+  split?: (Dest & { w: number })[] | null;
 }
 
 export interface OrderList {
@@ -224,6 +231,11 @@ export interface Train {
   incomeThisStop: number;
   profitThisYear: number;
   profitLastYear: number;
+  /** 今月の利益（運賃 − 維持費）と、毎月の記録（右詰め：最後が先月） */
+  profitThisMonth: number;
+  /** 機関車の交換待ち（車庫に入ったら交換して、また走り出す） */
+  engineSwap?: { type: EngineType; sellOld: boolean } | null;
+  hist: number[];
   trackVersion: number;
 }
 
@@ -286,6 +298,20 @@ export interface World {
   requests: Request[];
   requestState: RequestState;
   surveys: Survey[];
+  /** はじめからの月数 */
+  monthIndex: number;
+  /** 今月の収支（項目ごと） */
+  monthFin: Record<FinanceCategory, number>;
+  /** 会社の毎月の記録（右詰め） */
+  history: { income: number[]; expense: number[]; money: number[]; assets: number[] };
+}
+
+/** 記録しておく月数 */
+export const HIST_MONTHS = 36;
+
+export function pushHist(arr: number[], v: number) {
+  arr.push(v);
+  if (arr.length > HIST_MONTHS) arr.splice(0, arr.length - HIST_MONTHS);
 }
 
 export function emptyFinance(): Record<FinanceCategory, number> {
@@ -333,6 +359,9 @@ export function createEmptyWorld(w: number, h: number, seed: number): World {
     requests: [],
     requestState: { nextCheckDay: 20, completed: 0, expired: 0, incomeTotal: 0 },
     surveys: [],
+    monthIndex: 0,
+    monthFin: emptyFinance(),
+    history: { income: [], expense: [], money: [], assets: [] },
   };
 }
 
@@ -502,11 +531,13 @@ export function pushEvent(world: World, ev: GameEvent): void {
 export function spend(world: World, cat: FinanceCategory, amount: number): void {
   world.money -= amount;
   world.finance.thisYear[cat] -= amount;
+  world.monthFin[cat] -= amount;
 }
 
 export function earn(world: World, cat: FinanceCategory, amount: number): void {
   world.money += amount;
   world.finance.thisYear[cat] += amount;
+  world.monthFin[cat] += amount;
 }
 
 /** ゲーム内の日付（1960年1月1日から） */
@@ -537,4 +568,9 @@ export function industryValue(ind: Industry): number {
   if (isPrimary(ind.type)) return Math.round(ind.prodRate * INDUSTRY_ECON.pricePerMonthlyT);
   const base = INDUSTRY_ECON.factoryPrice[ind.type] ?? 30_000_000;
   return Math.round(base * Math.pow(INDUSTRY_ECON.expandFactor, ind.expansions));
+}
+
+/** 町の表示名：ふつうは「桜川町」、名前を変えた町は書いたとおり */
+export function townLabel(t: { name: string; custom?: boolean }): string {
+  return t.custom ? t.name : `${t.name}町`;
 }

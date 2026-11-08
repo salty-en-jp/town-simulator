@@ -15,11 +15,17 @@ import {
   sellTrain,
   sellVehicle,
   sendToDepot,
+  cancelEngineSwap,
+  moveOrder,
+  rename,
+  scheduleEngineSwap,
   setOrderDest,
   setOrderLoad,
+  setOrderSplit,
   setOrderUnload,
   skipOrder,
   startStop,
+  stationTrains,
   trainValue,
 } from '../sim/commands';
 import {
@@ -38,9 +44,11 @@ import {
   TOWN_GOODS,
   vehicleCost,
   vehicleName,
+  vehicleValue,
   WAGON_SPECS,
   WAGON_TYPES,
   type Cargo,
+  type EngineType,
   type IndustryType,
   type VehicleType,
 } from '../sim/constants';
@@ -50,6 +58,7 @@ import {
   contractFee,
   expandCost,
   expandIndustry,
+  industryStatus,
   ownerLabel,
   rightsPrice,
   signContract,
@@ -73,8 +82,10 @@ import {
   type Order,
   type Train,
   type UnloadMode,
+  townLabel,
 } from '../sim/world';
 import type { Game } from '../game';
+import { lineChart, monthsAgo, shortYen, sparkline } from './chart';
 import { ICONS } from './icons';
 
 export const esc = (s: string) =>
@@ -122,6 +133,7 @@ export function trainStatus(g: Game, t: Train): { text: string; tone: string } {
         tone: 'bad',
       };
     default:
+      if (t.heading === 'depot' && t.engineSwap) return { text: `機関車の交換のため車庫へ向かっています`, tone: 'ok' };
       return { text: t.heading === 'depot' ? '車庫へ向かっています' : `${stName}へ向かっています`, tone: 'ok' };
   }
 }
@@ -130,6 +142,14 @@ export function openTrain(g: Game, id: number) {
   g.selectTrain(id);
   g.wm.open({
     id: `train-${id}`,
+    rename: {
+      get: () => g.world.trains.get(id)?.name ?? '',
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'train', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
       return g.world.trains.get(id)?.name ?? '列車';
     },
@@ -159,6 +179,11 @@ export function openTrain(g: Game, id: number) {
           }
           <button data-action="center">${ICONS.center}<span>表示</span></button>
         </div>
+        ${
+          t.engineSwap
+            ? `<div class="hint swap-wait">機関車の交換待ち：${esc(vehicleName(t.engineSwap.type))}（車庫に入ったら交換して、また走り出します）<button class="small-btn" data-action="cancel-swap">取りやめ</button></div>`
+            : `<div class="btnrow"><button data-action="swap">${ICONS.train}<span>機関車を交換</span></button></div>`
+        }
         <ul class="cars">${cars}</ul>
         <dl class="stats">
           <dt>速さ</dt><dd>${eng.speed}マス/日</dd>
@@ -166,7 +191,8 @@ export function openTrain(g: Game, id: number) {
           <dt>去年の利益</dt><dd>${formatYen(t.profitLastYear)}</dd>
           <dt>維持費（走っているとき）</dt><dd>${formatYen(eng.runningCostPerYear)}/年</dd>
         </dl>
-        ${inDepot ? '' : '<p class="muted small">編成を変えるには、いったん車庫へ送ってください。</p>'}`;
+        ${inDepot ? '' : '<p class="muted small">編成を変えるには、いったん車庫へ送ってください。</p>'}
+        ${trainCharts(g, t)}`;
     },
     onAction: (a) => {
       const t = g.world.trains.get(id);
@@ -175,6 +201,8 @@ export function openTrain(g: Game, id: number) {
       else if (a === 'orders') openOrders(g, id);
       else if (a === 'depot') g.result(sendToDepot(g.world, id));
       else if (a === 'center') g.centerOnTrain(id);
+      else if (a === 'swap') openEngineSwap(g, id);
+      else if (a === 'cancel-swap') g.result(cancelEngineSwap(g.world, id));
       else if (a === 'consist') {
         g.depotSel.set(t.depotId, id);
         openDepot(g, t.depotId);
@@ -183,6 +211,141 @@ export function openTrain(g: Game, id: number) {
     },
     onClose: () => {
       if (g.selectedTrain === id) g.selectTrain(-1);
+    },
+  });
+}
+
+/** 列車の利益（路線全体も）と、車両の値段の下がり方 */
+function trainCharts(g: Game, t: Train): string {
+  const w = g.world;
+  const mates = [...w.trains.values()].filter((x) => x.orderList === t.orderList);
+  const series = [{ name: 'この列車', color: '#2c4a3e', data: t.hist }];
+  if (mates.length > 1) {
+    const len = Math.max(...mates.map((m) => m.hist.length));
+    const sum = new Array(len).fill(0);
+    for (const m of mates) m.hist.forEach((v, i) => (sum[len - m.hist.length + i] += v));
+    series.push({ name: `路線全体（${mates.length}本）`, color: '#d8a32a', data: sum });
+  }
+  const profit = `<h4>毎月の利益 <small class="muted">運賃 − 維持費</small></h4>${lineChart(series, {
+    format: shortYen,
+    xLeft: monthsAgo(Math.max(1, ...series.map((x) => x.data.length))),
+    xRight: '先月',
+  })}`;
+  // 減価償却：いちばん古い車両を買った日から15年後まで
+  const from = Math.min(...t.cars.map((c) => c.built));
+  const span = 15 * 365;
+  const pts: number[] = [];
+  for (let k = 0; k <= 15; k++) {
+    const d = from + k * 365;
+    pts.push(t.cars.reduce((sum, c) => sum + (d >= c.built ? vehicleValue(c.type, d - c.built) : 0), 0));
+  }
+  const now = trainValue(w, t);
+  const paid = t.cars.reduce((sum, c) => sum + vehicleCost(c.type), 0);
+  const value = `<h4>車両の値段 <small class="muted">年数とともに下がります（減価償却）</small></h4>
+    ${lineChart([{ name: '売るときの値段', color: '#4f74a3', data: pts }], {
+      format: shortYen,
+      xLeft: '買ったとき',
+      xRight: '15年後',
+      marker: { at: Math.min(1, (w.day - from) / span), label: 'いま' },
+    })}
+    <p class="small">いま売ると <b>${formatYen(now)}</b>（買ったときの値段 ${formatYen(paid)}）</p>`;
+  return profit + value;
+}
+
+/** 会社の収支・所持金・車両の資産価値 */
+function financeCharts(g: Game): string {
+  const h = g.world.history;
+  const n = Math.max(1, h.income.length);
+  const opts = { format: shortYen, xLeft: monthsAgo(n), xRight: '先月' };
+  return `<h4>毎月の収入と支出</h4>
+    ${lineChart(
+      [
+        { name: '収入', color: '#2f8a4a', data: h.income },
+        { name: '支出', color: '#c0443a', data: h.expense },
+      ],
+      opts,
+    )}
+    <h4>所持金と車両の資産価値 <small class="muted">資産価値は減価償却後の値段の合計</small></h4>
+    ${lineChart(
+      [
+        { name: '所持金', color: '#2c4a3e', data: h.money },
+        { name: '車両の資産価値', color: '#4f74a3', data: h.assets, dashed: true },
+      ],
+      opts,
+    )}`;
+}
+
+// ───────────────────────── 機関車の交換 ─────────────────────────
+
+/** 機関車だけを替える（貨車と指令はそのまま）。この列車だけ／同じ指令の列車／同じ機関車の列車 */
+export function openEngineSwap(g: Game, trainId: number) {
+  const ui = { scope: 'one' as 'one' | 'route' | 'type', type: '' as EngineType | '', sell: false };
+  const targets = (): Train[] => {
+    const w = g.world;
+    const t = w.trains.get(trainId);
+    if (!t) return [];
+    if (ui.scope === 'one') return [t];
+    if (ui.scope === 'route') return [...w.trains.values()].filter((x) => x.orderList === t.orderList);
+    return [...w.trains.values()].filter((x) => x.cars[0]?.type === t.cars[0]?.type);
+  };
+  g.wm.open({
+    id: `swap-${trainId}`,
+    title: '機関車の交換',
+    width: 360,
+    render: () => {
+      const w = g.world;
+      const t = w.trains.get(trainId);
+      if (!t) return '<p class="muted">この列車はもうありません</p>';
+      const cur = t.cars[0].type;
+      const sameRoute = [...w.trains.values()].filter((x) => x.orderList === t.orderList).length;
+      const sameEngine = [...w.trains.values()].filter((x) => x.cars[0]?.type === cur).length;
+      const spares = (e: EngineType) => [...w.depots.values()].reduce((n, d) => n + d.stored.filter((c) => c.type === e).length, 0);
+      const engines = ENGINE_TYPES.filter((e) => e !== cur)
+        .map((e) => {
+          const ok = canBuy(w, e) || spares(e) > 0;
+          return `<button class="buy ${ui.type === e ? 'on' : ''}" data-action="type" data-e="${e}" ${ok ? '' : 'disabled title="依頼の報酬で解禁されます"'}>
+            <span class="buy-name"><span class="car-dot ${e}"></span>${SHORT_NAMES[e]}${ok ? '' : ' 🔒'}</span>
+            <span class="num">${formatYen(vehicleCost(e))}</span>
+            <span class="muted small">${ENGINE_SPECS[e].speed}マス/日${spares(e) ? `・留置線に${spares(e)}両` : ''}</span></button>`;
+        })
+        .join('');
+      const list = targets().filter((x) => x.cars[0]?.type !== ui.type);
+      const inDepot = list.filter((x) => x.state === 'in_depot').length;
+      const radio = (k: string, v: string, label: string) =>
+        `<label class="check"><input type="radio" name="scope-${trainId}" data-key="${k}" value="${v}" ${(ui as Record<string, unknown>)[k] === v || (k === 'sell' && String(ui.sell) === v) ? 'checked' : ''}> ${label}</label>`;
+      return `
+        <p class="small">いまの機関車：<b>${esc(vehicleName(cur))}</b>。貨車と指令はそのままで、先頭の機関車だけを替えます。</p>
+        <h4>どの列車を</h4>
+        ${radio('scope', 'one', `この列車だけ（${esc(t.name)}）`)}
+        ${radio('scope', 'route', `同じ指令の列車すべて（${sameRoute}本）`)}
+        ${radio('scope', 'type', `${esc(SHORT_NAMES[cur])}の列車すべて（${sameEngine}本）`)}
+        <h4>新しい機関車</h4>
+        <div class="buy-grid">${engines || '<p class="muted small">ほかの機関車がありません</p>'}</div>
+        <h4>古い機関車</h4>
+        <label class="check"><input type="radio" name="sell-${trainId}" data-key="sell" value="false" ${!ui.sell ? 'checked' : ''}> 車庫の留置線に置く</label>
+        <label class="check"><input type="radio" name="sell-${trainId}" data-key="sell" value="true" ${ui.sell ? 'checked' : ''}> 売る</label>
+        ${
+          ui.type
+            ? `<p class="small">${list.length}本を交換します。${inDepot ? `車庫にいる${inDepot}本はすぐ、` : ''}${list.length - inDepot ? `走っている${list.length - inDepot}本は、いちばん近い車庫に入ったときに交換して、そのまま走り出します。` : ''}</p>`
+            : '<p class="muted small">新しい機関車を選んでください。</p>'
+        }
+        <div class="btnrow"><button class="primary" data-action="go" ${ui.type && list.length ? '' : 'disabled'}><span>交換する</span></button></div>`;
+    },
+    onAction: (a, el) => {
+      if (a === 'type') ui.type = el.dataset.e as EngineType;
+      if (a === 'go' && ui.type) {
+        const r = scheduleEngineSwap(g.world, targets().map((x) => x.id), ui.type, ui.sell);
+        if (g.result(r)) {
+          g.toast(`機関車の交換：すぐ${r.now ?? 0}本・車庫に入ったら${r.later ?? 0}本`, 'good');
+          g.wm.close(`swap-${trainId}`);
+        }
+      }
+      g.wm.refreshAll();
+    },
+    onChange: (el) => {
+      if (el.dataset.key === 'scope') ui.scope = el.value as typeof ui.scope;
+      if (el.dataset.key === 'sell') ui.sell = el.value === 'true';
+      g.wm.refresh(`swap-${trainId}`, true);
     },
   });
 }
@@ -215,10 +378,11 @@ export function openOrders(g: Game, id: number) {
             o.load !== 'if_available' ? LOAD_LABELS[o.load] : '',
             o.unload === 'none' ? '降ろさない' : '',
             o.dest ? `届け先：${acceptorName(w, o.dest)}` : '',
+            o.split ? `振り分け：${o.split.filter((x) => x.w > 0).map((x) => acceptorName(w, x)).join('・')}` : '',
           ]
             .filter(Boolean)
             .join('・');
-          return `<li class="order ${i === sel ? 'sel' : ''} ${i === t.curOrder ? 'cur' : ''}" data-action="sel" data-i="${i}">
+          return `<li class="order ${i === sel ? 'sel' : ''} ${i === t.curOrder ? 'cur' : ''}" data-action="sel" data-i="${i}" ${g.touchUI ? '' : 'draggable="true"'}>
             <span class="oi">${i === t.curOrder ? '▶' : ''}${i + 1}:</span>
             <span>${esc(st?.name ?? '?')}へ${extra ? `<small>（${esc(extra)}）</small>` : ''}</span></li>`;
         })
@@ -238,8 +402,10 @@ export function openOrders(g: Game, id: number) {
           </select></label>
         </div>
         ${o ? destField(g, t, o) : ''}
-        <div class="btnrow">
+        <div class="btnrow wrap order-actions">
           <button class="${picking ? 'on' : ''}" data-action="goto" title="地図の駅をクリック（Ctrl+クリックで満載待ち）">${ICONS.station}<span>行き先</span></button>
+          <button data-action="up" ${o && sel > 0 ? '' : 'disabled'} title="上へ" aria-label="上へ">${ICONS.up}</button>
+          <button data-action="down" ${o && sel < ol.orders.length - 1 ? '' : 'disabled'} title="下へ" aria-label="下へ">${ICONS.down}</button>
           <button data-action="delete" ${o ? '' : 'disabled'}>${ICONS.remove}<span>削除</span></button>
           <button data-action="skip" ${ol.orders.length ? '' : 'disabled'}>${ICONS.skip}<span>スキップ</span></button>
         </div>
@@ -249,7 +415,11 @@ export function openOrders(g: Game, id: number) {
       const t = g.world.trains.get(id);
       if (!t) return;
       if (a === 'sel') g.orderSel.set(id, Number(el.dataset.i));
-      else if (a === 'goto') g.startOrderPick(id);
+      else if (a === 'up' || a === 'down') {
+        const sel = g.orderSel.get(id) ?? -1;
+        const to = sel + (a === 'up' ? -1 : 1);
+        if (g.result(moveOrder(g.world, id, sel, to))) g.orderSel.set(id, to);
+      } else if (a === 'goto') g.startOrderPick(id);
       else if (a === 'delete') {
         const sel = g.orderSel.get(id) ?? -1;
         g.result(deleteOrder(g.world, id, sel));
@@ -261,10 +431,28 @@ export function openOrders(g: Game, id: number) {
       const sel = g.orderSel.get(id) ?? -1;
       if (el.dataset.key === 'load') g.result(setOrderLoad(g.world, id, sel, el.value as LoadMode));
       if (el.dataset.key === 'unload') g.result(setOrderUnload(g.world, id, sel, el.value as UnloadMode));
-      if (el.dataset.key === 'dest') {
-        const [kind, did] = el.value.split(':');
-        g.result(setOrderDest(g.world, id, sel, kind === 'auto' ? null : { kind: kind as 'industry' | 'town', id: Number(did) }));
+      const t = g.world.trains.get(id);
+      const o = t ? g.world.orderLists.get(t.orderList)!.orders[sel] : undefined;
+      if (el.dataset.key === 'dest' && t && o) {
+        if (el.value === 'split') {
+          // はじめは均等に振り分ける
+          g.result(setOrderSplit(g.world, id, sel, [...destOptions(g, t, o).keys()].map((k) => ({ ...keyToDest(k), w: 5 }))));
+        } else {
+          g.result(setOrderDest(g.world, id, sel, el.value === 'auto' ? null : keyToDest(el.value)));
+        }
       }
+      if (el.dataset.key?.startsWith('splitw-') && t && o) {
+        const keys = [...destOptions(g, t, o).keys()];
+        const split = keys.map((k) => ({ ...keyToDest(k), w: o.split?.find((x) => `${x.kind}:${x.id}` === k)?.w ?? 0 }));
+        const target = split.find((x) => `${x.kind}:${x.id}` === el.dataset.k);
+        if (target) target.w = Number(el.value);
+        if (split.every((x) => x.w === 0)) target!.w = 1;
+        g.result(setOrderSplit(g.world, id, sel, split));
+      }
+      g.wm.refreshAll();
+    },
+    onReorder: (from, to) => {
+      if (g.result(moveOrder(g.world, id, from, to))) g.orderSel.set(id, to);
       g.wm.refreshAll();
     },
     onClose: () => {
@@ -273,31 +461,55 @@ export function openOrders(g: Game, id: number) {
   });
 }
 
-/**
- * 届け先の選択欄。列車が運ぶ貨物を、その駅で受け入れる先が2つ以上あるときだけ選べる
- */
-function destField(g: Game, t: Train, o: Order): string {
+/** 届け先の候補（列車が運ぶ貨物を、その駅で受け入れる先） */
+function destOptions(g: Game, t: Train, o: Order): Map<string, string> {
   const w = g.world;
   const st = w.stations.get(o.station);
-  if (!st) return '';
-  const cargos = [...new Set(t.cars.map((c) => carCargo(c)).filter((c): c is Cargo => !!c))];
   const options = new Map<string, string>();
+  if (!st) return options;
+  const cargos = [...new Set(t.cars.map((c) => carCargo(c)).filter((c): c is Cargo => !!c))];
   for (const c of cargos) {
     for (const a of acceptors(w, st, c)) {
       const key = `${a.kind}:${a.id}`;
-      const label = `${acceptorName(w, a)}（${CARGO_SPECS[c].name} ×${acceptorDemand(w, a, c).toFixed(2)}）`;
-      options.set(key, options.has(key) ? options.get(key)!.replace('）', `・${CARGO_SPECS[c].name} ×${acceptorDemand(w, a, c).toFixed(2)}）`) : label);
+      const part = `${CARGO_SPECS[c].name} ×${acceptorDemand(w, a, c).toFixed(2)}`;
+      options.set(key, options.has(key) ? options.get(key)!.replace('）', `・${part}）`) : `${acceptorName(w, a)}（${part}）`);
     }
   }
+  return options;
+}
+
+const keyToDest = (k: string) => {
+  const [kind, id] = k.split(':');
+  return { kind: kind as 'industry' | 'town', id: Number(id) };
+};
+
+/**
+ * 届け先の選択欄。列車が運ぶ貨物を、その駅で受け入れる先が2つ以上あるときだけ選べる。
+ * 「振り分ける」を選ぶと、受け入れ先ごとの割合で分けて降ろす（1両でも）
+ */
+function destField(g: Game, t: Train, o: Order): string {
+  const options = destOptions(g, t, o);
   if (options.size === 0) return '';
-  if (options.size === 1) {
-    return `<p class="small muted">届け先：${esc([...options.values()][0])}</p>`;
+  if (options.size === 1) return `<p class="small muted">届け先：${esc([...options.values()][0])}</p>`;
+  const cur = o.split ? 'split' : o.dest ? `${o.dest.kind}:${o.dest.id}` : 'auto';
+  let splitRows = '';
+  if (o.split) {
+    const sum = o.split.reduce((n, x) => n + x.w, 0) || 1;
+    splitRows = [...options]
+      .map(([k, v]) => {
+        const wgt = o.split!.find((x) => `${x.kind}:${x.id}` === k)?.w ?? 0;
+        return `<label class="split-row"><span class="ellipsis">${esc(v.replace(/（.*$/, ''))}</span>
+          <input type="range" min="0" max="10" step="1" value="${wgt}" data-key="splitw-${k}" data-k="${k}">
+          <b class="num">${Math.round((wgt / sum) * 100)}%</b></label>`;
+      })
+      .join('');
   }
-  const cur = o.dest ? `${o.dest.kind}:${o.dest.id}` : 'auto';
   return `<div class="field-row"><label>届け先（この駅で受け入れる先が${options.size}つあります）<select data-key="dest">
       <option value="auto" ${cur === 'auto' ? 'selected' : ''}>自動（いちばん近い所）</option>
       ${[...options].map(([k, v]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}
-    </select></label></div>`;
+      <option value="split" ${cur === 'split' ? 'selected' : ''}>振り分ける（割合を決める）</option>
+    </select></label></div>
+    ${splitRows ? `<div class="split">${splitRows}<p class="muted small">1両の荷でも、この割合で分けて降ろします。いっぱいで入らない分は、ほかの届け先に回します。</p></div>` : ''}`;
 }
 
 /** 指令の追加（地図で駅を選んだとき） */
@@ -371,13 +583,21 @@ export function openDepot(g: Game, id: number) {
         })
         .join('');
 
-      const stored = depot.stored
+      // 留置線は種類ごとにまとめる（機関車 → 貨車の順、同じ種類は古い順）
+      const order = [...ENGINE_TYPES, ...WAGON_TYPES] as VehicleType[];
+      const sorted = [...depot.stored].sort((p, q) => order.indexOf(p.type) - order.indexOf(q.type) || p.built - q.built);
+      const counts = new Map<VehicleType, number>();
+      for (const c of sorted) counts.set(c.type, (counts.get(c.type) ?? 0) + 1);
+      let lastType: VehicleType | null = null;
+      const stored = sorted
         .map((c) => {
+          const head = c.type !== lastType ? `<li class="group"><span class="car-dot ${c.type}"></span>${SHORT_NAMES[c.type]} ×${counts.get(c.type)}</li>` : '';
+          lastType = c.type;
           const engine = isEngine(c.type);
           const action = engine
             ? `<button class="small-btn" data-action="maketrain" data-car="${c.id}">列車にする</button>`
             : `<button class="small-btn" data-action="attach" data-car="${c.id}" ${selTrain ? '' : 'disabled title="先に上で列車を選んでください"'}>↑つなぐ</button>`;
-          return `<li><span class="car-dot ${c.type}"></span><span>${SHORT_NAMES[c.type]}<small class="muted"> ${ageText(g, c.built)}</small></span><span class="grow"></span>${action}<button class="small-btn" data-action="sellcar" data-car="${c.id}" title="売却">売る ${formatYen(carValue(w, c))}</button></li>`;
+          return `${head}<li class="sub"><span>${SHORT_NAMES[c.type]}<small class="muted"> ${ageText(g, c.built)}</small></span><span class="grow"></span>${action}<button class="small-btn" data-action="sellcar" data-car="${c.id}" title="売却">売る ${formatYen(carValue(w, c))}</button></li>`;
         })
         .join('');
 
@@ -489,6 +709,14 @@ export function openStation(g: Game, id: number) {
   g.selectStation(id);
   g.wm.open({
     id: `station-${id}`,
+    rename: {
+      get: () => g.world.stations.get(id)?.name ?? '',
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'station', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
       return g.world.stations.get(id)?.name ?? '駅';
     },
@@ -510,7 +738,13 @@ export function openStation(g: Game, id: number) {
         ${rows ? `<table class="tbl">${rows}</table>` : '<p class="muted small">まだ列車が来ていません。列車が一度積みに来ると、貨物が集まり始めます。</p>'}
         <h4>受け入れる貨物</h4>
         <p>${acc.length ? acc.map((c) => `<span class="tag"><span class="cargo-dot ${c}"></span>${CARGO_SPECS[c].name}</span>`).join('') : '<span class="muted">なし</span>'}</p>
-        <p class="muted small">評価は「列車が来る頻度・待っている量・列車の速さ」で決まります。評価が高いほど多くの貨物が駅に来ます。</p>`;
+        <p class="muted small">評価は「列車が来る頻度・待っている量・列車の速さ」で決まります。評価が高いほど多くの貨物が駅に来ます。</p>
+        ${stationTrainsSection(g, st.id)}`;
+    },
+    onAction: (a, el) => {
+      if (a === 'train') openTrain(g, Number(el.dataset.id));
+      if (a === 'replace') g.startReplace(id, [Number(el.dataset.ol)]);
+      if (a === 'replace-all') g.startReplace(id);
     },
     onClose: () => {
       if (g.selectedStation === id) g.selectStation(-1);
@@ -518,11 +752,38 @@ export function openStation(g: Game, id: number) {
   });
 }
 
+/** この駅に止まる列車（指令を共有している列車はまとめる）と、代わりの駅への差し替え */
+function stationTrainsSection(g: Game, stationId: number): string {
+  const groups = stationTrains(g.world, stationId);
+  if (!groups.length) return '<h4>この駅に止まる列車</h4><p class="muted small">ありません</p>';
+  const rows = groups
+    .map((gr) => {
+      const names = gr.trains.map((t) => `<button class="link" data-action="train" data-id="${t.id}">${esc(t.name)}</button>`).join('・');
+      const stops = g.world.orderLists.get(gr.orderList)!.orders.map((o) => g.world.stations.get(o.station)?.name ?? '?');
+      return `<li class="st-train"><div>${names}${gr.trains.length > 1 ? `<small class="muted">（指令を共有）</small>` : ''}
+          <div class="muted small ellipsis">${esc(stops.join(' → '))}</div></div>
+        <span class="grow"></span><button class="small-btn" data-action="replace" data-ol="${gr.orderList}" title="この駅の代わりに、別の駅へ行くようにする">代わりの駅へ</button></li>`;
+    })
+    .join('');
+  return `<h4>この駅に止まる列車 <small class="muted">${groups.reduce((n, gr) => n + gr.trains.length, 0)}本</small></h4>
+    <ul class="list">${rows}</ul>
+    <div class="btnrow"><button data-action="replace-all"><span>すべての列車の行き先を差し替え</span></button></div>
+    <p class="muted small">「代わりの駅へ」を押して地図の駅を選ぶと、指令の中のこの駅がその駅に置きかわります（駅を解体する前に便利です）。</p>`;
+}
+
 // ───────────────────────── 産業 ─────────────────────────
 
 export function openIndustry(g: Game, id: number) {
   g.wm.open({
     id: `industry-${id}`,
+    rename: {
+      get: () => g.world.industries.get(id)?.name ?? '',
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'industry', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
       return g.world.industries.get(id)?.name ?? '産業';
     },
@@ -547,7 +808,9 @@ export function openIndustry(g: Game, id: number) {
         .join('');
       const lacking = spec.inputs.length > 1 ? spec.inputs.filter((c) => (ind.inputs[c] ?? 0) < 1) : [];
       const full = ind.outStock > cap * 0.95;
+      const status = industryStatus(g.world, ind);
       return `
+        <div class="ind-status ${status.tone}"><i></i>${esc(status.text)}</div>
         ${ownerSection(g, ind)}
         <p class="chain">${chain}</p>
         <p class="lead">${esc(spec.desc)}</p>
@@ -561,7 +824,16 @@ export function openIndustry(g: Game, id: number) {
           ${spec.inputs.length ? `<dt>先月の受け入れ</dt><dd>${n0(ind.receivedLastMonth)}t</dd>` : ''}
           <dt>先月の${spec.inputs.length ? '加工' : '生産'}</dt><dd>${n0(ind.producedLastMonth)}t（輸送率 ${pct(tr)}）</dd>
         </dl>
-        ${spec.inputs.length ? '' : '<p class="muted small">輸送率（運び出された割合）が高いほど、生産量が増えやすくなります。</p>'}`;
+        ${spec.inputs.length ? '' : '<p class="muted small">輸送率（運び出された割合）が高いほど、生産量が増えやすくなります。</p>'}
+        <h4>毎月の${spec.inputs.length ? '受け入れ・加工' : '生産'}と運び出し</h4>
+        ${lineChart(
+          [
+            ...(spec.inputs.length ? [{ name: '受け入れ（材料）', color: '#8b5a2b', data: ind.hist.r, dashed: true }] : []),
+            { name: spec.inputs.length ? '加工' : '生産', color: '#2c4a3e', data: ind.hist.p },
+            { name: '運び出し', color: '#d8a32a', data: ind.hist.t },
+          ],
+          { format: (v) => `${Math.round(v)}t`, xLeft: monthsAgo(Math.max(ind.hist.p.length, 1)), xRight: '先月' },
+        )}`;
     },
     onAction: (a) => {
       if (a === 'buy') g.result(buyRights(g.world, id));
@@ -571,6 +843,17 @@ export function openIndustry(g: Game, id: number) {
     },
   });
 }
+
+const STATUS_SHORT: Record<string, string> = {
+  ok: '順調',
+  low: '少なめ',
+  unserved: '運び出しなし',
+  full: '満杯',
+  lacking: '材料不足',
+  idle: '材料なし',
+  locked: '運べない',
+  building: '建設中',
+};
 
 /** 持ち主と、権利の購入・輸送契約・増産 */
 function ownerSection(g: Game, ind: Industry): string {
@@ -614,8 +897,16 @@ function cargoTag(c: Cargo): string {
 export function openTown(g: Game, id: number) {
   g.wm.open({
     id: `town-${id}`,
+    rename: {
+      get: () => (g.world.towns.has(id) ? townLabel(g.world.towns.get(id)!) : ''),
+      set: (name) => {
+        const ok = g.result(rename(g.world, 'town', id, name));
+        g.wm.refreshAll();
+        return ok;
+      },
+    },
     get title() {
-      return `${g.world.towns.get(id)?.name ?? ''}町`;
+      return `${g.world.towns.has(id) ? townLabel(g.world.towns.get(id)!) : ''}`;
     },
     width: 320,
     render: () => {
@@ -676,7 +967,8 @@ export function openFinance(g: Game) {
         <div class="btnrow">
           <button data-action="borrow" ${w.loan >= w.maxLoan ? 'disabled' : ''}><span>借りる ＋${formatYen(FINANCE.loanStep)}</span></button>
           <button data-action="repay" ${w.loan <= 0 ? 'disabled' : ''}><span>返す −${formatYen(FINANCE.loanStep)}</span></button>
-        </div>`;
+        </div>
+        ${financeCharts(g)}`;
     },
     onAction: (a) => {
       if (a === 'borrow') g.result(borrow(g.world));
@@ -699,7 +991,7 @@ export function openTrainList(g: Game) {
       return `<ul class="list">${list
         .map((t) => {
           const s = trainStatus(g, t);
-          return `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(t.name)}</b><span class="small ${s.tone === 'bad' ? 'neg' : 'muted'} ellipsis">${esc(s.text.replace(' — クリックで発車', ''))}</span><span class="grow"></span><span class="num ${t.profitThisYear >= 0 ? 'pos' : 'neg'}">${formatYen(t.profitThisYear)}</span></li>`;
+          return `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(t.name)}</b><span class="small ${s.tone === 'bad' ? 'neg' : 'muted'} ellipsis">${esc(s.text.replace(' — クリックで発車', ''))}</span><span class="grow"></span>${sparkline(t.hist.slice(-12), (t.hist.at(-1) ?? 0) >= 0 ? '#2f8a4a' : '#c0443a')}<span class="num ${t.profitThisYear >= 0 ? 'pos' : 'neg'}">${formatYen(t.profitThisYear)}</span></li>`;
         })
         .join('')}</ul>`;
     },
@@ -749,7 +1041,8 @@ export function openIndustryList(g: Game) {
         .map((ind) => {
           const tr = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
           const ol = ownerLabel(g.world, ind);
-          return `<li data-action="open" data-id="${ind.id}" class="clickable"><span class="owner-badge ${ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : 'public'}">${ol}</span><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="small">輸送率 ${pct(tr)}</span></li>`;
+          const stt = industryStatus(g.world, ind);
+          return `<li data-action="open" data-id="${ind.id}" class="clickable"><span class="owner-badge ${ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : 'public'}">${ol}</span><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="ind-st ${stt.tone}" title="${esc(stt.text)}"><i></i>${STATUS_SHORT[stt.code]}</span><span class="small muted">${pct(tr)}</span></li>`;
         })
         .join('')}</ul>
        <p class="muted small">森→製材所→木材（町に家）／農場→食品工場→食料品（町が早く育つ）／鉄鉱山＋炭鉱→製鉄所→鋼材／木材＋鋼材→建材工場→建設資材（町に高層ビル）</p>`,
@@ -772,7 +1065,7 @@ export function openTownList(g: Game) {
       `<ul class="list">${[...g.world.towns.values()]
         .map(
           (t) =>
-            `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(t.name)}町</b><span class="grow"></span><span class="num">${n0(t.population)}人</span></li>`,
+            `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(townLabel(t))}</b><span class="grow"></span><span class="num">${n0(t.population)}人</span></li>`,
         )
         .join('')}</ul>`,
     onAction: (a, el) => {
@@ -826,11 +1119,12 @@ export function openHelp(g: Game) {
           <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
           <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
           <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
+          <li>駅・列車・町・産業の<b>名前</b>は、ウィンドウのタイトルの横の鉛筆ボタンで変えられます。指令は<b>↑↓</b>（PCはドラッグでも）で並べ替えられます。列車のウィンドウの「<b>機関車を交換</b>」で、貨車と指令はそのままに機関車だけを替えられます（まとめて替えることもできます）</li>
           <li><b>産業の持ち主</b>：「地元」はだれでも運べます。「他社」は<b>権利を買う</b>か<b>輸送契約</b>を結ぶと運べます（産業をクリック）。自社の産業は運んだ分の利益が毎月入ります</li>
           <li><b>産業をつくる</b>：お金を出して一次産業を<b>探鉱</b>（成功・失敗あり）したり、<b>工場を建てたり</b>できます。一次産業はときどき自然に見つかります</li>
           <li>ほかにも、農場→食品工場→<b>食料品</b>（町が早く育つ）、鉄鉱山と炭鉱→製鉄所→<b>鋼材</b>、木材と鋼材→建材工場→<b>建設資材</b>（高層ビル）。<b>相場表</b>（F10）で、どこが高く買うか見られます</li>
         </ol>
-        <p class="muted small">試作版 v0.4 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
+        <p class="muted small">試作版 v0.5 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
         <h4>画面</h4>
         <div class="btnrow">
           <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
@@ -963,7 +1257,7 @@ export function openMarket(g: Game) {
       if (TOWN_GOODS.includes(sel)) {
         for (const t of w.towns.values()) {
           const a = { kind: 'town' as const, id: t.id };
-          rows.push({ ...a, name: `${t.name}町`, stock: acceptorStock(w, a, sel), cap: TOWN.stockCap, demand: acceptorDemand(w, a, sel), tile: t.cy * w.w + t.cx });
+          rows.push({ ...a, name: `${townLabel(t)}`, stock: acceptorStock(w, a, sel), cap: TOWN.stockCap, demand: acceptorDemand(w, a, sel), tile: t.cy * w.w + t.cx });
         }
       }
       rows.sort((p, q) => q.demand - p.demand);

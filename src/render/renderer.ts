@@ -2,7 +2,7 @@
 
 import { Application, Container, Graphics } from 'pixi.js';
 import { CARGO_SPECS, INDUSTRY_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
-import { ownerLabel } from '../sim/industries';
+import { industryStatus, ownerLabel } from '../sim/industries';
 import {
   carLoad,
   DIRS,
@@ -18,6 +18,7 @@ import {
   type Rect,
   type Train,
   type World,
+  townLabel,
 } from '../sim/world';
 import { groundPoly, hash01, isoX, isoY, shade, TH, TW, worldToTile } from './iso';
 
@@ -559,7 +560,7 @@ export class Renderer {
         live.add(k);
         this.label(
           k,
-          `<b>${esc(town.name)}町</b><span>${town.population.toLocaleString('ja-JP')}人</span>`,
+          `<b>${esc(townLabel(town))}</b><span>${town.population.toLocaleString('ja-JP')}人</span>`,
           'town',
           town.cx,
           town.cy,
@@ -581,7 +582,15 @@ export class Renderer {
         live.add(k);
         const ol = ownerLabel(w, ind);
         const cls = ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : '';
-        this.label(k, `${esc(ind.name)}${ol !== '地元' ? `<small>${ol}</small>` : ''}`, `industry ${cls}`, ind.x + (ind.w - 1) / 2, ind.y + (ind.h - 1) / 2, 46);
+        const st = industryStatus(w, ind);
+        this.label(
+          k,
+          `<i class="st ${st.tone}" title="${esc(st.text)}"></i>${esc(ind.name)}${ol !== '地元' ? `<small>${ol}</small>` : ''}`,
+          `industry ${cls}`,
+          ind.x + (ind.w - 1) / 2,
+          ind.y + (ind.h - 1) / 2,
+          46,
+        );
       }
       for (const [k, l] of this.labels) {
         if (!live.has(k)) {
