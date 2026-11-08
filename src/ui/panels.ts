@@ -68,7 +68,7 @@ import {
 } from '../sim/industries';
 import { activeBooms, BOOM_LABEL, boomPlace, boomTile, marketIndex, type Boom } from '../sim/market';
 import { daysLeft, rewardText } from '../sim/requests';
-import { STAGES, stageName, townAccepts, townStage } from '../sim/towns';
+import { intercityMul, STAGES, stageName, townAccepts, townStage } from '../sim/towns';
 import { acceptorDemand, acceptorName, acceptors, acceptorStock, stationAccepts } from '../sim/simulate';
 import {
   canBuy,
@@ -964,6 +964,7 @@ export function openTown(g: Game, id: number) {
           <dt>使われている駅</dt><dd>${t.activeStations}駅 ${t.activeStations === 0 ? '<span class="muted">（成長がとても遅い）</span>' : '<span class="pos">（成長中）</span>'}</dd>
           <dt>食料品</dt><dd>${t.fed ? '<span class="pos">足りている（早く育つ）</span>' : '<span class="muted">足りない</span>'}</dd>
           <dt>届いた旅客（先月）</dt><dd>${n0(t.recv.passengers?.lm ?? 0)}人</dd>
+          <dt>都市間の旅客</dt><dd>同じ大きさの町と結ぶと運賃 <b>×${intercityMul(t, { ...t, id: -1 }).toFixed(2)}</b></dd>
         </dl>
         <table class="tbl"><tr><th></th><th class="num">先月届いた</th><th class="num">在庫</th><th class="num">買取</th></tr>${goods}</table>
         <p class="muted small">食料品が足りていると町が早く育ちます。駅がよく使われているほど成長が速くなります。大きな町ほど、ふだんの成長はゆっくりになります。</p>

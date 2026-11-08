@@ -19,7 +19,7 @@ import {
 import { cargoIncome, demandFactor } from './economy';
 import { replaceEngine } from './commands';
 import { eventsMonthly } from './events';
-import { TOWN_GROWTH, townAccepts, townStage, updateTownStage } from './towns';
+import { intercityMul, TOWN_GROWTH, townAccepts, townNear, townStage, updateTownStage } from './towns';
 import { boomMul, marketIndex, marketMonthly, tourismPaxMul } from './market';
 import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
 import { updateRequests } from './requests';
@@ -297,7 +297,9 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
       if (take <= 0) break;
       p.amount -= take;
       delivered += take;
-      const income = cargoIncome(cargo, take, manhattan(world, p.fromTile, sign), p.days, demand);
+      // 旅客：大きな町どうしを結ぶほど運賃が上がる（乗った町と降りた町の大きさ）
+      const inter = cargo === 'passengers' && town ? intercityMul(townNear(world, p.fromTile), town) : 1;
+      const income = cargoIncome(cargo, take, manhattan(world, p.fromTile, sign), p.days, demand * inter);
       earn(world, 'income', income);
       world.requestState.incomeTotal += income;
       t.incomeThisStop += income;

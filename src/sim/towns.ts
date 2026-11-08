@@ -80,3 +80,41 @@ export function updateTownStage(world: World, town: Town): boolean {
   });
   return true;
 }
+
+// ───────────── 都市間の旅客（v0.5.7） ─────────────
+
+export const INTERCITY = {
+  /** この人口で「大きさ」が最大になる */
+  fullPop: 10000,
+  /** 大きさが最大の町どうしの上乗せ（×2.5） */
+  maxBonus: 1.5,
+  /** 乗った駅から、町の中心までこれ以上離れていたら町の旅客とみなさない */
+  maxDist: 16,
+};
+
+/** 町の「大きさ」0..1（旅客の上乗せに使う） */
+export function townSize(town: Town): number {
+  return Math.min(1, town.population / INTERCITY.fullPop);
+}
+
+/** そのタイルにいちばん近い町（遠すぎるときは null） */
+export function townNear(world: World, tile: number): Town | null {
+  const x = tile % world.w,
+    y = Math.floor(tile / world.w);
+  let best: Town | null = null,
+    bd = INTERCITY.maxDist + 1;
+  for (const t of world.towns.values()) {
+    const d = Math.abs(t.cx - x) + Math.abs(t.cy - y);
+    if (d < bd) {
+      bd = d;
+      best = t;
+    }
+  }
+  return best;
+}
+
+/** 町と町を結ぶ旅客の運賃の倍率（大きな町どうしほど高い。同じ町の中は 1） */
+export function intercityMul(a: Town | null, b: Town | null): number {
+  if (!a || !b || a.id === b.id) return 1;
+  return 1 + INTERCITY.maxBonus * Math.sqrt(townSize(a) * townSize(b));
+}
