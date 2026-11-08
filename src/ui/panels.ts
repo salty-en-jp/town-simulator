@@ -15,8 +15,10 @@ import {
   sellTrain,
   sellVehicle,
   sendToDepot,
+  cancelEngineSwap,
   moveOrder,
   rename,
+  scheduleEngineSwap,
   setOrderDest,
   setOrderLoad,
   setOrderSplit,
@@ -46,6 +48,7 @@ import {
   WAGON_SPECS,
   WAGON_TYPES,
   type Cargo,
+  type EngineType,
   type IndustryType,
   type VehicleType,
 } from '../sim/constants';
@@ -130,6 +133,7 @@ export function trainStatus(g: Game, t: Train): { text: string; tone: string } {
         tone: 'bad',
       };
     default:
+      if (t.heading === 'depot' && t.engineSwap) return { text: `機関車の交換のため車庫へ向かっています`, tone: 'ok' };
       return { text: t.heading === 'depot' ? '車庫へ向かっています' : `${stName}へ向かっています`, tone: 'ok' };
   }
 }
@@ -175,6 +179,11 @@ export function openTrain(g: Game, id: number) {
           }
           <button data-action="center">${ICONS.center}<span>表示</span></button>
         </div>
+        ${
+          t.engineSwap
+            ? `<div class="hint swap-wait">機関車の交換待ち：${esc(vehicleName(t.engineSwap.type))}（車庫に入ったら交換して、また走り出します）<button class="small-btn" data-action="cancel-swap">取りやめ</button></div>`
+            : `<div class="btnrow"><button data-action="swap">${ICONS.train}<span>機関車を交換</span></button></div>`
+        }
         <ul class="cars">${cars}</ul>
         <dl class="stats">
           <dt>速さ</dt><dd>${eng.speed}マス/日</dd>
@@ -192,6 +201,8 @@ export function openTrain(g: Game, id: number) {
       else if (a === 'orders') openOrders(g, id);
       else if (a === 'depot') g.result(sendToDepot(g.world, id));
       else if (a === 'center') g.centerOnTrain(id);
+      else if (a === 'swap') openEngineSwap(g, id);
+      else if (a === 'cancel-swap') g.result(cancelEngineSwap(g.world, id));
       else if (a === 'consist') {
         g.depotSel.set(t.depotId, id);
         openDepot(g, t.depotId);
@@ -262,6 +273,81 @@ function financeCharts(g: Game): string {
       ],
       opts,
     )}`;
+}
+
+// ───────────────────────── 機関車の交換 ─────────────────────────
+
+/** 機関車だけを替える（貨車と指令はそのまま）。この列車だけ／同じ指令の列車／同じ機関車の列車 */
+export function openEngineSwap(g: Game, trainId: number) {
+  const ui = { scope: 'one' as 'one' | 'route' | 'type', type: '' as EngineType | '', sell: false };
+  const targets = (): Train[] => {
+    const w = g.world;
+    const t = w.trains.get(trainId);
+    if (!t) return [];
+    if (ui.scope === 'one') return [t];
+    if (ui.scope === 'route') return [...w.trains.values()].filter((x) => x.orderList === t.orderList);
+    return [...w.trains.values()].filter((x) => x.cars[0]?.type === t.cars[0]?.type);
+  };
+  g.wm.open({
+    id: `swap-${trainId}`,
+    title: '機関車の交換',
+    width: 360,
+    render: () => {
+      const w = g.world;
+      const t = w.trains.get(trainId);
+      if (!t) return '<p class="muted">この列車はもうありません</p>';
+      const cur = t.cars[0].type;
+      const sameRoute = [...w.trains.values()].filter((x) => x.orderList === t.orderList).length;
+      const sameEngine = [...w.trains.values()].filter((x) => x.cars[0]?.type === cur).length;
+      const spares = (e: EngineType) => [...w.depots.values()].reduce((n, d) => n + d.stored.filter((c) => c.type === e).length, 0);
+      const engines = ENGINE_TYPES.filter((e) => e !== cur)
+        .map((e) => {
+          const ok = canBuy(w, e) || spares(e) > 0;
+          return `<button class="buy ${ui.type === e ? 'on' : ''}" data-action="type" data-e="${e}" ${ok ? '' : 'disabled title="依頼の報酬で解禁されます"'}>
+            <span class="buy-name"><span class="car-dot ${e}"></span>${SHORT_NAMES[e]}${ok ? '' : ' 🔒'}</span>
+            <span class="num">${formatYen(vehicleCost(e))}</span>
+            <span class="muted small">${ENGINE_SPECS[e].speed}マス/日${spares(e) ? `・留置線に${spares(e)}両` : ''}</span></button>`;
+        })
+        .join('');
+      const list = targets().filter((x) => x.cars[0]?.type !== ui.type);
+      const inDepot = list.filter((x) => x.state === 'in_depot').length;
+      const radio = (k: string, v: string, label: string) =>
+        `<label class="check"><input type="radio" name="scope-${trainId}" data-key="${k}" value="${v}" ${(ui as Record<string, unknown>)[k] === v || (k === 'sell' && String(ui.sell) === v) ? 'checked' : ''}> ${label}</label>`;
+      return `
+        <p class="small">いまの機関車：<b>${esc(vehicleName(cur))}</b>。貨車と指令はそのままで、先頭の機関車だけを替えます。</p>
+        <h4>どの列車を</h4>
+        ${radio('scope', 'one', `この列車だけ（${esc(t.name)}）`)}
+        ${radio('scope', 'route', `同じ指令の列車すべて（${sameRoute}本）`)}
+        ${radio('scope', 'type', `${esc(SHORT_NAMES[cur])}の列車すべて（${sameEngine}本）`)}
+        <h4>新しい機関車</h4>
+        <div class="buy-grid">${engines || '<p class="muted small">ほかの機関車がありません</p>'}</div>
+        <h4>古い機関車</h4>
+        <label class="check"><input type="radio" name="sell-${trainId}" data-key="sell" value="false" ${!ui.sell ? 'checked' : ''}> 車庫の留置線に置く</label>
+        <label class="check"><input type="radio" name="sell-${trainId}" data-key="sell" value="true" ${ui.sell ? 'checked' : ''}> 売る</label>
+        ${
+          ui.type
+            ? `<p class="small">${list.length}本を交換します。${inDepot ? `車庫にいる${inDepot}本はすぐ、` : ''}${list.length - inDepot ? `走っている${list.length - inDepot}本は、いちばん近い車庫に入ったときに交換して、そのまま走り出します。` : ''}</p>`
+            : '<p class="muted small">新しい機関車を選んでください。</p>'
+        }
+        <div class="btnrow"><button class="primary" data-action="go" ${ui.type && list.length ? '' : 'disabled'}><span>交換する</span></button></div>`;
+    },
+    onAction: (a, el) => {
+      if (a === 'type') ui.type = el.dataset.e as EngineType;
+      if (a === 'go' && ui.type) {
+        const r = scheduleEngineSwap(g.world, targets().map((x) => x.id), ui.type, ui.sell);
+        if (g.result(r)) {
+          g.toast(`機関車の交換：すぐ${r.now ?? 0}本・車庫に入ったら${r.later ?? 0}本`, 'good');
+          g.wm.close(`swap-${trainId}`);
+        }
+      }
+      g.wm.refreshAll();
+    },
+    onChange: (el) => {
+      if (el.dataset.key === 'scope') ui.scope = el.value as typeof ui.scope;
+      if (el.dataset.key === 'sell') ui.sell = el.value === 'true';
+      g.wm.refresh(`swap-${trainId}`, true);
+    },
+  });
 }
 
 function ageText(g: Game, built: number): string {
@@ -1033,7 +1119,7 @@ export function openHelp(g: Game) {
           <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
           <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
           <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
-          <li>駅・列車・町・産業の<b>名前</b>は、ウィンドウのタイトルの横の鉛筆ボタンで変えられます。指令は<b>↑↓</b>（PCはドラッグでも）で並べ替えられます</li>
+          <li>駅・列車・町・産業の<b>名前</b>は、ウィンドウのタイトルの横の鉛筆ボタンで変えられます。指令は<b>↑↓</b>（PCはドラッグでも）で並べ替えられます。列車のウィンドウの「<b>機関車を交換</b>」で、貨車と指令はそのままに機関車だけを替えられます（まとめて替えることもできます）</li>
           <li><b>産業の持ち主</b>：「地元」はだれでも運べます。「他社」は<b>権利を買う</b>か<b>輸送契約</b>を結ぶと運べます（産業をクリック）。自社の産業は運んだ分の利益が毎月入ります</li>
           <li><b>産業をつくる</b>：お金を出して一次産業を<b>探鉱</b>（成功・失敗あり）したり、<b>工場を建てたり</b>できます。一次産業はときどき自然に見つかります</li>
           <li>ほかにも、農場→食品工場→<b>食料品</b>（町が早く育つ）、鉄鉱山と炭鉱→製鉄所→<b>鋼材</b>、木材と鋼材→建材工場→<b>建設資材</b>（高層ビル）。<b>相場表</b>（F10）で、どこが高く買うか見られます</li>

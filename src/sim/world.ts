@@ -233,6 +233,8 @@ export interface Train {
   profitLastYear: number;
   /** 今月の利益（運賃 − 維持費）と、毎月の記録（右詰め：最後が先月） */
   profitThisMonth: number;
+  /** 機関車の交換待ち（車庫に入ったら交換して、また走り出す） */
+  engineSwap?: { type: EngineType; sellOld: boolean } | null;
   hist: number[];
   trackVersion: number;
 }

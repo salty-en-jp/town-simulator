@@ -861,6 +861,7 @@ export function sendToDepot(world: World, id: number): CmdResult {
   if (t.state === 'in_depot') return fail('もう車庫にいます');
   if (world.depots.size === 0) return fail('車庫がありません（線路の隣に車庫を建ててください）');
   t.heading = t.heading === 'depot' ? 'order' : 'depot';
+  if (t.heading === 'order') t.engineSwap = null;
   t.trackVersion = -1;
   if (t.state === 'loading') {
     t.state = 'running';
@@ -979,6 +980,93 @@ export function moveOrder(world: World, trainId: number, index: number, to: numb
     else if (index < c && to >= c) tr.curOrder = c - 1;
     else if (index > c && to <= c) tr.curOrder = c + 1;
     tr.trackVersion = -1;
+  }
+  return { ok: true, cost: 0 };
+}
+
+// ───────────────────────── 機関車の交換 ─────────────────────────
+
+/**
+ * 車庫にいる列車の機関車だけを替える（貨車と指令はそのまま）。
+ * 留置線に同じ種類の機関車があればそれを使い、なければ買う。古い機関車は留置線に置くか売る
+ */
+export function replaceEngine(
+  world: World,
+  trainId: number,
+  type: EngineType,
+  opts: { sellOld?: boolean; dry?: boolean } = {},
+): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t) return fail('列車がありません');
+  if (t.state !== 'in_depot') return fail('車庫に入れてから交換してください');
+  const depot = world.depots.get(t.depotId);
+  if (!depot) return fail('車庫がありません');
+  const old = t.cars[0];
+  if (old.type === type) return fail(`もう${vehicleName(type)}です`);
+  const spare = depot.stored.find((c) => c.type === type);
+  if (!spare && !canBuy(world, type)) return fail(`${vehicleName(type)}はまだ買えません`);
+  const cost = spare ? 0 : vehicleCost(type);
+  const refund = opts.sellOld ? carValue(world, old) : 0;
+  if (opts.dry) return { ok: true, cost: cost - refund };
+  if (cost > world.money + refund) return fail(`資金が足りません（${formatYen(cost - refund)} 必要）`, cost);
+  if (spare) depot.stored.splice(depot.stored.indexOf(spare), 1);
+  else spend(world, 'vehicles', cost);
+  t.cars[0] = spare ?? newCar(world, type);
+  if (opts.sellOld) earn(world, 'vehicles', refund);
+  else depot.stored.push(old);
+  return { ok: true, cost: cost - refund };
+}
+
+/**
+ * まとめて機関車を替える。車庫にいる列車はすぐ、走っている列車は
+ * いちばん近い車庫に入ったときに替えて、そのまま元の指令で走り出す
+ */
+export function scheduleEngineSwap(
+  world: World,
+  trainIds: number[],
+  type: EngineType,
+  sellOld: boolean,
+): CmdResult & { now?: number; later?: number } {
+  if (!canBuy(world, type) && ![...world.depots.values()].some((d) => d.stored.some((c) => c.type === type))) {
+    return fail(`${vehicleName(type)}はまだ買えません`);
+  }
+  let now = 0,
+    later = 0,
+    cost = 0;
+  let lastError = '';
+  for (const id of trainIds) {
+    const t = world.trains.get(id);
+    if (!t || t.cars[0]?.type === type) continue;
+    if (t.state === 'in_depot') {
+      const r = replaceEngine(world, id, type, { sellOld });
+      if (r.ok) {
+        now++;
+        cost += r.cost;
+      } else lastError = r.error ?? '';
+      continue;
+    }
+    if (!world.depots.size) return fail('車庫がありません（線路の隣に車庫を建ててください）');
+    t.engineSwap = { type, sellOld };
+    t.heading = 'depot';
+    t.trackVersion = -1;
+    if (t.state === 'loading') {
+      t.state = 'running';
+      t.stoppedAt = -1;
+    }
+    later++;
+  }
+  if (!now && !later) return fail(lastError || '交換する列車がありません');
+  return { ok: true, cost, now, later };
+}
+
+/** 交換待ちを取りやめる（元の指令に戻る） */
+export function cancelEngineSwap(world: World, trainId: number): CmdResult {
+  const t = world.trains.get(trainId);
+  if (!t?.engineSwap) return fail('交換待ちではありません');
+  t.engineSwap = null;
+  if (t.heading === 'depot') {
+    t.heading = 'order';
+    t.trackVersion = -1;
   }
   return { ok: true, cost: 0 };
 }

@@ -2361,3 +2361,24 @@ body.touch .win-rename-input {
   min-width: 0;
   padding: 4px 6px;
 }
+
+/* ───────────── 機関車の交換 ───────────── */
+
+.swap-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.swap-wait .small-btn {
+  margin-left: auto;
+  flex: none;
+}
+
+.win-body .check {
+  padding: 3px 0;
+}
+
+body.touch .win-body .check {
+  padding: 7px 0;
+}

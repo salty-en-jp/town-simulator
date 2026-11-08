@@ -9,6 +9,7 @@ import {
   INDUSTRY,
   INDUSTRY_SPECS,
   STATION,
+  vehicleName,
   vehicleValue,
   TICKS_PER_DAY,
   TOWN,
@@ -16,6 +17,7 @@ import {
   type Cargo,
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
+import { replaceEngine } from './commands';
 import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
 import { updateRequests } from './requests';
 import { findPath } from './track';
@@ -199,6 +201,21 @@ function arrive(world: World, t: Train) {
       t.heading = 'order';
       t.trail = [];
       t.trackVersion = -1;
+      if (t.engineSwap) {
+        // 機関車を交換して、そのまま元の指令で走り出す
+        const swap = t.engineSwap;
+        const r = replaceEngine(world, t.id, swap.type, { sellOld: swap.sellOld });
+        if (r.ok) {
+          t.engineSwap = null;
+          t.state = 'running';
+          t.path = [tile];
+          t.progress = 0;
+          pushEvent(world, { type: 'news', text: `${t.name}の機関車を${vehicleName(swap.type)}に交換しました`, tone: 'good', tile });
+        } else {
+          pushEvent(world, { type: 'news', text: `${t.name}：機関車を交換できませんでした（${r.error}）。車庫で止まっています`, tone: 'bad', tile });
+        }
+        return;
+      }
       pushEvent(world, { type: 'news', text: `${t.name}が車庫に入りました`, tone: 'info', tile });
       return;
     }
