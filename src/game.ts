@@ -46,6 +46,7 @@ import {
   openBuildIndustry,
   openMarket,
   openMenu,
+  openNews,
   openRequests,
   openStation,
   openStationList,
@@ -55,6 +56,7 @@ import {
   openTrainList,
 } from './ui/panels';
 import { WindowManager } from './ui/windows';
+import { VERSION } from './version';
 import {
   deleteSave,
   exportSave,
@@ -121,6 +123,11 @@ export class Game implements InputTarget {
   private toastTimer = 0;
   private newsTimer = 0;
   private lastNewsTile = -1;
+  /** お知らせの履歴（遊んでいる間のぶん。セーブには入れない） */
+  newsLog: { date: string; text: string; tone: string; tile: number }[] = [];
+  private savedTimer = 0;
+  private savedEl: HTMLElement | null = null;
+  private fromSave = false;
   private mouse = { x: -1, y: -1 };
   private started = false;
 
@@ -165,12 +172,15 @@ export class Game implements InputTarget {
   }
 
   newGame(seed: number) {
-    this.startWorld(generateWorld(seed));
+    this.startWorld(generateWorld(seed), false);
   }
 
   /** 世界を差し替える（新しいゲーム・ロード） */
-  startWorld(world: World) {
+  startWorld(world: World, fromSave = true) {
     this.world = world;
+    this.fromSave = fromSave;
+    this.newsLog = [];
+    this.lastNewsTile = -1;
     this.renderer.setWorld(world);
     this.undoStack = [];
     this.depotSel.clear();
@@ -197,6 +207,7 @@ export class Game implements InputTarget {
     this.guideClosed = false;
     this.updateHud();
     this.updateGuide();
+    this.noticeNewVersion();
     if (!this.loopStarted) {
       this.loopStarted = true;
       requestAnimationFrame((t) => this.loop(t));
@@ -212,7 +223,7 @@ export class Game implements InputTarget {
 
   private autosaveAgain = false;
 
-  autosave() {
+  autosave(show = false) {
     if (!this.started) return;
     if (this.saving) {
       // 保存中なら、終わったらもう一度（最新の状態を残す）
@@ -221,14 +232,52 @@ export class Game implements InputTarget {
     }
     this.saving = true;
     saveTo('auto', this.world)
+      .then(() => {
+        if (show) this.showSaved();
+      })
       .catch(() => this.toast('オートセーブに失敗しました', 'bad'))
       .finally(() => {
         this.saving = false;
         if (this.autosaveAgain) {
           this.autosaveAgain = false;
-          this.autosave();
+          this.autosave(show);
         }
       });
+  }
+
+  /** オートセーブが終わった合図（画面のすみに小さく） */
+  private showSaved() {
+    if (!this.savedEl) {
+      this.savedEl = document.createElement('div');
+      this.savedEl.id = 'saved';
+      this.savedEl.setAttribute('aria-hidden', 'true');
+      this.savedEl.innerHTML = `${ICONS.save}<span>保存しました</span>`;
+      document.getElementById('app')!.appendChild(this.savedEl);
+    }
+    const el = this.savedEl;
+    el.classList.add('show');
+    window.clearTimeout(this.savedTimer);
+    this.savedTimer = window.setTimeout(() => el.classList.remove('show'), 1600);
+  }
+
+  /** 新しい版で初めて遊ぶとき、リリースノートを1回だけ見せる */
+  private noticeNewVersion() {
+    let seen: string | null = null;
+    try {
+      seen = localStorage.getItem('tsunagu.version');
+      localStorage.setItem('tsunagu.version', VERSION);
+    } catch {
+      return;
+    }
+    if (seen === VERSION) return;
+    // はじめて遊ぶ人には出さない（前の版で遊んでいた人だけ）
+    if (seen === null && !this.fromSave) return;
+    openHelp(this, 'notes');
+    this.toast(`v${VERSION} になりました。変わったところはリリースノートで見られます`, 'good');
+  }
+
+  centerOnTile(tile: number) {
+    this.renderer.centerOnTile(tx(this.world, tile), ty(this.world, tile));
   }
 
   async refreshSaveMetas() {
@@ -1091,7 +1140,7 @@ export class Game implements InputTarget {
       <button data-a="t-close" class="rb-close" title="閉じる">${ICONS.close}</button>`;
     this.el.status.innerHTML = `
       <span class="sb-date"></span>
-      <button class="sb-news" title="クリックでその場所へ"></button>
+      <button class="sb-news" title="クリックでその場所へ・お知らせの履歴"></button>
       <span class="sb-money"></span>`;
     this.el.mtop.innerHTML = `
       <span class="m-money"></span>
@@ -1115,7 +1164,8 @@ export class Game implements InputTarget {
     };
     for (const el of [tb, rb, this.el.mtop, this.el.mtools]) el.addEventListener('click', onClick);
     this.el.status.querySelector('.sb-news')!.addEventListener('click', () => {
-      if (this.lastNewsTile >= 0) this.renderer.centerOnTile(tx(this.world, this.lastNewsTile), ty(this.world, this.lastNewsTile));
+      if (this.lastNewsTile >= 0) this.centerOnTile(this.lastNewsTile);
+      openNews(this);
     });
     this.el.confirm.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('[data-c]') as HTMLButtonElement | null;
@@ -1300,7 +1350,7 @@ export class Game implements InputTarget {
     const m = dateOf(this.world.day).m;
     if (m !== this.lastAutoMonth) {
       this.lastAutoMonth = m;
-      this.autosave();
+      this.autosave(true);
     }
     this.drainEvents();
     this.renderer.frame(now);
@@ -1332,6 +1382,9 @@ export class Game implements InputTarget {
 
   private news(text: string, tone: string, tile: number) {
     this.lastNewsTile = tile;
+    const d = dateOf(this.world.day);
+    this.newsLog.push({ date: `${d.y}/${d.m}/${d.d}`, text, tone, tile });
+    if (this.newsLog.length > 100) this.newsLog.shift();
     const sn = this.el.status.querySelector('.sb-news') as HTMLElement;
     sn.textContent = text;
     sn.className = `sb-news show ${tone}`;

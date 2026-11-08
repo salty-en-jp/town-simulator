@@ -1,5 +1,7 @@
 // 各ウィンドウの中身（HTML）とボタンの動作
 
+import { VERSION } from '../version';
+import { manualHtml, releaseNotesHtml } from './manual';
 import {
   addOrder,
   attachVehicle,
@@ -450,6 +452,16 @@ export function openOrders(g: Game, id: number) {
         g.result(setOrderSplit(g.world, id, sel, split));
       }
       g.wm.refreshAll();
+    },
+    onInput: (el, body) => {
+      // 動かしている最中も割合（%）を表示し直す。値は指を離したときに決める
+      if (!el.dataset.key?.startsWith('splitw-')) return;
+      const inputs = [...body.querySelectorAll<HTMLInputElement>('.split input[type="range"]')];
+      const sum = inputs.reduce((n, i) => n + Number(i.value), 0) || 1;
+      for (const i of inputs) {
+        const out = i.parentElement?.querySelector('.num');
+        if (out) out.textContent = `${Math.round((Number(i.value) / sum) * 100)}%`;
+      }
     },
     onReorder: (from, to) => {
       if (g.result(moveOrder(g.world, id, from, to))) g.orderSel.set(id, to);
@@ -1080,13 +1092,54 @@ export function openTownList(g: Game) {
 
 // ───────────────────────── ヘルプ・メニュー ─────────────────────────
 
-export function openHelp(g: Game) {
+export type HelpTab = 'keys' | 'manual' | 'notes';
+let helpTab: HelpTab = 'keys';
+
+const HELP_TABS: [HelpTab, string][] = [
+  ['keys', '操作方法'],
+  ['manual', '取扱説明書'],
+  ['notes', 'リリースノート'],
+];
+
+export function openHelp(g: Game, tab?: HelpTab) {
+  if (tab) helpTab = tab;
   g.wm.open({
     id: 'help',
-    title: '操作方法',
-    width: 460,
+    title: 'ヘルプ',
+    width: 480,
     render: () => `
-      <div class="help">
+      <div class="tabs" role="tablist">
+        ${HELP_TABS.map(([k, v]) => `<button role="tab" data-action="tab-${k}" class="${helpTab === k ? 'on' : ''}">${v}</button>`).join('')}
+      </div>
+      <div class="help">${helpTab === 'manual' ? manualHtml() : helpTab === 'notes' ? releaseNotesHtml() : helpKeysHtml(g)}</div>`,
+    onAction: (a, el) => {
+      if (a.startsWith('tab-')) {
+        helpTab = a.slice(4) as HelpTab;
+        const body = el.closest('.win-body');
+        g.wm.refresh('help', true);
+        if (body) body.scrollTop = 0;
+        return;
+      }
+      if (a === 'ui-auto') g.setUiPref('auto');
+      if (a === 'ui-pc') g.setUiPref('pc');
+      if (a === 'ui-touch') g.setUiPref('touch');
+      g.wm.refresh('help', true);
+    },
+  });
+}
+
+function helpKeysHtml(g: Game): string {
+  return `${KEYS_HTML}
+        <p class="muted small">試作版 v${VERSION} です。信号・橋とトンネルのツール・地形変更はまだありません。列車どうしはぶつかりません。遊び方は「取扱説明書」、これまでの変更は「リリースノート」をどうぞ。</p>
+        <h4>画面</h4>
+        <div class="btnrow">
+          <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
+          <button data-action="ui-pc" class="${g.uiPref === 'pc' ? 'on' : ''}"><span>PC</span></button>
+          <button data-action="ui-touch" class="${g.uiPref === 'touch' ? 'on' : ''}"><span>スマホ</span></button>
+        </div>`;
+}
+
+const KEYS_HTML = `
         <h4>PC（OpenTTD と同じ操作）</h4>
         <table class="tbl keys">
           <tr><th>右ドラッグ</th><td>地図を動かす</td></tr>
@@ -1112,31 +1165,35 @@ export function openHelp(g: Game) {
           <tr><th>タップ ／ 長押し</th><td>選ぶ ／ 情報を見る</td></tr>
           <tr><th>✓ ／ ✕</th><td>プレビューを確定 ／ 取り消し</td></tr>
           <tr><th>撤去ボタン</th><td>PC の Ctrl の代わり</td></tr>
-        </table>
-        <h4>遊び方</h4>
-        <ol class="steps">
-          <li>森と製材所の近くに<b>駅</b>を建てて、<b>線路</b>でつなぐ</li>
-          <li>線路の隣に<b>車庫</b>を置いてクリックし、<b>機関車</b>を買ってから<b>原木車</b>を買う（列車につながります）</li>
-          <li><b>指令</b>の「行き先」で森の駅（満載まで待つ）→ 製材所の駅 を選び、<b>発車</b></li>
-          <li>製材所でできた<b>木材</b>を、木材車で町へ運ぶと<b>家が建つ</b></li>
-          <li>駅・列車・町・産業の<b>名前</b>は、ウィンドウのタイトルの横の鉛筆ボタンで変えられます。指令は<b>↑↓</b>（PCはドラッグでも）で並べ替えられます。列車のウィンドウの「<b>機関車を交換</b>」で、貨車と指令はそのままに機関車だけを替えられます（まとめて替えることもできます）</li>
-          <li><b>産業の持ち主</b>：「地元」はだれでも運べます。「他社」は<b>権利を買う</b>か<b>輸送契約</b>を結ぶと運べます（産業をクリック）。自社の産業は運んだ分の利益が毎月入ります</li>
-          <li><b>産業をつくる</b>：お金を出して一次産業を<b>探鉱</b>（成功・失敗あり）したり、<b>工場を建てたり</b>できます。一次産業はときどき自然に見つかります</li>
-          <li>ほかにも、農場→食品工場→<b>食料品</b>（町が早く育つ）、鉄鉱山と炭鉱→製鉄所→<b>鋼材</b>、木材と鋼材→建材工場→<b>建設資材</b>（高層ビル）。<b>相場表</b>（F10）で、どこが高く買うか見られます</li>
-        </ol>
-        <p class="muted small">試作版 v0.5.1 です。信号・橋・トンネル・地形変更はまだありません。列車どうしはぶつかりません。セーブは自動でも行われます。</p>
-        <h4>画面</h4>
-        <div class="btnrow">
-          <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
-          <button data-action="ui-pc" class="${g.uiPref === 'pc' ? 'on' : ''}"><span>PC</span></button>
-          <button data-action="ui-touch" class="${g.uiPref === 'touch' ? 'on' : ''}"><span>スマホ</span></button>
-        </div>
-      </div>`,
-    onAction: (a) => {
-      if (a === 'ui-auto') g.setUiPref('auto');
-      if (a === 'ui-pc') g.setUiPref('pc');
-      if (a === 'ui-touch') g.setUiPref('touch');
-      g.wm.refresh('help', true);
+        </table>`;
+
+// ───────────────────────── お知らせの履歴 ─────────────────────────
+
+export function openNews(g: Game) {
+  g.wm.open({
+    id: 'news',
+    title: 'お知らせの履歴',
+    width: 400,
+    render: () => {
+      const log = g.newsLog;
+      if (!log.length) return '<p class="muted">まだお知らせはありません。</p>';
+      return `
+        <p class="muted small">新しい順・${log.length}件（この遊んでいる間のぶん）。行を押すとその場所へ移動します。</p>
+        <ul class="news-log">
+          ${[...log]
+            .reverse()
+            .map(
+              (n, i) => `<li class="${esc(n.tone)}${n.tile >= 0 ? ' link' : ''}" ${n.tile >= 0 ? `data-action="go" data-i="${log.length - 1 - i}"` : ''}>
+                <span class="d num">${n.date}</span><span class="t">${esc(n.text)}</span></li>`,
+            )
+            .join('')}
+        </ul>`;
+    },
+    onAction: (a, el) => {
+      if (a === 'go') {
+        const n = g.newsLog[Number(el.dataset.i)];
+        if (n && n.tile >= 0) g.centerOnTile(n.tile);
+      }
     },
   });
 }
@@ -1157,7 +1214,8 @@ export function openMenu(g: Game) {
         <button data-action="build-industry">${ICONS.industry}<span>産業をつくる</span></button>
         <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
-        <button data-action="help">${ICONS.help}<span>操作方法</span></button>
+        <button data-action="news">${ICONS.news}<span>お知らせ</span></button>
+        <button data-action="help">${ICONS.help}<span>ヘルプ</span></button>
       </div>`,
     onAction: (a) => {
       g.wm.close('menu');
@@ -1171,6 +1229,7 @@ export function openMenu(g: Game) {
       if (a === 'build-industry') openBuildIndustry(g);
       if (a === 'save') g.openSaveLoad();
       if (a === 'help') openHelp(g);
+      if (a === 'news') openNews(g);
     },
   });
 }
