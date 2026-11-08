@@ -5,6 +5,7 @@
 // ・報酬の車両は車庫の留置線に届く。まだ買えない車両は「解禁」もされる
 // ・会社が大きくなるほど、依頼も大きくなる
 
+import { townAccepts } from './towns';
 import { formatYen } from './commands';
 import {
   CARGO_SPECS,
@@ -231,7 +232,10 @@ function makeRequest(world: World): Request | null {
     case 'deliver': {
       const t = pick(world, towns);
       if (!t) return null;
-      const cargo = world.rng.pick(TOWN_GOODS);
+      // その町がいま受け入れている物だけ（都市に木材は頼まない）
+      const goods = TOWN_GOODS.filter((c) => townAccepts(world, t.id, c));
+      if (!goods.length) return null;
+      const cargo = world.rng.pick(goods);
       const info = DELIVER_TEXT[cargo]!;
       const cname = CARGO_SPECS[cargo].name;
       const goal = round(info.goal * scale, 10);

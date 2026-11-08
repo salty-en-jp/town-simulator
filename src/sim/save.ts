@@ -59,6 +59,8 @@ interface SavedWorld {
   monthIndex: number;
   monthFin: Record<FinanceCategory, number>;
   history: World['history'];
+  market?: World['market'];
+  booms?: World['booms'];
 }
 
 export interface SaveFile {
@@ -122,6 +124,8 @@ export function toSaveFile(w: World): SaveFile {
       monthIndex: w.monthIndex,
       monthFin: w.monthFin,
       history: w.history,
+      market: w.market ?? {},
+      booms: w.booms ?? [],
     },
   };
 }
@@ -209,5 +213,7 @@ export function deserializeWorld(text: string): World {
     monthIndex: s.monthIndex,
     monthFin: { ...emptyFinance(), ...s.monthFin },
     history: s.history,
+    market: s.market ?? {},
+    booms: s.booms ?? [],
   };
 }

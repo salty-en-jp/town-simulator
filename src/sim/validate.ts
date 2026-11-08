@@ -219,6 +219,8 @@ export function checkSavedWorld(v: unknown): void {
     num(t.houses, `${p}.houses`, 0);
     num(t.activeStations, `${p}.activeStations`, 0);
     optional(t.popHist, () => numArr(t.popHist, `${p}.popHist`));
+    optional(t.stage, () => int(t.stage, `${p}.stage`, 0, 2));
+    optional(t.cityWarned, () => bool(t.cityWarned, `${p}.cityWarned`));
   });
 
   arr(s.trains, 'trains').forEach((x, i) => {
@@ -309,6 +311,23 @@ export function checkSavedWorld(v: unknown): void {
       int(sv.x, `${p}.x`, 0, w - 1);
       int(sv.y, `${p}.y`, 0, h - 1);
       for (const k of ['doneDay', 'chance', 'roll', 'cost']) num(sv[k], `${p}.${k}`);
+    }),
+  );
+
+  optional(s.market, () => cargoNums(s.market, 'market'));
+  optional(s.booms, () =>
+    arr(s.booms, 'booms', 50).forEach((x, i) => {
+      const p = `booms[${i}]`;
+      const b = obj(x, p);
+      id(b.id, `${p}.id`);
+      oneOf(b.kind, ['rush', 'rebuild', 'shortage', 'tourism'], `${p}.kind`);
+      const t = obj(b.target, `${p}.target`);
+      oneOf(t.kind, ['town', 'industry'], `${p}.target.kind`);
+      id(t.id, `${p}.target.id`);
+      oneOf(b.cargo, CARGO_SET, `${p}.cargo`);
+      num(b.mul, `${p}.mul`, 0, 10);
+      num(b.from, `${p}.from`);
+      num(b.until, `${p}.until`);
     }),
   );
 

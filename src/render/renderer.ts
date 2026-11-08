@@ -5,6 +5,8 @@ import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics } from 'pixi.js';
 import { CARGO_SPECS, INDUSTRY_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
 import { industryStatus, ownerLabel } from '../sim/industries';
+import { activeBooms } from '../sim/market';
+import { stageName, townStage } from '../sim/towns';
 import {
   carLoad,
   DIRS,
@@ -618,12 +620,14 @@ export class Renderer {
       this.labelsVersion = w.version;
       this.lastLabelText = now;
       const live = new Set<string>();
+      const boomed = new Set(activeBooms(w).map((b) => `${b.target.kind}:${b.target.id}`));
+      const tag = (k: string) => (boomed.has(k) ? '<em class="boom" title="ブーム中">↑</em>' : '');
       for (const town of w.towns.values()) {
         const k = `town${town.id}`;
         live.add(k);
         this.label(
           k,
-          `<b>${esc(townLabel(town))}</b><span>${town.population.toLocaleString('ja-JP')}人</span>`,
+          `<i class="stage-tag s${townStage(town)}">${stageName(town)}</i><b>${esc(townLabel(town))}</b><span>${town.population.toLocaleString('ja-JP')}人</span>${tag(`town:${town.id}`)}`,
           'town',
           town.cx,
           town.cy,
@@ -648,7 +652,7 @@ export class Renderer {
         const st = industryStatus(w, ind);
         this.label(
           k,
-          `<i class="st ${st.tone}" title="${esc(st.text)}"></i>${esc(ind.name)}${ol !== '地元' ? `<small>${ol}</small>` : ''}`,
+          `<i class="st ${st.tone}" title="${esc(st.text)}"></i>${esc(ind.name)}${ol !== '地元' ? `<small>${ol}</small>` : ''}${tag(`industry:${ind.id}`)}`,
           `industry ${cls}`,
           ind.x + (ind.w - 1) / 2,
           ind.y + (ind.h - 1) / 2,

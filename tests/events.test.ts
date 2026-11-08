@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildStation, buildTrack } from '../src/sim/commands';
-import { TICKS_PER_DAY } from '../src/sim/constants';
-import { EVENTS, startFire } from '../src/sim/events';
+import { EVENTS, eventsMonthly, startFire } from '../src/sim/events';
 import { addIndustry, addTown, generateWorld } from '../src/sim/mapgen';
-import { acceptanceForRect, step, suppliesForRect } from '../src/sim/simulate';
-import { createEmptyWorld, idx, type World } from '../src/sim/world';
+import { acceptanceForRect, suppliesForRect } from '../src/sim/simulate';
+import { createEmptyWorld, idx } from '../src/sim/world';
 
-const days = (w: World, n: number) => step(w, n * TICKS_PER_DAY);
 
 describe('火事', () => {
   it('家だけが燃え、線路や駅はそのまま。数は上限まで', () => {
@@ -26,12 +24,19 @@ describe('火事', () => {
     expect(w.events.some((e) => e.type === 'news' && e.text.includes('火事'))).toBe(true);
   });
 
-  it('何年か遊ぶと、大きい町ではときどき火事が起きる', () => {
+  it('火事は町（1,000人）から。村では起きない', () => {
     const w = generateWorld(21);
-    for (const t of w.towns.values()) t.houses = Math.max(t.houses, 40);
-    w.requestState.nextCheckDay = 1e9;
-    days(w, 365 * 5);
-    expect(w.events.some((e) => e.type === 'news' && e.text.includes('火事'))).toBe(true);
+    const towns = [...w.towns.values()];
+    for (const t of towns) t.houses = 60;
+    towns[0].population = 5000;
+    for (const t of towns.slice(1)) t.population = 500;
+    const burned = new Set<number>();
+    for (let m = 0; m < 200; m++) {
+      w.events = [];
+      eventsMonthly(w);
+      for (const e of w.events) if (e.type === 'news' && e.text.includes('火事')) burned.add(towns.find((t) => e.text.includes(t.name))!.id);
+    }
+    expect([...burned]).toEqual([towns[0].id]);
   });
 });
 

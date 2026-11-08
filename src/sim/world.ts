@@ -14,6 +14,7 @@ import {
   type IndustryType,
   type VehicleType,
 } from './constants';
+import type { Boom } from './market';
 import type { Request, RequestState } from './requests';
 import { Rng } from './rng';
 
@@ -161,6 +162,10 @@ export interface Town {
   activeStations: number;
   /** 毎月の人口の記録（右詰め：最後が先月）。v0.5.4 から。古いセーブにはないので、ないときは空から */
   popHist?: number[];
+  /** 町の段階（0 村・1 町・2 都市）。上がるだけ。v0.5.6 から（ないときは人口で決める） */
+  stage?: 0 | 1 | 2;
+  /** 都市になる前のお知らせを出したか */
+  cityWarned?: boolean;
 }
 
 export type LoadMode = 'if_available' | 'full_any' | 'full_all' | 'none';
@@ -308,6 +313,10 @@ export interface World {
   monthFin: Record<FinanceCategory, number>;
   /** 会社の毎月の記録（右詰め） */
   history: { income: number[]; expense: number[]; money: number[]; assets: number[] };
+  /** 貨物ごとの相場（v0.5.5 から。ないときは 1） */
+  market?: Partial<Record<Cargo, number>>;
+  /** 期間限定のブーム（v0.5.5 から） */
+  booms?: Boom[];
 }
 
 /** 記録しておく月数 */
@@ -366,6 +375,8 @@ export function createEmptyWorld(w: number, h: number, seed: number): World {
     monthIndex: 0,
     monthFin: emptyFinance(),
     history: { income: [], expense: [], money: [], assets: [] },
+    market: {},
+    booms: [],
   };
 }
 
