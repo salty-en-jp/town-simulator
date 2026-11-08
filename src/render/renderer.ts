@@ -78,6 +78,15 @@ const C = {
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 2.5;
+/** 建物を描き分ける奥行きの帯の幅（マス） */
+const BAND = 6;
+
+/** 地形の見た目が変わったかを見る値（水のマス） */
+function terrainSignature(w: World): number {
+  let h = 2166136261;
+  for (let i = 0; i < w.terrain.length; i++) if (w.terrain[i] === Terrain.Water) h = Math.imul(h ^ i, 16777619);
+  return (h ^ w.w ^ (w.h << 12)) >>> 0;
+}
 
 export class Renderer {
   app!: Application;
@@ -86,8 +95,13 @@ export class Renderer {
   trackG = new Graphics();
   /** 駅・車庫（建物を半透明にしても見えるように別レイヤー） */
   stationsG = new Graphics();
-  /** 家・ビル・木・産業 */
-  objectsG = new Graphics();
+  /**
+   * 家・ビル・木・産業。奥行き（x+y）の帯ごとに分けて描き、中身が変わった帯だけ描き直す
+   * （帯の順に重ねるので、全部を奥から順に描くのと同じ見た目になる）
+   */
+  objectsG = new Container();
+  private bands: { g: Graphics; sig: number }[] = [];
+  private terrainSig = -1;
   /** 列車の路線（指令の順に通る線路） */
   routeG = new Graphics();
   overlayG = new Graphics();
@@ -131,6 +145,8 @@ export class Renderer {
   setWorld(world: World) {
     this.world = world;
     this.drawnVersion = -1;
+    this.terrainSig = -1;
+    for (const b of this.bands) b.sig = -1;
     this.labelsVersion = -1;
     for (const l of this.labels.values()) l.el.remove();
     this.labels.clear();
@@ -215,7 +231,12 @@ export class Renderer {
     if (w.version !== this.drawnVersion && now - this.lastStaticDraw > 200) {
       this.drawnVersion = w.version;
       this.lastStaticDraw = now;
-      this.drawTerrain();
+      // 地形（水・草地）はほとんど変わらないので、変わったときだけ描き直す
+      const ts = terrainSignature(w);
+      if (ts !== this.terrainSig) {
+        this.terrainSig = ts;
+        this.drawTerrain();
+      }
       this.drawTrack();
       this.drawObjects();
       this.overlayDirty = true;
@@ -311,12 +332,30 @@ export class Renderer {
   // ───────────── 建物など（奥から順に） ─────────────
 
   private drawObjects() {
-    const g = this.objectsG;
     const sg = this.stationsG;
     const w = this.world;
-    g.clear();
     sg.clear();
-    const items: { depth: number; draw: () => void }[] = [];
+    const nb = Math.ceil((w.w + w.h) / BAND) + 2;
+    if (this.bands.length !== nb) {
+      for (const b of this.bands) b.g.destroy();
+      this.objectsG.removeChildren();
+      this.bands = Array.from({ length: nb }, () => {
+        const g = new Graphics();
+        this.objectsG.addChild(g);
+        return { g, sig: -1 };
+      });
+    }
+    type Item = { depth: number; draw: (g: Graphics) => void };
+    const items: Item[][] = Array.from({ length: nb }, () => []);
+    const sigs: number[] = new Array(nb).fill(2166136261);
+    const band = (depth: number) => Math.max(0, Math.min(nb - 1, Math.floor(depth / BAND)));
+    const add = (depth: number, draw: (g: Graphics) => void, ...key: number[]) => {
+      const b = band(depth);
+      items[b].push({ depth, draw });
+      let h = sigs[b];
+      for (const k of key) h = Math.imul(h ^ (k | 0), 16777619);
+      sigs[b] = h >>> 0;
+    };
     const low: { depth: number; draw: () => void }[] = [];
     const doneIndustry = new Set<number>();
     for (let i = 0; i < w.occ.length; i++) {
@@ -324,12 +363,12 @@ export class Renderer {
         y = ty(w, i);
       const o = w.occ[i];
       if (!o) {
-        if (w.terrain[i] === Terrain.Trees) items.push({ depth: x + y, draw: () => drawTrees(g, x, y) });
+        if (w.terrain[i] === Terrain.Trees) add(x + y, (g) => drawTrees(g, x, y), 1, i);
         continue;
       }
       switch (o.k) {
         case 'house':
-          items.push({ depth: x + y, draw: () => drawHouse(g, x, y, o.level, o.variant) });
+          add(x + y, (g) => drawHouse(g, x, y, o.level, o.variant), 2, i, o.level, o.variant);
           break;
         case 'station': {
           const st = w.stations.get(o.id);
@@ -348,7 +387,8 @@ export class Renderer {
           doneIndustry.add(o.id);
           const ind = w.industries.get(o.id)!;
           const depth = ind.x + ind.w - 1 + ind.y + ind.h - 1;
-          items.push({ depth, draw: () => drawIndustry(g, ind) });
+          const look = industryLook(ind);
+          add(depth, (g) => drawIndustry(g, ind, look), 3, ind.id, ind.x, ind.y, ...look.key);
           break;
         }
       }
@@ -358,10 +398,17 @@ export class Renderer {
     // 探鉱中の場所には旗
     for (const sv of w.surveys) {
       const spec = INDUSTRY_SPECS[sv.type];
-      items.push({ depth: sv.x + sv.y + spec.w + spec.h - 2, draw: () => drawSurvey(g, sv.x, sv.y, spec.w, spec.h) });
+      add(sv.x + sv.y + spec.w + spec.h - 2, (g) => drawSurvey(g, sv.x, sv.y, spec.w, spec.h), 4, sv.x, sv.y, spec.w, spec.h);
     }
-    items.sort((a, b) => a.depth - b.depth);
-    for (const it of items) it.draw();
+    for (let b = 0; b < nb; b++) {
+      const sig = (sigs[b] ^ items[b].length) >>> 0;
+      if (this.bands[b].sig === sig) continue;
+      this.bands[b].sig = sig;
+      const g = this.bands[b].g;
+      g.clear();
+      items[b].sort((p, q) => p.depth - q.depth);
+      for (const it of items[b]) it.draw(g);
+    }
   }
 
   // ───────────── 建物の半透明・路線 ─────────────
@@ -933,27 +980,43 @@ function drawSawmill(g: Graphics, x0: number, y0: number, w: number, h: number, 
 }
 
 /** 産業の種類ごとに描き分ける */
-function drawIndustry(g: Graphics, ind: Industry) {
+/** 産業の見た目を決める値（在庫の山は 25t きざみ）。key が同じなら見た目も同じ */
+function industryLook(ind: Industry) {
+  const q = (v: number) => Math.round(v / 25) * 25;
+  const look = {
+    building: ind.status === 'building',
+    inStock: q(ind.inputs.logs ?? 0),
+    outStock: q(ind.outStock),
+    active: ind.producedThisMonth + ind.producedLastMonth > 0,
+    key: [] as number[],
+  };
+  look.key = [INDUSTRY_TYPES.indexOf(ind.type), ind.w, ind.h, +look.building, look.inStock, look.outStock, +look.active];
+  return look;
+}
+
+const INDUSTRY_TYPES = Object.keys(INDUSTRY_SPECS);
+
+function drawIndustry(g: Graphics, ind: Industry, look = industryLook(ind)) {
   const { x, y, w, h } = ind;
-  if (ind.status === 'building') return drawConstruction(g, x, y, w, h);
+  if (look.building) return drawConstruction(g, x, y, w, h);
   const pile = (c: number, cap = 500) => Math.min(1, c / cap);
   switch (ind.type) {
     case 'forest':
       return drawForest(g, x, y, w, h);
     case 'sawmill':
-      return drawSawmill(g, x, y, w, h, ind.inputs.logs ?? 0, ind.outStock);
+      return drawSawmill(g, x, y, w, h, look.inStock, look.outStock);
     case 'farm':
       return drawFarm(g, x, y, w, h);
     case 'ironmine':
-      return drawMine(g, x, y, w, h, 0xa0543c, pile(ind.outStock));
+      return drawMine(g, x, y, w, h, 0xa0543c, pile(look.outStock));
     case 'coalmine':
-      return drawMine(g, x, y, w, h, 0x2b2b2e, pile(ind.outStock));
+      return drawMine(g, x, y, w, h, 0x2b2b2e, pile(look.outStock));
     case 'foodplant':
       return drawFoodPlant(g, x, y, w, h);
     case 'steelmill':
-      return drawSteelMill(g, x, y, w, h, ind.producedThisMonth + ind.producedLastMonth > 0);
+      return drawSteelMill(g, x, y, w, h, look.active);
     case 'materialsplant':
-      return drawMaterialsPlant(g, x, y, w, h, pile(ind.outStock));
+      return drawMaterialsPlant(g, x, y, w, h, pile(look.outStock));
   }
 }
 

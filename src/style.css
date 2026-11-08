@@ -2502,10 +2502,10 @@ body.touch #confirm .confirm-info {
 }
 
 body.touch #saved {
-  bottom: auto;
+  bottom: calc(var(--safe-b) + 12px);
   right: auto;
   left: 50%;
-  top: calc(var(--safe-t) + 60px);
+  top: auto;
   transform: translate(-50%, 4px);
 }
 
@@ -2636,4 +2636,48 @@ details.manual p {
 
 .news-log li.good .t {
   color: var(--good);
+}
+
+/* ───────────── v0.5.4：一覧の並べ替え・絞り込み ───────────── */
+
+.list-ctl {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.list-ctl label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.list-ctl select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+body.touch .list-ctl select {
+  min-height: 40px;
+  font-size: 15px;
+}
+
+.g-sub {
+  margin: 4px 12px 2px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+#guide.min .g-sub {
+  display: none;
 }

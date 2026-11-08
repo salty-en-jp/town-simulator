@@ -204,7 +204,7 @@ export class Game implements InputTarget {
       this.renderer.centerOnTile(cx, cy, this.touchUI ? 0.7 : 1);
     }
     this.started = true;
-    this.guideClosed = false;
+    this.guideClosed = -1;
     this.updateHud();
     this.updateGuide();
     this.noticeNewVersion();
@@ -1191,14 +1191,16 @@ export class Game implements InputTarget {
     this.el.guide.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('[data-g="close"]')) {
         this.el.guide.hidden = true;
-        this.guideClosed = true;
+        this.guideClosed = this.guideStage;
       } else if ((e.target as HTMLElement).closest('[data-g="toggle"]')) {
         this.el.guide.classList.toggle('min');
       }
     });
   }
 
-  private guideClosed = false;
+  /** 閉じた段階（次の段階になったら、また出す） */
+  private guideClosed = -1;
+  private guideStage = 0;
 
   private hudAction(a: string) {
     switch (a) {
@@ -1312,26 +1314,48 @@ export class Game implements InputTarget {
   // ───────────────────────── はじめのガイド ─────────────────────────
 
   private updateGuide() {
-    if (this.guideClosed || !this.world) return;
+    if (!this.world) return;
     const w = this.world;
-    const forest = [...w.industries.values()].find((i) => i.type === 'forest');
-    const saw = [...w.industries.values()].find((i) => i.type === 'sawmill');
+    const inds = [...w.industries.values()];
+    const towns = [...w.towns.values()];
+    const forest = inds.find((i) => i.type === 'forest');
+    const saw = inds.find((i) => i.type === 'sawmill');
     const trains = [...w.trains.values()];
-    const steps = [
+    const delivered = (c: 'lumber' | 'food' | 'materials') => towns.some((t) => (t.recv[c]?.total ?? 0) > 0);
+    const first = [
       { done: w.stations.size >= 2, text: `${esc(forest?.name ?? '森')}と${esc(saw?.name ?? '製材所')}の近くに<b>駅</b>を建てる` },
       { done: w.depots.size >= 1 && hasAnyTrack(w), text: '駅を<b>線路</b>でつなぎ、線路の隣に<b>車庫</b>を置く' },
       { done: trains.some((t) => t.state !== 'in_depot'), text: '車庫で<b>機関車</b>と<b>原木車</b>を買い、<b>指令</b>で行き先を選んで<b>発車</b>' },
       { done: w.finance.thisYear.income + w.finance.lastYear.income > 0, text: '原木を製材所に届けて<b>お金を稼ぐ</b>' },
-      { done: [...w.towns.values()].some((t) => (t.recv.lumber?.total ?? 0) > 0), text: '<b>木材</b>を町に届けて<b>家を建てる</b>' },
+      { done: delivered('lumber'), text: '<b>木材</b>を町に届けて<b>家を建てる</b>' },
     ];
-    const next = steps.findIndex((s) => !s.done);
+    // 第2段階：新しい仕組みを一通りさわってみる
+    const pop = towns.reduce((n, t) => n + t.population, 0);
+    const second = [
+      { done: w.requestState.completed >= 1, text: '<b>依頼ボード</b>の依頼を1つ達成する' },
+      { done: delivered('food'), text: '農場→食品工場とつないで、<b>食料品</b>を町に届ける（町が早く育つ）' },
+      { done: inds.some((i) => i.contractFrom > 0 || i.contractUntil > 0), text: '他社の産業と<b>輸送契約</b>を結ぶ（産業をクリック）' },
+      { done: inds.some((i) => i.owner === 'player'), text: '<b>自社の産業</b>を持つ（権利を買う・探鉱・工場の建設）' },
+      { done: delivered('materials'), text: '<b>建設資材</b>を町に届けて<b>高層ビル</b>を建てる' },
+      { done: pop >= 3000, text: `町の人口を合わせて<b>3,000人</b>にする（いま ${pop.toLocaleString('ja-JP')}人）` },
+    ];
+    const stage = first.every((x) => x.done) ? 1 : 0;
+    this.guideStage = stage;
+    if (stage <= this.guideClosed) return;
+    const steps = stage === 0 ? first : second;
+    const next = steps.findIndex((x) => !x.done);
     if (this.el.guide.hidden && this.touchUI) this.el.guide.classList.add('min'); // スマホでは最初はたたんでおく
     this.el.guide.hidden = false;
-    this.el.guide.innerHTML = `
-      <header><button data-g="toggle" class="g-title">はじめの目標 <small>${steps.filter((s) => s.done).length}/${steps.length}</small></button><button data-g="close" aria-label="閉じる">${ICONS.close}</button></header>
-      <ol>${steps.map((s, i) => `<li class="${s.done ? 'done' : i === next ? 'next' : ''}">${s.text}</li>`).join('')}</ol>
-      ${next === -1 ? '<p class="g-done">達成！ あとは自由に路線を広げましょう</p>' : ''}`;
+    const html = `
+      <header><button data-g="toggle" class="g-title">${stage === 0 ? 'はじめの目標' : '次の目標'} <small>${steps.filter((x) => x.done).length}/${steps.length}</small></button><button data-g="close" aria-label="閉じる">${ICONS.close}</button></header>
+      <ol>${steps.map((x, i) => `<li class="${x.done ? 'done' : i === next ? 'next' : ''}">${x.text}</li>`).join('')}</ol>
+      ${next === -1 ? '<p class="g-done">ぜんぶ達成！ あとは自由に路線と街を育てましょう</p>' : stage === 1 ? '<p class="g-sub">どれからでも。くわしくはヘルプの「取扱説明書」へ</p>' : ''}`;
+    if (this.guideHtml !== html) {
+      this.guideHtml = html;
+      this.el.guide.innerHTML = html;
+    }
   }
+  private guideHtml = '';
 
   // ───────────────────────── ループ ─────────────────────────
 
