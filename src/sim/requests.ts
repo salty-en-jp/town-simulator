@@ -9,6 +9,7 @@ import { townAccepts } from './towns';
 import { formatYen } from './commands';
 import {
   CARGO_SPECS,
+  ENGINE_TYPES,
   INDUSTRY_SPECS,
   isEngine,
   TOWN_GOODS,
@@ -22,6 +23,7 @@ import {
 import { findPath } from './track';
 import {
   canLoadFrom,
+  dateOf,
   earn,
   idx,
   isPrimary,
@@ -33,6 +35,7 @@ import {
   stationCatchment,
   tx,
   ty,
+  vehicleYear,
   type Station,
   type World,
   townLabel,
@@ -154,24 +157,24 @@ function pick<T>(world: World, arr: T[]): T | undefined {
   return arr.length ? world.rng.pick(arr) : undefined;
 }
 
-/** 報酬を決める。まだ解禁されていない車両があれば、それが出やすい */
-function makeReward(world: World, kind: RequestKind, scale: number, money: number, cargo?: Cargo): Reward {
-  let lock: VehicleType | undefined;
-  if (kind === 'haul' && cargo === 'logs') lock = 'biglogcar';
-  if (kind === 'deliver' && cargo === 'lumber') lock = 'biglumbercar';
-  if (kind === 'connect' || kind === 'income') lock = 'express';
+/**
+ * 報酬を決める。ふだんはお金。
+ * ときどき「まだ登場していない新型車両を一足早く使える」報酬になる（依頼の貨物に合う車両を優先）
+ */
+function makeReward(world: World, _kind: RequestKind, scale: number, money: number, cargo?: Cargo): Reward {
+  const year = dateOf(world.day).y;
   const offered = new Set(
     world.requests.flatMap((r) => (r.reward.kind === 'vehicle' && r.reward.unlock ? [r.reward.vehicle] : [])),
   );
-  if (lock && !world.unlocked.has(lock) && !offered.has(lock) && world.rng.chance(0.6)) {
-    return { kind: 'vehicle', vehicle: lock, count: isEngine(lock) ? 1 : 2, unlock: true };
-  }
-  if (world.depots.size > 0 && world.rng.chance(0.35)) {
-    // その依頼で使う貨物の貨車
-    const forCargo = cargo ? WAGON_TYPES.find((w) => !WAGON_SPECS[w].locked && WAGON_SPECS[w].cargo === cargo) : undefined;
-    const v: VehicleType = kind === 'carry_pax' ? 'coach' : (forCargo ?? world.rng.pick(['logcar', 'lumbercar', 'coach'] as const));
-    return { kind: 'vehicle', vehicle: v, count: Math.min(4, 1 + Math.floor(scale)), unlock: false };
-  }
+  const upcoming = ([...ENGINE_TYPES, ...WAGON_TYPES] as VehicleType[])
+    .filter((t) => {
+      const y = vehicleYear(t);
+      return y !== undefined && y > year && y - year <= 6 && !world.unlocked.has(t) && !offered.has(t);
+    })
+    .sort((p, q) => vehicleYear(p)! - vehicleYear(q)!);
+  const match = cargo ? upcoming.find((t) => !isEngine(t) && WAGON_SPECS[t].cargo === cargo) : undefined;
+  const v = match ?? upcoming[0];
+  if (v && world.rng.chance(match ? 0.25 : 0.1)) return { kind: 'vehicle', vehicle: v, count: isEngine(v) ? 1 : 2, unlock: true };
   return { kind: 'money', amount: round(money * scale, 500_000) };
 }
 
@@ -345,7 +348,7 @@ function makeRequest(world: World): Request | null {
 
 export function rewardText(r: Reward): string {
   if (r.kind === 'money') return formatYen(r.amount);
-  return `${vehicleName(r.vehicle)}${r.count > 1 ? `×${r.count}` : ''}${r.unlock ? '（解禁）' : ''}`;
+  return `${vehicleName(r.vehicle)}${r.count > 1 ? `×${r.count}` : ''}${r.unlock ? '（一足早く解禁）' : ''}`;
 }
 
 function giveReward(world: World, req: Request) {
@@ -372,7 +375,7 @@ function giveReward(world: World, req: Request) {
   for (let k = 0; k < r.count; k++) depot.stored.push(newCar(world, r.vehicle));
   pushEvent(world, {
     type: 'news',
-    text: `依頼達成！「${req.title}」${rewardText(r)}が車庫の留置線に届きました${r.unlock ? '。これからは買うこともできます' : ''}`,
+    text: `依頼達成！「${req.title}」${rewardText(r)}が車庫の留置線に届きました${r.unlock ? `。登場（${vehicleYear(r.vehicle)}年）より一足早く、買うこともできます` : ''}`,
     tone: 'good',
     tile: depot.tile,
   });

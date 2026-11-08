@@ -74,6 +74,9 @@ import {
   canBuy,
   carCapacity,
   canLoadFrom,
+  consistError,
+  dateOf,
+  vehicleYear,
   carCargo,
   carLoad,
   FINANCE_CATEGORIES,
@@ -310,11 +313,16 @@ export function openEngineSwap(g: Game, trainId: number) {
       const spares = (e: EngineType) => [...w.depots.values()].reduce((n, d) => n + d.stored.filter((c) => c.type === e).length, 0);
       const engines = ENGINE_TYPES.filter((e) => e !== cur)
         .map((e) => {
-          const ok = canBuy(w, e) || spares(e) > 0;
-          return `<button class="buy ${ui.type === e ? 'on' : ''}" data-action="type" data-e="${e}" ${ok ? '' : 'disabled title="依頼の報酬で解禁されます"'}>
-            <span class="buy-name"><span class="car-dot ${e}"></span>${SHORT_NAMES[e]}${ok ? '' : ' 🔒'}</span>
+          const avail = canBuy(w, e) || spares(e) > 0;
+          // この列車の貨車をそのまま引けるか（両数・客車だけ／貨車だけ）
+          const bad = consistError(e, t.cars.slice(1).map((c) => c.type));
+          const ok = avail && !bad;
+          const why = !avail ? `${vehicleYear(e)}年に登場します` : (bad ?? '');
+          if (!avail && (vehicleYear(e) ?? 0) - dateOf(w.day).y > 5) return '';
+          return `<button class="buy ${ui.type === e ? 'on' : ''}" data-action="type" data-e="${e}" ${ok ? '' : `disabled title="${esc(why)}"`}>
+            <span class="buy-name"><span class="car-dot ${e}"></span>${SHORT_NAMES[e]}${ok ? '' : ` <small class="muted">${esc(!avail ? `${vehicleYear(e)}年〜` : 'この編成は引けない')}</small>`}</span>
             <span class="num">${formatYen(vehicleCost(e))}</span>
-            <span class="muted small">${ENGINE_SPECS[e].speed}マス/日${spares(e) ? `・留置線に${spares(e)}両` : ''}</span></button>`;
+            <span class="muted small">${vehicleDesc(e)}${spares(e) ? `・留置線に${spares(e)}両` : ''}</span></button>`;
         })
         .join('');
       const list = targets().filter((x) => x.cars[0]?.type !== ui.type);
@@ -560,12 +568,36 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   materialcar: '資材車',
   biglogcar: '大型原木車',
   biglumbercar: '大型木材車',
+  heavy: 'ゴウリキ形',
+  superexpress: 'ツバサ形',
+  biggraincar: '大型穀物車',
+  freshcar: '新型冷蔵車',
+  bigcoach: '大型客車',
+  bigorecar: '大型鉱石車',
+  bigcoalcar: '大型石炭車',
+  bigsteelcar: '大型鋼材車',
+  bigmaterialcar: '大型資材車',
 };
 
 function vehicleDesc(t: VehicleType): string {
-  if (isEngine(t)) return `${ENGINE_SPECS[t].speed}マス/日`;
+  if (isEngine(t)) {
+    const e = ENGINE_SPECS[t];
+    return `${e.speed}マス/日・${e.maxCars}両まで・${e.allow === 'pax' ? '客車だけ' : e.allow === 'freight' ? '貨車だけ' : 'なんでも'}`;
+  }
+  if (WAGON_SPECS[t].fresh) {
+    const w = WAGON_SPECS[t];
+    return `${CARGO_SPECS[w.cargo].name}${w.capacity}${CARGO_SPECS[w.cargo].unit}・傷みにくい`;
+  }
   const w = WAGON_SPECS[t];
   return `${CARGO_SPECS[w.cargo].name}${w.capacity}${CARGO_SPECS[w.cargo].unit}`;
+}
+
+/** 「車両 3/8両・客車だけ」のような、機関車の決まりの表示 */
+function engineLimitText(t: Train, wagons: number): string {
+  const head = t.cars[0]?.type;
+  if (!head || !isEngine(head)) return `車両${wagons}両`;
+  const e = ENGINE_SPECS[head];
+  return `車両${wagons}/${e.maxCars}両${e.allow === 'pax' ? '・客車だけ' : e.allow === 'freight' ? '・貨車だけ' : ''}`;
 }
 
 export function openDepot(g: Game, id: number) {
@@ -595,7 +627,7 @@ export function openDepot(g: Game, id: number) {
             .join('');
           const wagons = t.cars.length - 1;
           return `<li class="dtrain ${t.id === sel ? 'sel' : ''}" data-action="seltrain" data-id="${t.id}">
-            <div class="dtrain-head"><b>${esc(t.name)}</b><span class="muted small">貨車${wagons}両</span><span class="grow"></span>
+            <div class="dtrain-head"><b>${esc(t.name)}</b><span class="muted small">${engineLimitText(t, wagons)}</span><span class="grow"></span>
               <button class="small-btn" data-action="start" data-id="${t.id}">${ICONS.play}発車</button></div>
             <div class="consist">${chips}</div></li>`;
         })
@@ -622,9 +654,11 @@ export function openDepot(g: Game, id: number) {
       const buy = [...ENGINE_TYPES, ...WAGON_TYPES]
         .map((t) => {
           const ok = canBuy(w, t);
-          return `<button class="buy ${ok ? '' : 'locked'}" data-action="buy" data-k="${t}" ${ok ? '' : 'disabled'} title="${ok ? '' : '依頼の報酬で解禁されます'}">
-            <span class="buy-name"><span class="car-dot ${t}"></span>${SHORT_NAMES[t]}${ok ? '' : ' 🔒'}</span>
-            <span class="muted small">${vehicleDesc(t)}</span>
+          const yr = vehicleYear(t);
+          if (!ok && yr !== undefined && yr - dateOf(w.day).y > 5) return ''; // 先すぎる車両はまだ出さない
+          return `<button class="buy ${ok ? '' : 'locked'}" data-action="buy" data-k="${t}" ${ok ? '' : 'disabled'} title="${ok ? '' : `${yr}年に登場します（依頼の報酬で一足早く使えることもあります）`}">
+            <span class="buy-name"><span class="car-dot ${t}"></span>${SHORT_NAMES[t]}</span>
+            <span class="muted small">${ok ? '' : `<b>${yr}年に登場</b>・`}${vehicleDesc(t)}</span>
             <span class="num">${formatYen(vehicleCost(t))}</span></button>`;
         })
         .join('');

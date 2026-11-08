@@ -1197,7 +1197,16 @@ function pointAt(poly: { x: number; y: number }[], s: number): { x: number; y: n
 const CAR_COLORS: Record<string, number> = {
   steam: 0x2f3b4a,
   express: 0x2f5f8f,
+  heavy: 0x5a3a2a,
+  superexpress: 0xe8eef2,
   coach: 0x3d7a5a,
+  bigcoach: 0x2f6a4a,
+  biggraincar: 0xa07a22,
+  freshcar: 0xbfd3e0,
+  bigorecar: 0x5e2e20,
+  bigcoalcar: 0x2e2e32,
+  bigsteelcar: 0x48525e,
+  bigmaterialcar: 0x985220,
   logcar: 0x7a4f2c,
   lumbercar: 0x9a7a52,
   biglogcar: 0x6a4020,
@@ -1212,10 +1221,12 @@ const CAR_COLORS: Record<string, number> = {
 
 function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car: Car, selected: boolean) {
   const engine = isEngine(car.type);
-  const big = car.type === 'biglogcar' || car.type === 'biglumbercar';
-  const len = engine ? 0.44 : big ? 0.46 : 0.42;
+  const wspec = isEngine(car.type) ? null : WAGON_SPECS[car.type];
+  const big = !!wspec?.big;
+  const pax = wspec?.cargo === 'passengers';
+  const len = car.type === 'superexpress' ? 0.48 : engine ? 0.44 : big ? 0.46 : 0.42;
   const wid = 0.22;
-  const h = engine ? 9 : car.type === 'coach' ? 9 : big ? 6 : 5;
+  const h = car.type === 'superexpress' ? 8 : engine ? 9 : pax ? (big ? 10 : 9) : big ? 6 : 5;
   const px = -dy,
     py = dx;
   const corners: [number, number][] = [
@@ -1249,8 +1260,9 @@ function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car:
     if (car.type === 'steam') g.ellipse(isoX(fx, fy), isoY(fx, fy) - base - h - 3, 2.2, 3.2).fill(0x1b2129);
     const s0 = groundPoly([[x - dx * 0.2, y - dy * 0.2]], base + h - 3),
       s1 = groundPoly([[x + dx * 0.2, y + dy * 0.2]], base + h - 3);
-    g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: 1.5, color: car.type === 'express' ? 0xf2c14e : 0xc0443a });
-  } else if (car.type === 'coach') {
+    const stripe: Record<string, number> = { steam: 0xc0443a, express: 0xf2c14e, heavy: 0xe8a317, superexpress: 0x2f5f8f };
+    g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: car.type === 'superexpress' ? 2.5 : 1.5, color: stripe[car.type] ?? 0xc0443a });
+  } else if (pax) {
     g.poly(groundPoly(corners.map(([cx, cy]) => [x + (cx - x) * 0.8, y + (cy - y) * 0.6] as [number, number]), base + h)).fill(
       shade(color, 1.2),
     );

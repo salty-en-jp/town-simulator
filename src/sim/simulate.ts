@@ -4,6 +4,7 @@ import {
   CARGOS,
   COSTS,
   ENGINE_SPECS,
+  ENGINE_TYPES,
   HOUSE_PAX_PER_DAY,
   HOUSE_POP,
   INDUSTRY,
@@ -14,7 +15,11 @@ import {
   TICKS_PER_DAY,
   TOWN,
   TOWN_GOODS,
+  isEngine,
+  WAGON_SPECS,
+  WAGON_TYPES,
   type Cargo,
+  type VehicleType,
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
 import { replaceEngine } from './commands';
@@ -51,6 +56,7 @@ import {
   trainEngine,
   tx,
   ty,
+  vehicleYear,
   type Dest,
   type Industry,
   type Rect,
@@ -418,7 +424,12 @@ function depart(world: World, t: Train, st: Station | undefined) {
 
 function trainTick(world: World, t: Train, dt: number) {
   if (t.state === 'in_depot' || t.state === 'stopped') return;
-  for (const car of t.cars) for (const p of car.packets) p.days += dt;
+  for (const car of t.cars) {
+    if (!car.packets.length) continue;
+    // 新型冷蔵車などは荷物が傷みにくい（日数がゆっくり進む）
+    const f = isEngine(car.type) ? 1 : (WAGON_SPECS[car.type].fresh ?? 1);
+    for (const p of car.packets) p.days += dt * f;
+  }
   if (t.state === 'loading') {
     loadingTick(world, t, dt);
     return;
@@ -825,6 +836,16 @@ function changeProduction(world: World, ind: Industry) {
 }
 
 function yearly(world: World) {
+  // 新型車両の登場
+  const y = dateOf(world.day).y;
+  const fresh = ([...ENGINE_TYPES, ...WAGON_TYPES] as VehicleType[]).filter((t) => vehicleYear(t) === y);
+  if (fresh.length) {
+    pushEvent(world, {
+      type: 'news',
+      text: `新型車両が登場しました：${fresh.map((t) => vehicleName(t)).join('・')}（車庫で買えます）`,
+      tone: 'good',
+    });
+  }
   world.finance.lastYear = world.finance.thisYear;
   world.finance.thisYear = emptyFinance();
   for (const t of world.trains.values()) {

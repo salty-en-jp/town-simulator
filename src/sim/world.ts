@@ -567,9 +567,29 @@ export function newCar(world: World, type: VehicleType): Car {
 }
 
 /** 買える車両か（依頼の報酬で解禁されるものがある） */
+/** 車両が登場する年（はじめからあるものは undefined） */
+export function vehicleYear(type: VehicleType): number | undefined {
+  return (isEngine(type) ? ENGINE_SPECS[type] : WAGON_SPECS[type]).year;
+}
+
+/** 買えるか：登場した年を過ぎたか、依頼の報酬で早めに使えるようになったか */
 export function canBuy(world: World, type: VehicleType): boolean {
-  const spec = isEngine(type) ? ENGINE_SPECS[type] : WAGON_SPECS[type];
-  return !spec.locked || world.unlocked.has(type);
+  const y = vehicleYear(type);
+  return y === undefined || dateOf(world.day).y >= y || world.unlocked.has(type);
+}
+
+/** 機関車にその車両をつなげるか（両数の上限・客車だけ／貨車だけ）。だめなら理由 */
+export function consistError(engine: EngineType, wagons: VehicleType[]): string | null {
+  const spec = ENGINE_SPECS[engine];
+  const short = spec.name.match(/^.*?形/)?.[0] ?? spec.name;
+  if (wagons.length > spec.maxCars) return `${short}につなげるのは${spec.maxCars}両までです`;
+  for (const t of wagons) {
+    if (isEngine(t)) return '機関車は2両つなげません';
+    const pax = WAGON_SPECS[t].cargo === 'passengers';
+    if (spec.allow === 'pax' && !pax) return `${short}には客車しかつなげません`;
+    if (spec.allow === 'freight' && pax) return `${short}には貨車しかつなげません`;
+  }
+  return null;
 }
 
 /** その産業から貨物を運び出せるか（自社・地元・契約中、かつ建設中でない） */
