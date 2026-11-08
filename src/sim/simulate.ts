@@ -19,6 +19,7 @@ import {
 import { cargoIncome, demandFactor } from './economy';
 import { replaceEngine } from './commands';
 import { eventsMonthly } from './events';
+import { TOWN_GROWTH, townAccepts, townStage, updateTownStage } from './towns';
 import { boomMul, marketIndex, marketMonthly, tourismPaxMul } from './market';
 import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
 import { updateRequests } from './requests';
@@ -118,7 +119,7 @@ export function acceptanceForRect(world: World, r: Rect, sx: number, sy: number)
   }
   for (const [id, e] of towns) {
     if (e.n >= 2) add('passengers', { kind: 'town', id, dist: e.dist });
-    for (const cargo of TOWN_GOODS) add(cargo, { kind: 'town', id, dist: e.dist });
+    for (const cargo of TOWN_GOODS) if (townAccepts(world, id, cargo)) add(cargo, { kind: 'town', id, dist: e.dist });
   }
   for (const list of Object.values(by)) list!.sort((p, q) => p.dist - q.dist);
   return { houses, by };
@@ -562,11 +563,11 @@ export function growHouse(world: World, town: Town, houses: number[], stationRec
   return -1;
 }
 
-function upgradeHouse(world: World, town: Town, houses: number[], to: 2 | 3): boolean {
+function upgradeHouse(world: World, town: Town, houses: number[], to: 2 | 3, fromAny = false): boolean {
   const from = to - 1;
   const cands = houses.filter((t) => {
     const o = world.occ[t];
-    return o?.k === 'house' && o.level === from;
+    return o?.k === 'house' && (fromAny ? o.level < to : o.level === from);
   });
   if (cands.length === 0) return false;
   // 町の中心に近い家から建て替える
@@ -604,20 +605,45 @@ function townsDaily(world: World, ctx: DayContext) {
     const has = (c: Cargo, n: number) => (stock[c] ?? 0) >= n;
     const use = (c: Cargo, n: number) => (stock[c] = (stock[c] ?? 0) - n);
 
-    // 建設資材が届いていれば、高層ビルに建て替える
-    if (has('materials', TOWN.materialsPerUpgrade3) && town.population > 200 && upgradeHouse(world, town, houses, 3)) {
-      use('materials', TOWN.materialsPerUpgrade3);
-    }
-
-    // 木材が届いていれば家を建てる・アパートに建て替える
-    if (has('lumber', TOWN.lumberPerHouse)) {
-      if (world.rng.chance(0.5) && upgradeHouse(world, town, houses, 2)) {
-        use('lumber', TOWN.lumberPerUpgrade2);
+    // 届いた材料で建てる・建て替える（段階が上がるほど間隔をあけて、ゆっくり育つ）
+    const stage = townStage(town);
+    if ((world.day + town.id) % TOWN_GROWTH.buildEvery[stage] === 0) {
+      if (stage === 2) {
+        // 都市：建設資材でビルに建て替える。建て替える家がなければ、新しくビルを建てる
+        if (has('materials', TOWN.materialsPerUpgrade3)) {
+          if (upgradeHouse(world, town, houses, 3, true)) use('materials', TOWN.materialsPerUpgrade3);
+          else if (world.rng.chance(0.5)) {
+            const t = growHouse(world, town, houses, stationRects);
+            if (t >= 0) {
+              const o = world.occ[t];
+              if (o?.k === 'house') world.occ[t] = { ...o, level: 3 };
+              houses.push(t);
+              use('materials', TOWN.materialsPerUpgrade3);
+            }
+          }
+        }
       } else {
-        const t = growHouse(world, town, houses, stationRects);
-        if (t >= 0) {
-          houses.push(t);
-          use('lumber', TOWN.lumberPerHouse);
+        // 町：建設資材でビルに（家の数の2割まで）
+        const tall = houses.filter((t) => {
+          const o = world.occ[t];
+          return o?.k === 'house' && o.level === 3;
+        }).length;
+        let built = false;
+        if (stage === 1 && has('materials', TOWN.materialsPerUpgrade3) && tall < houses.length * TOWN_GROWTH.townMaxTallShare) {
+          built = upgradeHouse(world, town, houses, 3);
+          if (built) use('materials', TOWN.materialsPerUpgrade3);
+        }
+        // 木材で家を建てる。町ならアパートにも建て替える
+        if (!built && has('lumber', TOWN.lumberPerHouse)) {
+          if (stage === 1 && world.rng.chance(0.5) && upgradeHouse(world, town, houses, 2)) {
+            use('lumber', TOWN.lumberPerUpgrade2);
+          } else {
+            const t = growHouse(world, town, houses, stationRects);
+            if (t >= 0) {
+              houses.push(t);
+              use('lumber', TOWN.lumberPerHouse);
+            }
+          }
         }
       }
     }
@@ -631,7 +657,9 @@ function townsDaily(world: World, ctx: DayContext) {
     // ふだんの成長（使われている駅が多いほど速い。食料品が足りているとさらに速い）
     town.growthTimer -= town.fed ? 2 : 1;
     if (town.growthTimer <= 0) {
-      town.growthTimer = active === 0 ? 60 : active === 1 ? 20 : active === 2 ? 14 : 9;
+      // 大きな町ほど、ふだんの成長はゆっくり（材料を運ぶ意味が大きくなる）
+      const base = active === 0 ? 60 : active === 1 ? 20 : active === 2 ? 14 : 9;
+      town.growthTimer = Math.round(base * (1 + town.population / 3000));
       if (active > 0 || world.rng.chance(1 / 3)) {
         const t = growHouse(world, town, houses, stationRects);
         if (t >= 0) houses.push(t);
@@ -639,6 +667,7 @@ function townsDaily(world: World, ctx: DayContext) {
     }
 
     recountTown(world, town, houses);
+    if (updateTownStage(world, town)) world.version++;
     for (const m of POP_MILESTONES) {
       if (before < m && town.population >= m) {
         pushEvent(world, {

@@ -6,6 +6,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import { CARGO_SPECS, INDUSTRY_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
 import { industryStatus, ownerLabel } from '../sim/industries';
 import { activeBooms } from '../sim/market';
+import { stageName, townStage } from '../sim/towns';
 import {
   carLoad,
   DIRS,
@@ -626,7 +627,7 @@ export class Renderer {
         live.add(k);
         this.label(
           k,
-          `<b>${esc(townLabel(town))}</b><span>${town.population.toLocaleString('ja-JP')}人</span>${tag(`town:${town.id}`)}`,
+          `<i class="stage-tag s${townStage(town)}">${stageName(town)}</i><b>${esc(townLabel(town))}</b><span>${town.population.toLocaleString('ja-JP')}人</span>${tag(`town:${town.id}`)}`,
           'town',
           town.cx,
           town.cy,

@@ -43,6 +43,7 @@ describe('ブーム', () => {
     const w = createEmptyWorld(30, 30, 3);
     const town = addTown(w, '町', 15, 15);
     for (let y = 12; y <= 18; y++) for (let x = 12; x <= 18; x++) w.occ[idx(w, x, y)] = { k: 'house', town: town.id, level: 1, variant: 0 };
+    town.stage = 1; // 町（木材も建設資材も受け入れる）
     startFire(w, town, idx(w, 14, 14));
     const a = { kind: 'town' as const, id: town.id };
     expect(boomMul(w, a, 'lumber')).toBeGreaterThan(1.3);

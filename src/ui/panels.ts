@@ -68,6 +68,7 @@ import {
 } from '../sim/industries';
 import { activeBooms, BOOM_LABEL, boomPlace, boomTile, marketIndex, type Boom } from '../sim/market';
 import { daysLeft, rewardText } from '../sim/requests';
+import { STAGES, stageName, townAccepts, townStage } from '../sim/towns';
 import { acceptorDemand, acceptorName, acceptors, acceptorStock, stationAccepts } from '../sim/simulate';
 import {
   canBuy,
@@ -944,10 +945,19 @@ export function openTown(g: Game, id: number) {
       if (!t) return '';
       const goods = TOWN_GOODS.map((c) => {
         const r = t.recv[c];
-        return `<tr><th>${cargoTag(c)}</th><td class="num">${n0(r?.lm ?? 0)}t</td><td class="num">${n0(t.stock[c] ?? 0)}t</td><td class="num">×${acceptorDemand(g.world, { kind: 'town', id }, c).toFixed(2)}</td></tr>`;
+        const ok = townAccepts(g.world, id, c);
+        return `<tr class="${ok ? '' : 'off'}"><th>${cargoTag(c)}</th><td class="num">${n0(r?.lm ?? 0)}t</td><td class="num">${ok ? `${n0(t.stock[c] ?? 0)}t` : '—'}</td><td class="num">${ok ? `×${acceptorDemand(g.world, { kind: 'town', id }, c).toFixed(2)}` : '<span class="muted small">受け入れない</span>'}</td></tr>`;
       }).join('');
+      const stage = townStage(t);
+      const next = STAGES[stage + 1];
+      const STAGE_NOTE = [
+        '木材で平屋が建ちます。1,000人で「町」になります。',
+        '木材で家とアパート、建設資材でビルが建ちます（ビルは家の2割まで）。5,000人で「都市」になり、木材は受け入れなくなります。',
+        '建設資材でビルが建ちます。木材はもう受け入れません。',
+      ];
       return `
         ${boomBox(g, { kind: 'town', id })}
+        <div class="stage-box s${stage}"><b>${stageName(t)}</b><span>${STAGE_NOTE[stage]}</span>${next ? `<small>「${next.name}」まであと ${n0(Math.max(0, next.minPop - t.population))}人</small>` : ''}</div>
         <dl class="stats">
           <dt>人口</dt><dd><b>${n0(t.population)}人</b></dd>
           <dt>建物</dt><dd>${t.houses}軒</dd>
@@ -956,7 +966,7 @@ export function openTown(g: Game, id: number) {
           <dt>届いた旅客（先月）</dt><dd>${n0(t.recv.passengers?.lm ?? 0)}人</dd>
         </dl>
         <table class="tbl"><tr><th></th><th class="num">先月届いた</th><th class="num">在庫</th><th class="num">買取</th></tr>${goods}</table>
-        <p class="muted small">木材で家とアパート、建設資材で高層ビルが建ちます。食料品が足りていると町が早く育ちます。駅がよく使われているほど成長が速くなります。</p>
+        <p class="muted small">食料品が足りていると町が早く育ちます。駅がよく使われているほど成長が速くなります。大きな町ほど、ふだんの成長はゆっくりになります。</p>
         <h4>人口の移り変わり</h4>
         ${lineChart([{ name: '人口', color: '#2c4a3e', data: t.popHist ?? [] }], {
           height: 100,
@@ -1225,7 +1235,7 @@ export function openTownList(g: Game) {
       return `${c.html}<ul class="list">${list
         .map(({ t, name }) => {
           const d = growth(t);
-          return `<li data-action="open" data-id="${t.id}" class="clickable"><b>${esc(name)}</b>${(t.popHist?.length ?? 0) > 1 ? sparkline(t.popHist!.slice(-12), '#2c4a3e') : ''}<span class="grow"></span>${d ? `<span class="small ${d > 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${n0(d)}</span>` : ''}<span class="num">${n0(t.population)}人</span></li>`;
+          return `<li data-action="open" data-id="${t.id}" class="clickable"><span class="stage-tag s${townStage(t)}">${stageName(t)}</span><b>${esc(name)}</b>${(t.popHist?.length ?? 0) > 1 ? sparkline(t.popHist!.slice(-12), '#2c4a3e') : ''}<span class="grow"></span>${d ? `<span class="small ${d > 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${n0(d)}</span>` : ''}<span class="num">${n0(t.population)}人</span></li>`;
         })
         .join('')}</ul>`;
     },
@@ -1465,6 +1475,7 @@ export function openMarket(g: Game) {
       }
       if (TOWN_GOODS.includes(sel)) {
         for (const t of w.towns.values()) {
+          if (!townAccepts(w, t.id, sel)) continue;
           const a = { kind: 'town' as const, id: t.id };
           rows.push({ ...a, name: `${townLabel(t)}`, stock: acceptorStock(w, a, sel), cap: TOWN.stockCap, demand: acceptorDemand(w, a, sel), tile: t.cy * w.w + t.cx });
         }

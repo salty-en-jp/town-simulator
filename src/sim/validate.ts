@@ -219,6 +219,8 @@ export function checkSavedWorld(v: unknown): void {
     num(t.houses, `${p}.houses`, 0);
     num(t.activeStations, `${p}.activeStations`, 0);
     optional(t.popHist, () => numArr(t.popHist, `${p}.popHist`));
+    optional(t.stage, () => int(t.stage, `${p}.stage`, 0, 2));
+    optional(t.cityWarned, () => bool(t.cityWarned, `${p}.cityWarned`));
   });
 
   arr(s.trains, 'trains').forEach((x, i) => {

@@ -2736,3 +2736,72 @@ body.touch .list-ctl select {
 #labels.far .map-label em.boom {
   font-size: 9px;
 }
+
+/* ───────────── v0.5.6：町の段階 ───────────── */
+
+.stage-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-right: 6px;
+  border-radius: 4px;
+  font-family: var(--font-game);
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1.4;
+  background: #8fb487;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.stage-tag.s1 {
+  background: #4f74a3;
+}
+
+.stage-tag.s2 {
+  background: #7a4fa3;
+}
+
+.map-label.town .stage-tag {
+  margin-right: 0;
+  align-self: center;
+}
+
+.stage-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #eef3ea;
+  border: 1px solid #cfdcc8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.stage-box b {
+  font-family: var(--font-game);
+  font-weight: 400;
+  font-size: 15px;
+}
+
+.stage-box small {
+  width: 100%;
+  color: var(--ink-soft);
+}
+
+.stage-box.s1 {
+  background: #eaf0f7;
+  border-color: #c7d4e6;
+}
+
+.stage-box.s2 {
+  background: #f1ebf7;
+  border-color: #d7c8e6;
+}
+
+.tbl tr.off th,
+.tbl tr.off td {
+  opacity: 0.55;
+}

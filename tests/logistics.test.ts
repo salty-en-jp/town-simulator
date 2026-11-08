@@ -92,8 +92,9 @@ describe('町と食料品・建設資材', () => {
 
   it('建設資材が届くと高層ビルに建て替わる', () => {
     const { w, t } = town();
+    t.stage = 2; // 都市（建設資材を受け入れる段階）
     t.stock.materials = TOWN.materialsPerUpgrade3 * 3;
-    days(w, 5);
+    days(w, 10);
     const towers = w.occ.filter((o) => o?.k === 'house' && o.level === 3).length;
     expect(towers).toBeGreaterThan(0);
     expect(t.stock.materials!).toBeLessThan(TOWN.materialsPerUpgrade3 * 3);
