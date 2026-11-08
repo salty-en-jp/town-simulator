@@ -5,7 +5,6 @@ import {
   COSTS,
   FINANCE,
   isEngine,
-  MAX_WAGONS,
   STATION,
   vehicleCost,
   vehicleName,
@@ -33,6 +32,8 @@ import {
   ty,
   W,
   canBuy,
+  consistError,
+  vehicleYear,
   newCar,
   type Axis,
   type Car,
@@ -609,10 +610,6 @@ function nextTrainName(world: World): string {
   return `列車 ${n}`;
 }
 
-function wagonCount(t: Train): number {
-  return t.cars.filter((c) => !isEngine(c.type)).length;
-}
-
 function createTrain(world: World, depot: Depot, cars: Car[], orderList?: number, orders?: Order[]): Train {
   let ol = orderList;
   if (ol === undefined) {
@@ -661,8 +658,9 @@ export function buyTrain(
   const depot = world.depots.get(depotId);
   if (!depot) return fail('車庫がありません');
   if (wagons.length === 0) return fail('車両を1両以上つないでください');
-  if (wagons.length > MAX_WAGONS) return fail(`つなげる貨車は${MAX_WAGONS}両までです`);
   const engine = opts.engine ?? 'steam';
+  const bad = consistError(engine, wagons);
+  if (bad) return fail(bad);
   const types: VehicleType[] = [engine, ...wagons];
   const locked = types.find((t) => !canBuy(world, t));
   if (locked) return fail(`${vehicleName(locked)}はまだ買えません`);
@@ -693,11 +691,11 @@ export function buyVehicle(
 ): CmdResult {
   const depot = world.depots.get(depotId);
   if (!depot) return fail('車庫がありません');
-  if (!canBuy(world, type)) return fail(`${vehicleName(type)}はまだ買えません（依頼の報酬で解禁されます）`);
+  if (!canBuy(world, type)) return fail(`${vehicleName(type)}はまだ買えません（${vehicleYear(type)}年に登場します）`);
   let target: Train | undefined;
   if (!isEngine(type) && opts.attachTo !== undefined && opts.attachTo >= 0) {
     target = world.trains.get(opts.attachTo);
-    const err = attachError(depot, target);
+    const err = attachError(depot, target, type);
     if (err) return fail(err);
   }
   const cost = vehicleCost(type);
@@ -714,11 +712,12 @@ export function buyVehicle(
   return { ok: true, cost, id: car.id };
 }
 
-function attachError(depot: Depot, t: Train | undefined): string | null {
+function attachError(depot: Depot, t: Train | undefined, add: VehicleType): string | null {
   if (!t) return '列車がありません';
   if (t.state !== 'in_depot' || t.depotId !== depot.id) return '列車がこの車庫に止まっていません';
-  if (wagonCount(t) >= MAX_WAGONS) return `つなげる貨車は${MAX_WAGONS}両までです`;
-  return null;
+  const head = t.cars[0].type;
+  if (!isEngine(head)) return null;
+  return consistError(head, [...t.cars.slice(1).map((c) => c.type), add]);
 }
 
 /** 留置線の貨車を、車庫に止まっている列車の最後尾につなぐ */
@@ -729,7 +728,7 @@ export function attachVehicle(world: World, depotId: number, carId: number, trai
   if (i < 0) return fail('留置線にその車両がありません');
   if (isEngine(depot.stored[i].type)) return fail('機関車は「列車にする」で使ってください');
   const t = world.trains.get(trainId);
-  const err = attachError(depot, t);
+  const err = attachError(depot, t, depot.stored[i].type);
   if (err) return fail(err);
   t!.cars.push(depot.stored.splice(i, 1)[0]);
   return { ok: true, cost: 0 };
@@ -1003,6 +1002,8 @@ export function replaceEngine(
   if (!depot) return fail('車庫がありません');
   const old = t.cars[0];
   if (old.type === type) return fail(`もう${vehicleName(type)}です`);
+  const bad = consistError(type, t.cars.slice(1).map((c) => c.type));
+  if (bad) return fail(bad);
   const spare = depot.stored.find((c) => c.type === type);
   if (!spare && !canBuy(world, type)) return fail(`${vehicleName(type)}はまだ買えません`);
   const cost = spare ? 0 : vehicleCost(type);
@@ -1037,6 +1038,11 @@ export function scheduleEngineSwap(
   for (const id of trainIds) {
     const t = world.trains.get(id);
     if (!t || t.cars[0]?.type === type) continue;
+    const bad = consistError(type, t.cars.slice(1).map((c) => c.type));
+    if (bad) {
+      lastError = bad;
+      continue;
+    }
     if (t.state === 'in_depot') {
       const r = replaceEngine(world, id, type, { sellOld });
       if (r.ok) {

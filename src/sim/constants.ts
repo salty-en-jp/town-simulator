@@ -53,8 +53,15 @@ export type WagonType =
   | 'steelcar'
   | 'materialcar'
   | 'biglogcar'
-  | 'biglumbercar';
-export type EngineType = 'steam' | 'express';
+  | 'biglumbercar'
+  | 'biggraincar'
+  | 'freshcar'
+  | 'bigcoach'
+  | 'bigorecar'
+  | 'bigcoalcar'
+  | 'bigsteelcar'
+  | 'bigmaterialcar';
+export type EngineType = 'steam' | 'express' | 'heavy' | 'superexpress';
 export type VehicleType = EngineType | WagonType;
 
 export interface WagonSpec {
@@ -62,8 +69,12 @@ export interface WagonSpec {
   cargo: Cargo;
   capacity: number;
   cost: number;
-  /** 依頼の報酬で解禁されるまで買えない */
-  locked?: boolean;
+  /** 登場する年（それまでは買えない。依頼の報酬で早めに使えることもある） */
+  year?: number;
+  /** 荷物の傷み方（1 がふつう。0.5 なら半分の速さでしか日数が進まない） */
+  fresh?: number;
+  /** 大型（見た目が少し大きい） */
+  big?: boolean;
 }
 
 export interface EngineSpec {
@@ -73,9 +84,15 @@ export interface EngineSpec {
   speed: number;
   /** 年間維持費（走っているときだけ。月割りで引かれる） */
   runningCostPerYear: number;
-  locked?: boolean;
+  /** つなげる車両（機関車をのぞく）の両数の上限 */
+  maxCars: number;
+  /** つなげられる車両：なんでも／客車だけ／貨車だけ */
+  allow: 'any' | 'pax' | 'freight';
+  year?: number;
+  desc: string;
 }
 
+// 登場の順番は「田舎に必要なもの」から：原木・木材・穀物・食料品 → 貨物用機関車・旅客 → 重工業 → 超特急
 export const WAGON_SPECS: Record<WagonType, WagonSpec> = {
   coach: { name: '客車', cargo: 'passengers', capacity: 40, cost: 1_500_000 },
   logcar: { name: '原木車', cargo: 'logs', capacity: 30, cost: 1_500_000 },
@@ -86,13 +103,40 @@ export const WAGON_SPECS: Record<WagonType, WagonSpec> = {
   coalcar: { name: '石炭車', cargo: 'coal', capacity: 35, cost: 1_600_000 },
   steelcar: { name: '鋼材車', cargo: 'steel', capacity: 30, cost: 1_700_000 },
   materialcar: { name: '資材車', cargo: 'materials', capacity: 25, cost: 1_800_000 },
-  biglogcar: { name: '大型原木車', cargo: 'logs', capacity: 45, cost: 2_200_000, locked: true },
-  biglumbercar: { name: '大型木材車', cargo: 'lumber', capacity: 45, cost: 2_200_000, locked: true },
+  biglogcar: { name: '大型原木車', cargo: 'logs', capacity: 45, cost: 2_200_000, year: 1962, big: true },
+  biglumbercar: { name: '大型木材車', cargo: 'lumber', capacity: 45, cost: 2_200_000, year: 1963, big: true },
+  biggraincar: { name: '大型穀物車', cargo: 'grain', capacity: 45, cost: 2_200_000, year: 1964, big: true },
+  freshcar: { name: '新型冷蔵車', cargo: 'food', capacity: 30, cost: 2_600_000, year: 1966, fresh: 0.5, big: true },
+  bigcoach: { name: '大型客車', cargo: 'passengers', capacity: 60, cost: 2_400_000, year: 1970, big: true },
+  bigorecar: { name: '大型鉱石車', cargo: 'ore', capacity: 50, cost: 2_400_000, year: 1974, big: true },
+  bigcoalcar: { name: '大型石炭車', cargo: 'coal', capacity: 50, cost: 2_400_000, year: 1974, big: true },
+  bigsteelcar: { name: '大型鋼材車', cargo: 'steel', capacity: 45, cost: 2_600_000, year: 1977, big: true },
+  bigmaterialcar: { name: '大型資材車', cargo: 'materials', capacity: 40, cost: 2_800_000, year: 1977, big: true },
 };
 
 export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
-  steam: { name: 'ツナグ形蒸気機関車', cost: 12_000_000, speed: 4, runningCostPerYear: 1_500_000 },
-  express: { name: 'ハヤテ形機関車', cost: 20_000_000, speed: 5.5, runningCostPerYear: 2_200_000, locked: true },
+  steam: { name: 'ツナグ形蒸気機関車', cost: 12_000_000, speed: 4, runningCostPerYear: 1_500_000, maxCars: 8, allow: 'any', desc: 'なんでも引ける' },
+  heavy: {
+    name: 'ゴウリキ形貨物機関車',
+    cost: 18_000_000,
+    speed: 3.5,
+    runningCostPerYear: 2_000_000,
+    maxCars: 14,
+    allow: 'freight',
+    year: 1968,
+    desc: '遅いが力持ち。貨車だけ',
+  },
+  express: { name: 'ハヤテ形機関車', cost: 20_000_000, speed: 5.5, runningCostPerYear: 2_200_000, maxCars: 10, allow: 'any', year: 1972, desc: '速い。なんでも引ける' },
+  superexpress: {
+    name: 'ツバサ形超特急',
+    cost: 38_000_000,
+    speed: 8,
+    runningCostPerYear: 4_000_000,
+    maxCars: 12,
+    allow: 'pax',
+    year: 1982,
+    desc: 'とても速い。客車だけ',
+  },
 };
 
 export const ENGINE_TYPES = Object.keys(ENGINE_SPECS) as EngineType[];
