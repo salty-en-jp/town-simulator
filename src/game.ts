@@ -19,6 +19,8 @@ import {
   type UndoRecord,
 } from './sim/commands';
 import {
+  CARGO_SPECS,
+  CARGOS,
   INDUSTRY_ECON,
   INDUSTRY_SPECS,
   PRIMARY_TYPES,
@@ -29,9 +31,9 @@ import {
 } from './sim/constants';
 import { buildFactory, startSurvey } from './sim/industries';
 import { generateWorld } from './sim/mapgen';
-import { step } from './sim/simulate';
+import { acceptanceForRect, step, suppliesForRect } from './sim/simulate';
 import { findPath, rectTiles, straightLine } from './sim/track';
-import { dateOf, tx, ty, type Axis, type Rect, type World } from './sim/world';
+import { canLoadFrom, dateOf, tx, ty, type Axis, type Rect, type World } from './sim/world';
 import { ICONS } from './ui/icons';
 import {
   addOrderFromMap,
@@ -749,8 +751,16 @@ export class Game implements InputTarget {
     }
     const r = this.dry(p, remove) as CmdResult & { chance?: number };
     const t = this.previewTiles(p);
-    const preview: Preview = { ...t, ok: r.ok, remove: remove && p.kind === 'track', kind: p.kind === 'industry' ? 'depot' : p.kind };
+    const info = this.stationInfo(p);
+    const preview: Preview = {
+      ...t,
+      ok: r.ok,
+      remove: remove && p.kind === 'track',
+      kind: p.kind === 'industry' ? 'depot' : p.kind,
+      marks: info?.marks,
+    };
     this.renderer.setOverlay({ preview });
+    this.lastStationInfo = info?.html ?? '';
     const chance = r.chance !== undefined ? `・成功率${Math.round(r.chance * 100)}%` : '';
     const label = r.ok ? `${formatYen(r.cost)}${chance}` : (r.error ?? '');
     if (this.touchUI) {
@@ -759,9 +769,38 @@ export class Game implements InputTarget {
       const tip = this.el.tip;
       tip.hidden = false;
       tip.className = r.ok ? '' : 'bad';
-      tip.innerHTML = r.ok ? `${esc(label)}${mods?.shift ? '<small>（見積もり）</small>' : ''}` : esc(label);
+      tip.innerHTML = (r.ok ? `${esc(label)}${mods?.shift ? '<small>（見積もり）</small>' : ''}` : esc(label)) + (info ? `<div class="tip-info">${info.html}</div>` : '');
       tip.style.transform = `translate(${this.mouse.x + 16}px, ${this.mouse.y + 18}px)`;
     }
+  }
+
+  private lastStationInfo = '';
+
+  /** 駅のプレビュー：範囲から集められるもの・受け入れる貨物・範囲に入る産業 */
+  private stationInfo(p: Pending): { html: string; marks: NonNullable<Preview['marks']> } | null {
+    if (p.kind !== 'station') return null;
+    const w = this.world;
+    const tiles = straightLine(w, p.a, p.b, STATION.maxLength);
+    const r = catchmentOf(w, tiles);
+    if (!r) return null;
+    const sign = tiles[Math.floor(tiles.length / 2)];
+    const sup = suppliesForRect(w, r);
+    const acc = acceptanceForRect(w, r, tx(w, sign), ty(w, sign));
+    const collect: string[] = [];
+    for (const ind of sup.industries) {
+      const spec = INDUSTRY_SPECS[ind.type];
+      const ok = canLoadFrom(w, ind);
+      const cargo = CARGO_SPECS[spec.output].name;
+      collect.push(
+        `<span class="${ok ? '' : 'locked'}">${esc(ind.name)}：${cargo}${spec.inputs.length ? '' : ` 月${Math.round(ind.prodRate)}t`}${ok ? '' : '（他社・運べない）'}</span>`,
+      );
+    }
+    if (sup.houses > 0) collect.push(`<span>旅客：家${sup.houses}軒・月${sup.paxPerMonth}人ほど</span>`);
+    const accepts = CARGOS.filter((c) => (acc.by[c]?.length ?? 0) > 0).map((c) => CARGO_SPECS[c].name);
+    const html = `<div><b>集める</b>${collect.length ? collect.join('') : '<span class="none">なし</span>'}</div>
+      <div><b>受け入れ</b>${accepts.length ? `<span>${accepts.join('・')}</span>` : '<span class="none">なし</span>'}</div>`;
+    const marks = sup.industries.map((ind) => ({ x: ind.x, y: ind.y, w: ind.w, h: ind.h, ok: canLoadFrom(w, ind) }));
+    return { html, marks };
   }
 
   private refreshPreview() {
@@ -784,6 +823,7 @@ export class Game implements InputTarget {
     const name = p.kind === 'track' && this.removeMode ? '線路の撤去' : p.kind === 'industry' ? this.industryLabel() : TOOL_NAMES[p.kind];
     const chance = (r as CmdResult & { chance?: number }).chance;
     c.innerHTML = `
+      ${p.kind === 'station' && this.lastStationInfo ? `<div class="confirm-info">${this.lastStationInfo}</div>` : ''}
       <div class="confirm-text ${r.ok ? '' : 'bad'}">
         <b>${name}</b>
         <span>${r.ok ? formatYen(r.cost) : esc(r.error ?? '')}</span>
@@ -1282,6 +1322,8 @@ export class Game implements InputTarget {
     for (const ev of evs) {
       if (ev.type === 'income') {
         this.renderer.floatText(ev.tile, `+${formatYen(ev.amount)}`, 'income');
+      } else if (ev.type === 'fx') {
+        for (const t of ev.tiles) this.renderer.floatText(t, '🔥', 'fire');
       } else {
         this.news(ev.text, ev.tone ?? 'info', ev.tile ?? -1);
       }

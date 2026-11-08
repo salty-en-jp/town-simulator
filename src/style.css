@@ -2382,3 +2382,66 @@ body.touch .win-rename-input {
 body.touch .win-body .check {
   padding: 7px 0;
 }
+
+/* ───────────── 駅のプレビュー：集める・受け入れ ───────────── */
+
+#cursor-tip .tip-info {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  max-width: 300px;
+}
+
+.tip-info b,
+.confirm-info b {
+  display: inline-block;
+  min-width: 4.5em;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.tip-info span,
+.confirm-info span {
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.tip-info span:not(:first-of-type)::before,
+.confirm-info span:not(:first-of-type)::before {
+  content: '・';
+  margin-right: 2px;
+  opacity: 0.6;
+}
+
+.tip-info .locked,
+.confirm-info .locked {
+  opacity: 0.6;
+}
+
+.tip-info .none,
+.confirm-info .none {
+  opacity: 0.6;
+}
+
+body.touch #confirm .confirm-info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(31, 51, 43, 0.96);
+  color: var(--rail-ink);
+  font-size: 12px;
+  line-height: 1.55;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.float-text.fire {
+  font-size: 22px;
+  text-shadow: none;
+}

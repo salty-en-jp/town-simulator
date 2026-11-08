@@ -7,6 +7,7 @@ import { Renderer } from './render/renderer';
 import * as cmds from './sim/commands';
 import { formatYen } from './sim/commands';
 import * as panels from './ui/panels';
+import * as events from './sim/events';
 import * as sim from './sim/simulate';
 import type { World } from './sim/world';
 import { listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence } from './storage';
@@ -82,7 +83,7 @@ async function main() {
 
   // 自動テスト・デバッグ用
   (window as unknown as { __game: Game }).__game = game;
-  (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim };
+  (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim, events };
 }
 
 main();
