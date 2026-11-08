@@ -7,6 +7,7 @@ PC と スマホ（iPhone）のブラウザで遊べます。いまは **試作�
 - 企画書: [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)
 - OpenTTD 仕組みリサーチ（操作感の参考）: [docs/OPENTTD_RESEARCH.md](docs/OPENTTD_RESEARCH.md)
 - スマホ対応の検討: [docs/MOBILE_SUPPORT.md](docs/MOBILE_SUPPORT.md)
+- 公開にあたっての安全対策メモ（1.0 までにやること）: [docs/SECURITY_PLAN.md](docs/SECURITY_PLAN.md)
 
 ## 試作版でできること
 
