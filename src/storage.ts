@@ -8,8 +8,17 @@
 import { deserializeWorld, MAX_SAVE_CHARS, SaveError, serializeWorld } from './sim/save';
 import { dateOf, Terrain, type World } from './sim/world';
 
-export type Slot = 'auto' | '1' | '2' | '3';
-export const SLOTS: Slot[] = ['auto', '1', '2', '3'];
+export type Slot = 'auto' | 'auto1' | 'auto2' | '1' | '2' | '3';
+/** 画面に並べる順。auto1・auto2 は「ひとつ前・ふたつ前のオートセーブ」（1日1回ずれる） */
+export const SLOTS: Slot[] = ['auto', 'auto1', 'auto2', '1', '2', '3'];
+export const SLOT_NAMES: Record<Slot, string> = {
+  auto: 'オートセーブ',
+  auto1: 'ひとつ前のオートセーブ',
+  auto2: 'ふたつ前のオートセーブ',
+  '1': 'スロット 1',
+  '2': 'スロット 2',
+  '3': 'スロット 3',
+};
 
 export interface SaveMeta {
   slot: Slot;
@@ -108,7 +117,81 @@ export function worldMeta(w: World, slot: Slot): SaveMeta {
 }
 
 export async function saveTo(slot: Slot, w: World): Promise<void> {
+  if (slot === 'auto') await rotateAuto();
   await putRecord({ slot, meta: worldMeta(w, slot), data: serializeWorld(w) });
+}
+
+const dayKey = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+};
+
+/**
+ * オートセーブの世代を残す：今のオートセーブが「今日より前」に保存されたものなら、
+ * ひとつ前 → ふたつ前、今 → ひとつ前 にずらしてから上書きする（1日に1回だけずれる）。
+ * 1つが壊れたり、うっかり上書きしても、前の日の街に戻れる
+ */
+async function rotateAuto(): Promise<void> {
+  try {
+    const cur = await getRecord('auto');
+    if (!cur || dayKey(cur.meta.savedAt) === dayKey(new Date().toISOString())) return;
+    const prev = await getRecord('auto1');
+    if (prev) await putRecord({ ...prev, slot: 'auto2', meta: { ...prev.meta, slot: 'auto2' } });
+    await putRecord({ ...cur, slot: 'auto1', meta: { ...cur.meta, slot: 'auto1' } });
+  } catch {
+    /* 世代が残せなくても、オートセーブは続ける */
+  }
+}
+
+// ───────────────────────── バックアップと保存の状態 ─────────────────────────
+
+const LS_BACKUP = 'tsunagu.lastBackup';
+
+/** ファイルに書き出した（バックアップした）ことを覚える */
+export function markBackup() {
+  try {
+    localStorage.setItem(LS_BACKUP, new Date().toISOString());
+  } catch {
+    /* 覚えられなくてもよい */
+  }
+}
+
+/** 最後にファイルに書き出してからの日数（したことがなければ null） */
+export function daysSinceBackup(): number | null {
+  try {
+    const v = localStorage.getItem(LS_BACKUP);
+    if (!v) return null;
+    return Math.max(0, Math.floor((Date.now() - new Date(v).getTime()) / 86_400_000));
+  } catch {
+    return null;
+  }
+}
+
+export interface StorageStatus {
+  /** ホーム画面に追加したアプリとして開いている */
+  standalone: boolean;
+  /** iPhone・iPad（Safari の「7日間開かないと消える」決まりがある） */
+  ios: boolean;
+  /** ブラウザが「消さない」と約束してくれたか（わからなければ null） */
+  persisted: boolean | null;
+}
+
+export async function storageStatus(): Promise<StorageStatus> {
+  const nav = navigator as Navigator & { standalone?: boolean };
+  const standalone = !!nav.standalone || (typeof matchMedia === 'function' && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches));
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let persisted: boolean | null = null;
+  try {
+    persisted = (await navigator.storage?.persisted?.()) ?? null;
+  } catch {
+    persisted = null;
+  }
+  return { standalone, ios, persisted };
+}
+
+/** 「データが消えにくいか」：ホーム画面アプリ、または iPhone 以外で消さない約束がある */
+export function isSafeStorage(s: StorageStatus): boolean {
+  return s.standalone || (!s.ios && s.persisted !== false);
 }
 
 export async function loadFrom(slot: Slot): Promise<World | null> {
@@ -223,7 +306,7 @@ export function saveFileName(w: World): string {
 }
 
 /** セーブをファイルにする。iPhone では共有シート（AirDrop・ファイル・LINEなど）を開く */
-export async function exportSave(w: World): Promise<'shared' | 'downloaded'> {
+export async function exportSave(w: World): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const blob = await gzip(serializeWorld(w));
   const name = saveFileName(w);
   const file = new File([blob], name, { type: 'application/octet-stream' });
@@ -231,9 +314,10 @@ export async function exportSave(w: World): Promise<'shared' | 'downloaded'> {
   if (nav.canShare?.({ files: [file] }) && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
     try {
       await nav.share({ files: [file], title: 'ツナグマチのセーブ' });
+      markBackup();
       return 'shared';
     } catch (e) {
-      if ((e as Error).name === 'AbortError') return 'shared';
+      if ((e as Error).name === 'AbortError') return 'cancelled';
     }
   }
   const url = URL.createObjectURL(blob);
@@ -244,6 +328,7 @@ export async function exportSave(w: World): Promise<'shared' | 'downloaded'> {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
+  markBackup();
   return 'downloaded';
 }
 
