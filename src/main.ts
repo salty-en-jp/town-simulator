@@ -11,7 +11,7 @@ import * as events from './sim/events';
 import * as sim from './sim/simulate';
 import type { World } from './sim/world';
 import { VERSION } from './version';
-import { listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence } from './storage';
+import { daysSinceBackup, isSafeStorage, listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence, storageStatus } from './storage';
 
 async function main() {
   const renderer = await Renderer.create(document.getElementById('stage')!, document.getElementById('labels')!);
@@ -22,6 +22,10 @@ async function main() {
   const seedParam = Number(params.get('seed'));
   const seed = Number.isFinite(seedParam) && seedParam > 0 ? seedParam : Math.floor(Math.random() * 1e9);
   requestPersistence();
+  // オフラインでも起動できるように（公開版だけ。開発中はしまっておくと紛らわしいので使わない）
+  if (!import.meta.env.DEV && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).catch(() => {});
+  }
   document.getElementById('title-version')!.textContent = `試作版 v${VERSION}`;
 
   const leaveTitle = async () => {
@@ -73,6 +77,20 @@ async function main() {
       <div class="title-sub"><button id="file-btn" class="sub-btn">ファイルから読み込む</button></div>`;
     document.getElementById('start-btn')!.addEventListener('click', startNew);
   }
+  // データの安全の目安（タイトルの下に小さく）
+  void storageStatus().then((s) => {
+    const note = document.createElement('p');
+    note.className = 'title-safety';
+    const days = daysSinceBackup();
+    const lines: string[] = [];
+    if (s.standalone) lines.push('✓ ホーム画面アプリ：データは消えにくい状態です');
+    else if (s.ios) lines.push('ホーム画面に追加して遊ぶと、データが消えにくくなります（共有ボタン →「ホーム画面に追加」）');
+    else if (isSafeStorage(s)) lines.push('✓ この端末のブラウザに保存しています');
+    if (auto) lines.push(days === null ? 'まだ街をファイルに書き出していません（セーブ画面から）' : `最後のバックアップ：${days === 0 ? '今日' : `${days}日前`}`);
+    else if (s.standalone && s.ios) lines.push('Safari で遊んでいた街は、Safari で「ファイルに書き出す」→ ここで「ファイルから読み込む」で移せます');
+    note.textContent = lines.join('　／　');
+    if (lines.length) actions.after(note);
+  });
   document.getElementById('file-btn')!.addEventListener('click', async () => {
     try {
       const w = await pickSaveFile();

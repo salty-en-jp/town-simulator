@@ -58,16 +58,21 @@ import {
 import { WindowManager } from './ui/windows';
 import { VERSION } from './version';
 import {
+  daysSinceBackup,
   deleteSave,
   exportSave,
+  isSafeStorage,
   listSaves,
   loadFrom,
   metaLabel,
   pickSaveFile,
   saveTo,
+  SLOT_NAMES,
   SLOTS,
+  storageStatus,
   type SaveMeta,
   type Slot,
+  type StorageStatus,
 } from './storage';
 
 export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'industry' | 'order' | 'clone' | 'replace';
@@ -210,6 +215,9 @@ export class Game implements InputTarget {
     this.updateHud();
     this.updateGuide();
     this.noticeNewVersion();
+    // しばらく遊んだら、バックアップのことをやさしく知らせる（1回の起動で1回だけ）
+    window.clearTimeout(this.backupTimer);
+    this.backupTimer = window.setTimeout(() => this.remindBackup(), 5 * 60 * 1000);
     if (!this.loopStarted) {
       this.loopStarted = true;
       requestAnimationFrame((t) => this.loop(t));
@@ -280,13 +288,80 @@ export class Game implements InputTarget {
     this.toast(`v${VERSION} になりました。変わったところはリリースノートで見られます`, 'good');
   }
 
+  private backupTimer = 0;
+  private backupReminded = false;
+
+  private remindBackup() {
+    if (this.backupReminded || !this.world || this.world.day < 180) return;
+    const days = daysSinceBackup();
+    if (days !== null && days < 14) return;
+    this.backupReminded = true;
+    this.news(
+      days === null
+        ? '街が育ってきました。セーブ画面の「ファイルに書き出す」で、街をファイルに残しておくと安心です'
+        : `最後に街をファイルに書き出してから${days}日たちました。セーブ画面から書き出しておくと安心です`,
+      'info',
+      -1,
+    );
+  }
+
   centerOnTile(tile: number) {
     this.renderer.centerOnTile(tx(this.world, tile), ty(this.world, tile));
   }
 
   async refreshSaveMetas() {
     this.saveMetas = await listSaves();
+    this.storage = await storageStatus();
     this.wm.refresh('saveload', true);
+  }
+
+  storage: StorageStatus | null = null;
+
+  /** セーブ画面の上の「データの安全」 */
+  private safetyHtml(): string {
+    const s = this.storage;
+    const auto = this.saveMetas.auto;
+    const days = daysSinceBackup();
+    const ago = (iso: string) => {
+      const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+      return min < 1 ? 'たった今' : min < 60 ? `${min}分前` : min < 60 * 24 ? `${Math.round(min / 60)}時間前` : `${Math.round(min / 1440)}日前`;
+    };
+    const line = (ok: boolean, text: string) => `<li class="${ok ? 'chk-ok' : 'chk-todo'}"><i>${ok ? '✓' : '!'}</i><span>${text}</span></li>`;
+    const safe = s ? isSafeStorage(s) : true;
+    const where = !s
+      ? ''
+      : s.standalone
+        ? line(true, 'ホーム画面アプリで遊んでいます。データは消えにくい状態です')
+        : s.ios
+          ? line(false, 'Safari で遊んでいます。<b>7日間まったく開かないと</b>消えることがあります。<b>ホーム画面に追加</b>したアプリで遊ぶと、この心配はなくなります')
+          : s.persisted
+            ? line(true, 'このブラウザは、ツナグマチのデータを消さない設定になっています')
+            : line(true, 'このブラウザの中に保存しています（履歴やデータの消去をすると消えます）');
+    const backupOk = days !== null && days < 14;
+    const backup = line(
+      backupOk,
+      days === null ? 'まだファイルに書き出していません。書き出しておくと、機種変更や万一のときも戻せます' : days === 0 ? '今日ファイルに書き出しました' : `最後にファイルに書き出したのは <b>${days}日前</b>です`,
+    );
+    const move =
+      s && s.ios && !s.standalone
+        ? `<details class="move"><summary>ホーム画面アプリへの引っ越しのしかた</summary>
+            <ol class="steps">
+              <li>下の「<b>送る・保存する</b>」→「<b>"ファイル"に保存</b>」で、街をファイルにする</li>
+              <li>Safari の<b>共有ボタン</b>（□に↑）→「<b>ホーム画面に追加</b>」</li>
+              <li>ホーム画面の<b>ツナグマチ</b>を開き、タイトルの「<b>ファイルから読み込む</b>」で、さっきのファイルを選ぶ</li>
+            </ol>
+            <p class="muted small">Safari とホーム画面アプリは、データの置き場所が別々です。一度だけ、この手順で街を移してください。</p></details>`
+        : '';
+    return `<div class="safety ${safe && backupOk ? 'all-ok' : 'todo'}">
+        <h4>データの安全</h4>
+        <ul>
+          ${line(!!auto, auto ? `この端末に保存しています（オートセーブ ${ago(auto.savedAt)}）` : 'まだ保存されていません')}
+          ${where}
+          ${backup}
+        </ul>
+        ${backupOk ? '' : `<div class="btnrow"><button data-action="export">${ICONS.save}<span>${this.touchUI ? 'いますぐ送る・保存する' : 'いますぐファイルに書き出す'}</span></button></div>`}
+        ${move}
+      </div>`;
   }
 
   openSaveLoad() {
@@ -296,9 +371,9 @@ export class Game implements InputTarget {
       title: 'セーブ／ロード',
       width: 400,
       render: () => {
-        const rows = SLOTS.map((slot) => {
+        const rows = SLOTS.filter((slot) => !slot.startsWith('auto') || slot === 'auto' || this.saveMetas[slot]).map((slot) => {
           const m = this.saveMetas[slot];
-          const name = slot === 'auto' ? 'オートセーブ' : `スロット ${slot}`;
+          const name = SLOT_NAMES[slot];
           const info = m
             ? `<span>${metaLabel(m)}・${formatYen(m.money)}</span><small class="muted">人口 ${m.population.toLocaleString('ja-JP')}人・列車 ${m.trains}本・保存 ${new Date(m.savedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>`
             : '<span class="muted">空き</span>';
@@ -306,20 +381,21 @@ export class Game implements InputTarget {
             <div class="thumb">${m?.thumb?.startsWith('data:image/') ? `<img src="${esc(m.thumb)}" alt="">` : ''}</div>
             <div class="slot-info"><b>${name}</b>${info}</div>
             <div class="slot-btns">
-              ${slot !== 'auto' ? `<button class="small-btn" data-action="save" data-slot="${slot}">${ICONS.save}セーブ</button>` : ''}
+              ${!slot.startsWith('auto') ? `<button class="small-btn" data-action="save" data-slot="${slot}">${ICONS.save}セーブ</button>` : ''}
               ${m ? `<button class="small-btn" data-action="load" data-slot="${slot}">ロード</button>` : ''}
-              ${m && slot !== 'auto' ? `<button class="small-btn" data-action="delete" data-slot="${slot}" title="消す">${ICONS.close}</button>` : ''}
+              ${m && !slot.startsWith('auto') ? `<button class="small-btn" data-action="delete" data-slot="${slot}" title="消す">${ICONS.close}</button>` : ''}
             </div></li>`;
         }).join('');
         return `
-          <p class="muted small">オートセーブは毎月と、アプリを裏に回したとき・閉じたときに自動で保存されます。</p>
+          ${this.safetyHtml()}
+          <p class="muted small">オートセーブは毎月と、アプリを裏に回したとき・閉じたときに自動で保存されます。前の日のオートセーブも2つまで残ります。</p>
           <ul class="slots">${rows}</ul>
           <h4>ファイル</h4>
           <div class="btnrow">
             <button data-action="export">${this.touchUI ? '送る・保存する' : 'ファイルに書き出す'}</button>
             <button data-action="import">ファイルから読み込む</button>
           </div>
-          <p class="muted small">PC と iPhone の行き来や、家族に街を見せるときに使えます。iPhone のデータは、ホーム画面に追加したアプリから遊ぶと消えにくくなります。</p>
+          <p class="muted small">書き出したファイルは、iPhone なら「ファイル」アプリ（iCloud Drive）に保存しておくと安心です。PC と iPhone の行き来や、家族に街を見せるときにも使えます。</p>
           <div class="btnrow"><button class="danger" data-action="new">新しいゲームをはじめる</button></div>`;
       },
       onAction: (a, el) => void this.saveAction(a, el.dataset.slot as Slot | undefined),
@@ -333,11 +409,12 @@ export class Game implements InputTarget {
         await saveTo(slot, this.world);
         this.toast(`スロット ${slot} にセーブしました`, 'good');
       } else if (a === 'load' && slot) {
-        if (slot !== 'auto') await saveTo('auto', this.world); // 今の街はオートセーブに残しておく
+        // 先に読み込んでから、今の街をオートセーブに残す（世代がずれても、選んだ街を読む）
         const w = await loadFrom(slot);
+        if (w && slot !== 'auto') await saveTo('auto', this.world);
         if (w) {
           this.startWorld(w);
-          this.toast(`${slot === 'auto' ? 'オートセーブ' : `スロット ${slot}`}を読み込みました`, 'good');
+          this.toast(`${SLOT_NAMES[slot]}を読み込みました`, 'good');
         }
       } else if (a === 'delete' && slot) {
         if (!confirm(`スロット ${slot} を消しますか？`)) return;
@@ -345,6 +422,7 @@ export class Game implements InputTarget {
       } else if (a === 'export') {
         const r = await exportSave(this.world);
         if (r === 'downloaded') this.toast('セーブファイルを書き出しました', 'good');
+        if (r === 'shared') this.toast('セーブファイルを送りました・保存しました', 'good');
       } else if (a === 'import') {
         const w = await pickSaveFile();
         if (w) {
