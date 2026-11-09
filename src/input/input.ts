@@ -58,6 +58,14 @@ export function attachInput(el: HTMLElement, target: InputTarget) {
     longTimer = 0;
   };
 
+  /** 触っている指を全部忘れる（建設のドラッグ中なら取り消す） */
+  function resetTouches() {
+    if (touchMode === 'tool') target.dragCancel();
+    touches.clear();
+    touchMode = 'none';
+    clearLong();
+  }
+
   const pinchInfo = () => {
     const pts = [...touches.values()];
     const a = pts[0],
@@ -65,12 +73,21 @@ export function attachInput(el: HTMLElement, target: InputTarget) {
     return { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, dist: Math.hypot(a.x - b.x, a.y - b.y) };
   };
 
+  /** ポインタをつかむ（つかめない環境でも止まらないように） */
+  const capture = (id: number) => {
+    try {
+      el.setPointerCapture(id);
+    } catch {
+      /* 何もしない */
+    }
+  };
+
   el.addEventListener('contextmenu', (e) => e.preventDefault());
 
   el.addEventListener('pointerdown', (e) => {
     const p = local(e);
     if (e.pointerType === 'mouse') {
-      el.setPointerCapture(e.pointerId);
+      capture(e.pointerId);
       last = p;
       if (e.button === 2 || e.button === 1) {
         mouseMode = 'pan';
@@ -87,7 +104,11 @@ export function attachInput(el: HTMLElement, target: InputTarget) {
     }
     // タッチ・ペン
     e.preventDefault();
-    el.setPointerCapture(e.pointerId);
+    capture(e.pointerId);
+    // 新しい操作の1本目の指（isPrimary）なのに、前の指が残っている：
+    // iPhone で指を離した知らせが届かなかった（ホームバーのスワイプ・通知・アプリの切り替えなど）。
+    // 残ったままだと、次のスワイプが「2本指＝ピンチ」になってしまうので、ここで忘れる
+    if (e.isPrimary && touches.size > 0) resetTouches();
     touches.set(e.pointerId, p);
     if (touches.size === 1) {
       touchMode = 'pending';
@@ -192,6 +213,16 @@ export function attachInput(el: HTMLElement, target: InputTarget) {
 
   el.addEventListener('pointerup', (e) => endPointer(e, false));
   el.addEventListener('pointercancel', (e) => endPointer(e, true));
+  // つかんでいたポインタを失った（システムに取られた）ときも、指を離したことにする
+  el.addEventListener('lostpointercapture', (e) => {
+    if (e.pointerType !== 'mouse' && touches.has(e.pointerId)) endPointer(e, true);
+  });
+  // アプリが裏に回った・ほかに切り替わったら、触っている指を全部忘れる
+  window.addEventListener('blur', resetTouches);
+  window.addEventListener('pagehide', resetTouches);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) resetTouches();
+  });
   el.addEventListener('pointerleave', (e) => {
     if (e.pointerType === 'mouse' && mouseMode === 'none') target.hover(-1, -1, mods(e));
   });
