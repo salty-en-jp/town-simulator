@@ -1306,7 +1306,7 @@ export function openHelp(g: Game, tab?: HelpTab) {
       <div class="tabs" role="tablist">
         ${HELP_TABS.map(([k, v]) => `<button role="tab" data-action="tab-${k}" class="${helpTab === k ? 'on' : ''}">${v}</button>`).join('')}
       </div>
-      <div class="help">${helpTab === 'manual' ? manualHtml() : helpTab === 'notes' ? releaseNotesHtml() : helpKeysHtml(g)}</div>`,
+      <div class="help">${helpTab === 'manual' ? manualHtml() : helpTab === 'notes' ? releaseNotesHtml(g.prevVersion) : helpKeysHtml(g)}</div>`,
     onAction: (a, el) => {
       if (a.startsWith('tab-')) {
         helpTab = a.slice(4) as HelpTab;

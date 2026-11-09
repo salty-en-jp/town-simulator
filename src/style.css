@@ -2853,3 +2853,59 @@ body.touch .list-ctl select {
 .chip.bigmaterialcar {
   background: #985220;
 }
+
+/* ───────────── v0.5.9：前回からの変更を目立たせる ───────────── */
+
+.relnew {
+  margin: 0 0 10px;
+  padding: 8px 12px 2px;
+  border-radius: 10px;
+  background: #fff4d6;
+  border: 1px solid #f0d48a;
+}
+
+.relnew-head {
+  margin: 0 0 4px;
+  font-family: var(--font-game);
+  font-size: 14px;
+  color: #7a4a00;
+}
+
+.relnote.new h4 {
+  color: #7a4a00;
+}
+
+details.relnote.old {
+  border-top: 1px solid var(--line);
+  padding: 2px 0;
+}
+
+details.relnote.old summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0;
+  font-family: var(--font-game);
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+details.relnote.old summary::-webkit-details-marker {
+  display: none;
+}
+
+details.relnote.old summary::before {
+  content: '▸';
+}
+
+details.relnote.old[open] summary::before {
+  content: '▾';
+}
+
+details.relnote.old summary small {
+  font-family: var(--font-ui);
+  font-size: 11px;
+}

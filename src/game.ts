@@ -128,6 +128,8 @@ export class Game implements InputTarget {
   private savedTimer = 0;
   private savedEl: HTMLElement | null = null;
   private fromSave = false;
+  /** 前回遊んでいた版（新しい版になったときだけ。リリースノートで目立たせる） */
+  prevVersion: string | null = null;
   private mouse = { x: -1, y: -1 };
   private started = false;
 
@@ -272,6 +274,8 @@ export class Game implements InputTarget {
     if (seen === VERSION) return;
     // はじめて遊ぶ人には出さない（前の版で遊んでいた人だけ）
     if (seen === null && !this.fromSave) return;
+    // この遊んでいる間は、ヘルプを開き直しても「前回からの変更」がわかるように覚えておく
+    this.prevVersion = seen;
     openHelp(this, 'notes');
     this.toast(`v${VERSION} になりました。変わったところはリリースノートで見られます`, 'good');
   }

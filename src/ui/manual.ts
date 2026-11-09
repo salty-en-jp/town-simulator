@@ -14,6 +14,14 @@ export interface ReleaseNote {
 /** 新しい順 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.5.9',
+    date: '2026年11月',
+    items: [
+      '<b>リリースノート</b>：新しい版で遊びはじめると、「前回遊んだ版からの変更」を上にまとめて目立たせて出すようにしました。それより前の版はたたんであり、押すと開きます',
+      'いま遊んでいるセーブは、そのまま使えます',
+    ],
+  },
+  {
     version: '0.5.8',
     date: '2026年11月',
     items: [
@@ -156,16 +164,44 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   },
 ];
 
-export function releaseNotesHtml(): string {
+/** 版の比べっこ（"0.5.10" > "0.5.9"）。a が新しければ正 */
+export function compareVersion(a: string, b: string): number {
+  const pa = a.split('.').map(Number),
+    pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+function noteBody(n: ReleaseNote): string {
+  return `<ul>${n.items.map((i) => `<li>${i}</li>`).join('')}</ul>`;
+}
+
+function noteTitle(n: ReleaseNote): string {
+  return `v${n.version}<small>${n.date}</small>${n.newSave ? '<span class="tag">セーブの形が変わった版</span>' : ''}`;
+}
+
+/**
+ * リリースノート。since（前回遊んだ版）があれば、それより新しい版を目立たせて上に出し、
+ * 前回までに出ていた版はたたんでおく（押すと開く）
+ */
+export function releaseNotesHtml(since?: string | null): string {
+  const intro = `<p class="muted small">いまの版は <b>v${VERSION}</b> です。「セーブの形が変わった」版では、それより前のセーブは読み込めません（試作版のあいだだけ。1.0 からは引き継げるようにします）。</p>`;
+  const newer = since ? RELEASE_NOTES.filter((n) => compareVersion(n.version, since) > 0) : [];
+  if (!since || !newer.length) {
+    return `${intro}${RELEASE_NOTES.map((n) => `<section class="relnote"><h4>${noteTitle(n)}</h4>${noteBody(n)}</section>`).join('')}`;
+  }
+  const older = RELEASE_NOTES.filter((n) => compareVersion(n.version, since) <= 0);
   return `
-    <p class="muted small">いまの版は <b>v${VERSION}</b> です。「セーブの形が変わった」版では、それより前のセーブは読み込めません（試作版のあいだだけ。1.0 からは引き継げるようにします）。</p>
-    ${RELEASE_NOTES.map(
-      (n) => `
-      <section class="relnote">
-        <h4>v${n.version}<small>${n.date}</small>${n.newSave ? '<span class="tag">セーブの形が変わった版</span>' : ''}</h4>
-        <ul>${n.items.map((i) => `<li>${i}</li>`).join('')}</ul>
-      </section>`,
-    ).join('')}`;
+    <div class="relnew">
+      <p class="relnew-head">前回遊んだ <b>v${since}</b> からの変更（${newer.length}つの版）</p>
+      ${newer.map((n) => `<section class="relnote new"><h4>${noteTitle(n)}</h4>${noteBody(n)}</section>`).join('')}
+    </div>
+    ${intro}
+    <p class="muted small">それより前の変更（押すと開きます）</p>
+    ${older.map((n) => `<details class="relnote old"><summary>${noteTitle(n)}</summary>${noteBody(n)}</details>`).join('')}`;
 }
 
 interface Chapter {
