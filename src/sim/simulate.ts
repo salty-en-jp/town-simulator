@@ -1,6 +1,6 @@
 // 時間を進める：列車の移動・積み降ろし、毎日の生産と町の成長、毎月のお金
 
-import { comfortMul, develDaily } from './devel';
+import { comfortMul, develDaily, hasMaker, MAKER } from './devel';
 import { salesMonthly, salesYearly } from './sales';
 import { techMonthly } from './tech';
 import {
@@ -879,6 +879,12 @@ function changeProduction(world: World, ind: Industry) {
 function yearly(world: World) {
   // 新型車両の登場
   const y = dateOf(world.day).y;
+  if (y === MAKER.year && !hasMaker(world))
+    pushEvent(world, {
+      type: 'news',
+      text: `ツナグ社が車両部門を売りに出しました。${Math.round(MAKER.price / 1e4).toLocaleString('ja-JP')}万円で買い取ると、自社開発で機関車をつくれます（メニューの「自社開発」）`,
+      tone: 'good',
+    });
   if (y === ELECTRIFY_YEAR) pushEvent(world, { type: 'news', text: '電化の工事ができるようになりました（鉄道建設の「電化」で、線路をなぞって架線を張れます）', tone: 'good' });
   const fresh = ([...ENGINE_TYPES, ...WAGON_TYPES] as VehicleType[]).filter((t) => vehicleYear(t) === y);
   if (fresh.length) {

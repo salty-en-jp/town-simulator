@@ -15,6 +15,7 @@ function world() {
   const w = createEmptyWorld(30, 16, 3);
   w.money = 1e10;
   w.requestState.nextCheckDay = 1e9;
+  w.makerOwned = true;
   return w;
 }
 

@@ -210,7 +210,49 @@ export interface DevPlan {
 }
 
 /** 開発をはじめられるか（だめなら理由） */
+// ───────────── ツナグ社の車両部門の買収（v0.8.5） ─────────────
+// 背景：プレイヤーの会社は、ツナグ社の鉄道部門（路線を運営する会社）を買い取ったもの。
+// 車両をつくるツナグ社は別の会社のまま、ゴウリキ形・ハヤテ形をつくるが、蒸気にこだわって傾いていく。
+// ハヤテ形が出たあと、車両部門が売りに出される。買い取ると自社開発がはじまる。
+
+export const MAKER = {
+  year: 1972,
+  price: 80_000_000,
+  /** 買い取ったときにもらえる技術点と評判（ツナグ社の技術者たち） */
+  tech: 30,
+  fame: 5,
+};
+
+/** 車両部門を持っているか（前の版で開発をはじめていたセーブは、持っていることにする） */
+export function hasMaker(world: World): boolean {
+  return !!world.makerOwned || (world.designs?.length ?? 0) > 0;
+}
+
+export function makerError(world: World): string | null {
+  if (hasMaker(world)) return 'もう買い取りました';
+  if (dateOf(world.day).y < MAKER.year) return `${MAKER.year}年ごろ、売りに出されます`;
+  if (world.money < MAKER.price) return 'お金が足りません';
+  return null;
+}
+
+export function buyMaker(world: World): string | null {
+  const err = makerError(world);
+  if (err) return err;
+  spend(world, 'devel', MAKER.price);
+  world.makerOwned = true;
+  world.tech = (world.tech ?? 0) + MAKER.tech;
+  world.devFame = Math.min(100, (world.devFame ?? 0) + MAKER.fame);
+  world.version++;
+  pushEvent(world, {
+    type: 'news',
+    text: 'ツナグ社の車両部門を買い取りました！ 自社開発で、新しい機関車をつくれます（メニューの「自社開発」）',
+    tone: 'good',
+  });
+  return null;
+}
+
 export function devStartError(world: World, plan: DevPlan): string | null {
+  if (!hasMaker(world)) return 'ツナグ社の車両部門を買い取ると、開発できます';
   if (currentDesign(world)) return '開発中の機関車があります（同時にひとつだけ）';
   if ((world.designs?.length ?? 0) >= DEV.maxDesigns) return `自社開発は${DEV.maxDesigns}形式までです`;
   const b = DEV.budgets[plan.budget];

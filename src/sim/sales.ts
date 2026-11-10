@@ -8,7 +8,7 @@
 // 方針：売れなくても損はしない（つくる分のお金は、売れた分の利益から引いてある）
 
 import { DEV_POWER_NAMES, DEV_USE_NAMES, DEV_USES, type DevPower, type DevUse } from './constants';
-import { compat, designSpec, devKey, type Design } from './devel';
+import { compat, designSpec, devKey, hasMaker, type Design } from './devel';
 import { dateOf, earn, pushEvent, type World } from './world';
 import { partMakeCost } from './tech';
 
@@ -204,7 +204,7 @@ export function salesYearly(world: World) {
 
   // 他社からの注文
   world.devOrders ??= [];
-  if (world.devOrders.length < SALES.maxOrders && rng.chance(SALES.orderChance)) {
+  if (hasMaker(world) && world.devOrders.length < SALES.maxOrders && rng.chance(SALES.orderChance)) {
     const ou = rng.pick([...DEV_USES]);
     const powers: DevPower[] = y >= 1965 ? ['steam', 'diesel', 'electric'] : ['steam', 'diesel'];
     const o: DevOrder = {

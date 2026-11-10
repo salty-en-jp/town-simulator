@@ -5,6 +5,10 @@
 
 import { DEV_POWER_NAMES, DEV_POWERS, DEV_USE_NAMES, DEV_USES, type DevPower, type DevUse } from '../sim/constants';
 import {
+  buyMaker,
+  hasMaker,
+  MAKER,
+  makerError,
   cancelDesign,
   chooseTest,
   compatMark,
@@ -232,6 +236,30 @@ function doneList(g: Game): string {
     .join('')}</ul>`;
 }
 
+/** 車両部門を買い取る前 */
+function makerPanel(g: Game): string {
+  const w = g.world;
+  const err = makerError(w);
+  const early = dateOf(w.day).y < MAKER.year;
+  return `
+    <p class="small">わが社は、ツナグ社から<b>鉄道部門</b>を買い取ってできた会社です。車両をつくっているのは、いまもツナグ社です。</p>
+    <p class="small">${
+      early
+        ? `ツナグ社は蒸気機関車にこだわり続けています。<b>${MAKER.year}年ごろ</b>、ツナグ社の車両部門が売りに出されるかもしれません。`
+        : 'ツナグ社が<b>車両部門</b>を売りに出しています。買い取ると、自社で機関車を開発して、走らせたり、ほかの鉄道会社に売ったりできます。'
+    }</p>
+    <ul class="dev-results small">
+      <li>自社開発：動力・用途・予算を選んで、オリジナルの機関車をつくる</li>
+      <li>販売：完成した機関車を、ほかの鉄道会社に売る</li>
+      <li>部品の研究：運行でたまる技術点で、開発を強くする（技術点はいまもたまっています：<b>${Math.floor(w.tech ?? 0)}</b>）</li>
+    </ul>
+    <div class="btnrow"><button class="primary" data-action="buy-maker" ${err ? 'disabled' : ''}>${
+      early ? `${MAKER.year}年ごろ売りに出されます` : `車両部門を買い取る（${formatYen(MAKER.price)}）`
+    }</button></div>
+    ${err && !early ? `<p class="small muted">${esc(err)}</p>` : ''}
+    <p class="small muted">買い取ると、ツナグ社の技術者たちがやってきます（技術点＋${MAKER.tech}）。</p>`;
+}
+
 export function openDevel(g: Game) {
   g.wm.open({
     id: 'devel',
@@ -239,6 +267,7 @@ export function openDevel(g: Game) {
     width: 420,
     render: () => {
       const w = g.world;
+      if (!hasMaker(w)) return makerPanel(g);
       const fame = Math.round(w.devFame ?? 0);
       const d = currentDesign(w);
       return `
@@ -291,6 +320,11 @@ export function openDevel(g: Game) {
           if (a === 'sale') s.on = !s.on;
           else s.markup = Number(v);
         }
+      } else if (a === 'buy-maker') {
+        const err = buyMaker(w);
+        if (err) g.toast(err, 'bad');
+        else g.toast('ツナグ社の車両部門を買い取りました', 'good');
+        g.updateHud();
       } else if (a === 'research') {
         const err = research(w, el.dataset.id ?? '');
         if (err) g.toast(err, 'bad');

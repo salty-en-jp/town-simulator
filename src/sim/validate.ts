@@ -432,6 +432,7 @@ function designs(s: Obj) {
   });
   optional(s.devFame, () => num(s.devFame, 'devFame', 0, 100));
   optional(s.tech, () => num(s.tech, 'tech', 0, 1e6));
+  optional(s.makerOwned, () => bool(s.makerOwned, 'makerOwned'));
   optional(s.parts, () => arr(s.parts, 'parts', 100).forEach((x, i) => oneOf(x, PARTS.map((p) => p.id), `parts[${i}]`)));
   optional(s.devTrend, () => {
     const t = obj(s.devTrend, 'devTrend');

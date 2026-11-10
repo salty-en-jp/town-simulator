@@ -359,6 +359,8 @@ export interface World {
   devTrend?: { use: DevUse; year: number };
   devOrders?: DevOrder[];
   awards?: Award[];
+  /** ツナグ社の車両部門を買い取った（v0.8.5 から。自社開発ができる） */
+  makerOwned?: boolean;
   /** 技術点と研究した部品（v0.8.4 から） */
   tech?: number;
   parts?: string[];
