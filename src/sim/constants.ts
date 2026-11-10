@@ -154,8 +154,9 @@ export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
     allow: 'freight',
     year: 1968,
     desc: '遅いが力持ち。貨車だけ',
+    power: 'steam',
   },
-  express: { name: 'ハヤテ形機関車', cost: 20_000_000, speed: 5.5, runningCostPerYear: 2_200_000, maxCars: 10, allow: 'any', year: 1972, desc: '速い。なんでも引ける' },
+  express: { name: 'ハヤテ形機関車', cost: 20_000_000, speed: 5.5, runningCostPerYear: 2_200_000, maxCars: 10, allow: 'any', year: 1972, desc: '速い。なんでも引ける', power: 'steam' },
   superexpress: {
     name: 'ツバサ形超特急',
     cost: 38_000_000,
@@ -165,6 +166,7 @@ export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
     allow: 'pax',
     year: 1982,
     desc: 'とても速い。客車だけ',
+    power: 'diesel',
   },
 };
 

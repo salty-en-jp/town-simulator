@@ -120,6 +120,7 @@ export function checkSavedWorld(v: unknown): void {
   str(s.terrain, 'terrain', n * 2 + 16);
   str(s.track, 'track', n * 2 + 16);
   designs(s);
+  optional(s.companyName, () => str(s.companyName, 'companyName'));
 
   arr(s.occ, 'occ', n).forEach((e, i) => {
     const p = `occ[${i}]`;
@@ -411,6 +412,17 @@ function designs(s: Obj) {
       optional(d.waiting, () => bool(d.waiting, `${p}.waiting`));
       optional(d.defect, () => bool(d.defect, `${p}.defect`));
       optional(d.rating, () => int(d.rating, `${p}.rating`, 1, 5));
+      optional(d.award, () => int(d.award, `${p}.award`, 1900, 3000));
+      optional(d.sale, () => {
+        const sl = obj(d.sale, `${p}.sale`);
+        bool(sl.on, `${p}.sale.on`);
+        int(sl.markup, `${p}.sale.markup`, 0, 3);
+        int(sl.sold, `${p}.sale.sold`, 0);
+        num(sl.profit, `${p}.sale.profit`);
+        int(sl.lastMonth, `${p}.sale.lastMonth`, 0);
+        num(sl.acc, `${p}.sale.acc`, 0, 1000);
+        optional(sl.ended, () => bool(sl.ended, `${p}.sale.ended`));
+      });
       optional(d.done, () => {
         num(d.done, `${p}.done`);
         done.push(`dev${did}`);
@@ -418,6 +430,34 @@ function designs(s: Obj) {
     });
   });
   optional(s.devFame, () => num(s.devFame, 'devFame', 0, 100));
+  optional(s.devTrend, () => {
+    const t = obj(s.devTrend, 'devTrend');
+    oneOf(t.use, DEV_USES, 'devTrend.use');
+    int(t.year, 'devTrend.year', 1900, 3000);
+  });
+  optional(s.devOrders, () =>
+    arr(s.devOrders, 'devOrders', 10).forEach((v, i) => {
+      const p = `devOrders[${i}]`;
+      const o = obj(v, p);
+      int(o.id, `${p}.id`, 0);
+      str(o.from, `${p}.from`);
+      oneOf(o.use, DEV_USES, `${p}.use`);
+      optional(o.power, () => oneOf(o.power, DEV_POWERS, `${p}.power`));
+      int(o.minRating, `${p}.minRating`, 1, 5);
+      num(o.deadline, `${p}.deadline`);
+      int(o.units, `${p}.units`, 1, 100);
+    }),
+  );
+  optional(s.awards, () =>
+    arr(s.awards, 'awards', 100).forEach((v, i) => {
+      const p = `awards[${i}]`;
+      const a = obj(v, p);
+      int(a.year, `${p}.year`, 1900, 3000);
+      str(a.name, `${p}.name`);
+      str(a.maker, `${p}.maker`);
+      bool(a.mine, `${p}.mine`);
+    }),
+  );
   VEHICLES = new Set([...Object.keys(WAGON_SPECS), ...BASE_ENGINES, ...done]);
   ENGINES = new Set([...BASE_ENGINES, ...done]);
 }

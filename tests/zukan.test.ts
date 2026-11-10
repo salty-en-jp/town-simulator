@@ -10,16 +10,16 @@ describe('図鑑の説明文', () => {
 ## 書き方
 - これも無視
 ## steam ツナグ形蒸気機関車
-煙をはいて
-走る。
+煙をはいて走る。
 
 二つめの段落。
+三つめの段落。
 ## heavy ゴウリキ形
 ## coach 客車
 客を運ぶ。
 `;
     const f = parseFlavor(md);
-    expect(f.steam).toEqual(['煙をはいて走る。', '二つめの段落。']);
+    expect(f.steam).toEqual(['煙をはいて走る。', '二つめの段落。', '三つめの段落。']);
     expect(f.heavy).toBeUndefined();
     expect(f.coach).toEqual(['客を運ぶ。']);
     expect(Object.keys(f)).not.toContain('書き方');

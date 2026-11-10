@@ -35,7 +35,7 @@ import { buildFactory, startSurvey } from './sim/industries';
 import { generateWorld, type Landform } from './sim/mapgen';
 import { acceptanceForRect, step, suppliesForRect } from './sim/simulate';
 import { dragLine, findPath, rectTiles, straightLine } from './sim/track';
-import { canLoadFrom, dateOf, ELECTRIFY_YEAR, needsWire, tx, ty, type Axis, type Pace, type Rect, type World } from './sim/world';
+import { canLoadFrom, companyName, dateOf, ELECTRIFY_YEAR, needsWire, tx, ty, type Axis, type Pace, type Rect, type World } from './sim/world';
 import { ICONS } from './ui/icons';
 import {
   addOrderFromMap,
@@ -187,9 +187,10 @@ export class Game implements InputTarget {
     window.addEventListener('beforeunload', () => this.autosave());
   }
 
-  newGame(seed: number, opts: { size?: number; pace?: Pace; landform?: Landform } = {}) {
+  newGame(seed: number, opts: { size?: number; pace?: Pace; landform?: Landform; companyName?: string } = {}) {
     const w = generateWorld(seed, opts.size ?? 96, opts.landform ?? 'mixed');
     w.pace = opts.pace ?? 'normal';
+    if (opts.companyName) w.companyName = opts.companyName;
     this.startWorld(w, false);
   }
 
@@ -1450,6 +1451,8 @@ export class Game implements InputTarget {
     const date = `${d.y}年${d.m}月${d.d}日`;
     const money = formatYen(w.money);
     (this.el.status.querySelector('.sb-date') as HTMLElement).textContent = date;
+    const sbn = this.el.status.querySelector('.sb-news') as HTMLElement;
+    if (sbn.dataset.company !== companyName(w)) sbn.dataset.company = companyName(w);
     const sm = this.el.status.querySelector('.sb-money') as HTMLElement;
     sm.textContent = money;
     sm.classList.toggle('neg', w.money < 0);

@@ -1,6 +1,7 @@
 // 時間を進める：列車の移動・積み降ろし、毎日の生産と町の成長、毎月のお金
 
 import { comfortMul, develDaily } from './devel';
+import { salesMonthly, salesYearly } from './sales';
 import {
   CARGOS,
   COSTS,
@@ -815,6 +816,7 @@ function monthly(world: World) {
   industriesOwnershipMonthly(world);
   eventsMonthly(world);
   marketMonthly(world);
+  salesMonthly(world);
   specialtyMonthly(world);
   companyMonthly(world);
   recordCompany(world);
@@ -890,6 +892,7 @@ function yearly(world: World) {
     t.profitLastYear = t.profitThisYear;
     t.profitThisYear = 0;
   }
+  salesYearly(world);
 }
 
 // ───────────────────────── 時間を進める ─────────────────────────

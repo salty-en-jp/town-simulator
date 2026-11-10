@@ -39,6 +39,7 @@ import {
   type Station,
   type World,
   townLabel,
+  companyName,
 } from './world';
 
 export type RequestKind = 'deliver' | 'haul' | 'carry_pax' | 'population' | 'connect' | 'rating' | 'income';
@@ -315,7 +316,7 @@ function makeRequest(world: World): Request | null {
     case 'rating': {
       r = {
         ...base,
-        from: 'ツナグ鉄道 利用者の会',
+        from: `${companyName(world)} 利用者の会`,
         title: '評価の高い駅をつくって',
         desc: 'どれかの駅で、貨物の評価を70%以上にしてください。列車をこまめに来させると上がります。',
         goal: RATING_GOAL,

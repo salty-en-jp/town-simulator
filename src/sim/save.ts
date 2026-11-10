@@ -5,6 +5,8 @@
 //   → 試作版で作った街が、次の版でも読み込めるようにする
 
 import { syncDesigns, type Design } from './devel';
+import type { Award, DevOrder } from './sales';
+import type { DevUse } from './constants';
 import { Rng } from './rng';
 import type { Request, RequestState } from './requests';
 import {
@@ -71,6 +73,10 @@ interface SavedWorld {
   landform?: World['landform'];
   /** 電化したマス（base64。v0.8.1） */
   electric?: string;
+  companyName?: string;
+  devTrend?: { use: DevUse; year: number };
+  devOrders?: DevOrder[];
+  awards?: Award[];
   designs?: Design[];
   devFame?: number;
 }
@@ -145,6 +151,10 @@ export function toSaveFile(w: World): SaveFile {
       pace: w.pace ?? 'normal',
       landform: w.landform ?? 'mixed',
       electric: w.electric && w.electric.some((v) => v) ? bytesToB64(w.electric) : undefined,
+      companyName: w.companyName || undefined,
+      devTrend: w.devTrend,
+      devOrders: w.devOrders?.length ? w.devOrders : undefined,
+      awards: w.awards?.length ? w.awards : undefined,
       designs: w.designs?.length ? w.designs : undefined,
       devFame: w.devFame || undefined,
     },
@@ -247,6 +257,10 @@ export function deserializeWorld(text: string): World {
     pace: s.pace ?? 'normal',
     landform: s.landform ?? 'mixed',
     electric,
+    companyName: s.companyName,
+    devTrend: s.devTrend,
+    devOrders: s.devOrders ?? [],
+    awards: s.awards ?? [],
     designs: s.designs ?? [],
     devFame: s.devFame ?? 0,
   };

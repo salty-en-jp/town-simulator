@@ -171,6 +171,7 @@ function card(world: World, t: VehicleType, used: Set<string>, seen: Set<string>
   }
   const stats = isEngine(t)
     ? [
+        ['動力', DEV_POWER_NAMES[ENGINE_SPECS[t].power ?? 'diesel']],
         ['速さ', `${ENGINE_SPECS[t].speed}マス/日`],
         ['つなげる', `${ENGINE_SPECS[t].maxCars}両まで・${ENGINE_SPECS[t].allow === 'pax' ? '客車だけ' : ENGINE_SPECS[t].allow === 'freight' ? '貨車だけ' : 'なんでも'}`],
         ['維持費', `${Math.round(ENGINE_SPECS[t].runningCostPerYear / 10000).toLocaleString('ja-JP')}万円/年`],

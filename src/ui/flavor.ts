@@ -10,11 +10,8 @@ export function parseFlavor(md: string): Record<string, string[]> {
   let buf: string[] = [];
   const flush = () => {
     if (cur && all.has(cur)) {
-      const paras = buf
-        .join('\n')
-        .split(/\n\s*\n/)
-        .map((p) => p.replace(/\s*\n\s*/g, '').trim())
-        .filter(Boolean);
+      // 改行したところで段落を分ける（空行はあってもなくてもよい）
+      const paras = buf.map((l) => l.trim()).filter(Boolean);
       if (paras.length) out[cur] = paras;
     }
     buf = [];
