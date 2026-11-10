@@ -1288,7 +1288,7 @@ function pointAt(poly: { x: number; y: number }[], s: number): { x: number; y: n
   return { x: b.x + ((b.x - a.x) * rem) / d, y: b.y + ((b.y - a.y) * rem) / d };
 }
 
-const CAR_COLORS: Record<string, number> = {
+export const CAR_COLORS: Record<string, number> = {
   steam: 0x2f3b4a,
   express: 0x2f5f8f,
   heavy: 0x5a3a2a,
