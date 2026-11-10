@@ -3846,3 +3846,8 @@ details.relnote.old summary small {
   flex: 0 0 auto;
   white-space: nowrap;
 }
+
+.car-dot.electric,
+.chip.electric {
+  background: #2f7a8a;
+}

@@ -79,7 +79,7 @@ export type WagonType =
   | 'livestockcar'
   | 'fishcar'
   | 'specialtycar';
-export type BaseEngineType = 'steam' | 'express' | 'heavy' | 'superexpress';
+export type BaseEngineType = 'steam' | 'express' | 'heavy' | 'electric' | 'superexpress';
 /** 自社開発の機関車は dev12 のような名前（v0.8.2。その街のセーブに入っている） */
 export type DevEngineType = `dev${number}`;
 export type EngineType = BaseEngineType | DevEngineType;
@@ -157,6 +157,17 @@ export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
     power: 'steam',
   },
   express: { name: 'ハヤテ形機関車', cost: 20_000_000, speed: 5.5, runningCostPerYear: 2_200_000, maxCars: 10, allow: 'any', year: 1972, desc: '速い。なんでも引ける', power: 'steam' },
+  electric: {
+    name: 'イカズチ形電気機関車',
+    cost: 26_000_000,
+    speed: 6.5,
+    runningCostPerYear: 1_400_000,
+    maxCars: 12,
+    allow: 'any',
+    year: 1978,
+    desc: '速くて力持ち。電化した線路だけ',
+    power: 'electric',
+  },
   superexpress: {
     name: 'ツバサ形超特急',
     cost: 38_000_000,

@@ -34,7 +34,7 @@ import { hasPart, PARTS, research, researchError, techPerMonth } from '../sim/te
 import { eraLabel, monthlyDemand, orderText, powerEra, runningCount, saleOf, SALES, unitProfit } from '../sim/sales';
 import type { Game } from '../game';
 import { esc, gauge } from './panels';
-import { comboRecord } from './zukan';
+import { comboRecord, openZukanAt } from './zukan';
 
 const ui: { name: string; power: DevPower; use: DevUse; budget: number; color: number; named: boolean } = {
   name: '',
@@ -185,7 +185,7 @@ function techBlock(g: Game): string {
         }</li>`;
     })
     .join('');
-  return `<h4>技術と部品</h4>
+  return `<h4>技術と部品 <button class="link small" data-action="zk-parts">図鑑で見る（説明文）</button></h4>
     <p class="small">技術点 <b>${Math.floor(w.tech ?? 0)}</b> <small class="muted">（運行で毎月 +${techPerMonth(w).toFixed(1)}。自社開発の機関車の列車は2倍。完成でも増えます）</small></p>
     <p class="small muted">部品を研究すると、それからの開発がずっと強くなります。</p>
     <ul class="dev-parts">${rows}</ul>`;
@@ -217,7 +217,7 @@ function market(g: Game): string {
 function doneList(g: Game): string {
   const list = (g.world.designs ?? []).filter((d) => d.done !== undefined);
   if (!list.length) return '';
-  return `<h4>自社開発の機関車</h4><ul class="dev-list">${list
+  return `<h4>自社開発の機関車 <button class="link small" data-action="zk-designs">図鑑で見る（説明文）</button></h4><ul class="dev-list">${list
     .slice()
     .reverse()
     .map(
@@ -320,6 +320,9 @@ export function openDevel(g: Game) {
           if (a === 'sale') s.on = !s.on;
           else s.markup = Number(v);
         }
+      } else if (a === 'zk-designs' || a === 'zk-parts') {
+        openZukanAt(g, a === 'zk-designs' ? 'designs' : 'parts');
+        return;
       } else if (a === 'buy-maker') {
         const err = buyMaker(w);
         if (err) g.toast(err, 'bad');

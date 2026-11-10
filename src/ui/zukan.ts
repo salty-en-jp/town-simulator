@@ -6,7 +6,7 @@
 // ・説明文は src/data/zukan.md に書く（オーナーが書けるように、プログラムと分けてある）
 
 import flavorMd from '../data/zukan.md?raw';
-import { parseFlavor } from './flavor';
+import { parseFlavor, pickLine } from './flavor';
 import {
   CARGO_SPECS,
   DEV_POWER_NAMES,
@@ -21,8 +21,9 @@ import {
   WAGON_TYPES,
   type VehicleType,
 } from '../sim/constants';
-import { canBuy, vehicleYear, type World } from '../sim/world';
-import { compatMark } from '../sim/devel';
+import { canBuy, dateOf, vehicleYear, type World } from '../sim/world';
+import { compatMark, designSpec, devKey, type Design } from '../sim/devel';
+import { PARTS, type Part } from '../sim/tech';
 import { CAR_COLORS } from '../render/renderer';
 import type { Game } from '../game';
 import { esc } from './panels';
@@ -31,6 +32,23 @@ import { esc } from './panels';
 
 const FLAVOR = parseFlavor(flavorMd);
 
+/** 自社開発の機関車の説明文：動力×用途の文 ＋ 評価の一言（＋初期不良・大賞の一言）。{name} は機関車の名前 */
+export function designFlavor(d: Design): string[] {
+  const name = (t: string) => t.replace(/\{name\}/g, d.name);
+  const out = [...(FLAVOR[`dev-${d.power}-${d.use}`] ?? [])];
+  const tail = [
+    pickLine(FLAVOR[`dev-star${d.rating ?? 1}`], d.id),
+    d.defect ? pickLine(FLAVOR['dev-defect'], d.id) : undefined,
+    d.award ? pickLine(FLAVOR['dev-award'], d.id) : undefined,
+  ].filter((x): x is string => !!x);
+  if (tail.length) out.push(tail.join(''));
+  return out.map(name);
+}
+
+export function partFlavor(id: string): string[] {
+  return FLAVOR[`part-${id}`] ?? [];
+}
+
 // ───────────── この端末の記録 ─────────────
 
 interface ZukanRecord {
@@ -38,6 +56,8 @@ interface ZukanRecord {
   seen: string[];
   /** 自社開発でわかった相性（"electric:commuter" → ◎○△） */
   combos?: Record<string, string>;
+  /** 研究したことのある部品 */
+  parts?: string[];
 }
 
 const LS_KEY = 'tsunagu.zukan';
@@ -47,9 +67,10 @@ export function zukanRecord(): ZukanRecord {
     const v = JSON.parse(localStorage.getItem(LS_KEY) ?? '{}');
     const combos: Record<string, string> = {};
     if (v.combos && typeof v.combos === 'object') for (const [k, m] of Object.entries(v.combos)) if (typeof m === 'string') combos[k] = m;
-    return { used: Array.isArray(v.used) ? v.used : [], seen: Array.isArray(v.seen) ? v.seen : [], combos };
+    const parts = Array.isArray(v.parts) ? v.parts.filter((x: unknown) => typeof x === 'string') : [];
+    return { used: Array.isArray(v.used) ? v.used : [], seen: Array.isArray(v.seen) ? v.seen : [], combos, parts };
   } catch {
-    return { used: [], seen: [], combos: {} };
+    return { used: [], seen: [], combos: {}, parts: [] };
   }
 }
 
@@ -84,9 +105,13 @@ export function noteVehicles(world: World): VehicleType[] {
       newCombo = true;
     }
   }
-  if (fresh.length || newCombo || seen.size !== rec.seen.length) {
+  // 研究した部品も、この端末に記録する（図鑑の「部品」のページ）
+  const parts = new Set(rec.parts ?? []);
+  const nParts = parts.size;
+  for (const p of world.parts ?? []) parts.add(p);
+  if (fresh.length || newCombo || parts.size !== nParts || seen.size !== rec.seen.length) {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ used: [...used], seen: [...seen], combos }));
+      localStorage.setItem(LS_KEY, JSON.stringify({ used: [...used], seen: [...seen], combos, parts: [...parts] }));
     } catch {
       /* 記録できなくても遊べる */
     }
@@ -126,8 +151,10 @@ export function vehicleSvg(type: VehicleType, silhouette = false): string {
           : `<rect x="6" y="8" width="64" height="22" rx="4" fill="${body}"/>`,
       );
       parts.push(`<rect x="${nose ? 14 : 10}" y="12" width="10" height="7" rx="1" fill="${silhouette ? '#444' : '#cfe3f0'}"/>`);
+      // 電気の機関車：屋根の上のパンタグラフ
+      if (ENGINE_SPECS[type]?.power === 'electric') parts.push(`<path d="M30 8 L36 1 L42 8 M32 1 H40" fill="none" stroke="${dark}" stroke-width="1.6"/>`);
       if (!silhouette) {
-        const stripe: Record<string, number> = { express: 0xf2c14e, heavy: 0xe8a317, superexpress: 0x2f5f8f };
+        const stripe: Record<string, number> = { express: 0xf2c14e, heavy: 0xe8a317, superexpress: 0x2f5f8f, electric: 0xf0f0f0 };
         parts.push(`<rect x="6" y="22" width="64" height="3" fill="${hex(stripe[type] ?? 0xc0443a)}"/>`);
       }
       parts.push(wheels([18, 30, 50, 62]));
@@ -156,7 +183,7 @@ export function vehicleSvg(type: VehicleType, silhouette = false): string {
 
 // ───────────── 図鑑のウィンドウ ─────────────
 
-type Tab = 'engines' | 'wagons' | 'combo';
+type Tab = 'engines' | 'wagons' | 'designs' | 'parts' | 'combo';
 let tab: Tab = 'engines';
 
 function card(world: World, t: VehicleType, used: Set<string>, seen: Set<string>): string {
@@ -192,6 +219,48 @@ function card(world: World, t: VehicleType, used: Set<string>, seen: Set<string>
     </div></li>`;
 }
 
+function flavorHtml(lines: string[]): string {
+  return lines.length ? lines.map((p) => `<p class="zk-flavor">${esc(p)}</p>`).join('') : '<p class="zk-flavor muted">（説明文はまだありません）</p>';
+}
+
+function designCard(d: Design): string {
+  const t = devKey(d);
+  const s = designSpec(d);
+  const stars = '★'.repeat(d.rating ?? 1) + '☆'.repeat(5 - (d.rating ?? 1));
+  const stats = [
+    ['動力・用途', `${DEV_POWER_NAMES[d.power]}・${DEV_USE_NAMES[d.use]}`],
+    ['評価', stars + (d.award ? `（${d.award}年 大賞）` : '') + (d.defect ? '・初期不良' : '')],
+    ['速さ', `${s.speed}マス/日`],
+    ['つなげる', `${s.maxCars}両まで・${s.allow === 'pax' ? '客車だけ' : s.allow === 'freight' ? '貨車だけ' : 'なんでも'}`],
+    ['完成', `${dateOf(d.done!).y}年`],
+  ];
+  return `<li class="zk-card used">
+    <div class="zk-art">${isEngine(t) ? vehicleSvg(t) : ''}</div>
+    <div class="zk-body">
+      <b>${esc(d.name)}</b>
+      <dl class="zk-stats">${stats.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      ${flavorHtml(designFlavor(d))}
+    </div></li>`;
+}
+
+function partCard(p: Part, have: boolean): string {
+  if (!have) {
+    return `<li class="zk-card locked"><div class="zk-body"><b>？？？</b>${p.year ? `<span class="zk-badge">${p.year}年から</span>` : ''}<p class="zk-flavor muted">まだ研究したことのない部品です。</p></div></li>`;
+  }
+  return `<li class="zk-card used"><div class="zk-body">
+      <b>${esc(p.name)}</b>${p.power ? `<span class="zk-badge">${DEV_POWER_NAMES[p.power]}</span>` : ''}
+      <dl class="zk-stats"><dt>効果</dt><dd>${esc(p.desc)}</dd></dl>
+      ${flavorHtml(partFlavor(p.id))}
+    </div></li>`;
+}
+
+/** 図鑑のページを指定して開く */
+export function openZukanAt(g: Game, t: Tab) {
+  tab = t;
+  openZukan(g);
+  g.wm.refresh('zukan', true);
+}
+
 export function openZukan(g: Game) {
   noteVehicles(g.world);
   g.wm.open({
@@ -207,7 +276,9 @@ export function openZukan(g: Game) {
       const tabs = (
         [
           ['engines', '機関車'],
-          ['wagons', '客車・貨車'],
+          ['wagons', '客貨車'],
+          ['designs', '自社開発'],
+          ['parts', '部品'],
           ['combo', '相性表'],
         ] as [Tab, string][]
       )
@@ -221,6 +292,14 @@ export function openZukan(g: Game) {
           <table class="tbl zk-combo"><tr><th></th>${DEV_USES.map((u) => `<th>${DEV_USE_NAMES[u]}</th>`).join('')}</tr>
           ${DEV_POWERS.map((p) => `<tr><th>${DEV_POWER_NAMES[p]}</th>${DEV_USES.map((u) => (combos[`${p}:${u}`] ? `<td class="zk-mark">${combos[`${p}:${u}`]}</td>` : '<td class="muted">？</td>')).join('')}</tr>`).join('')}</table>
           <p class="small muted">わかった組み合わせ ${found} / ${DEV_POWERS.length * DEV_USES.length}　◎ 抜群・○ ふつう・△ いまひとつ</p>`;
+      } else if (tab === 'designs') {
+        const list = (g.world.designs ?? []).filter((d) => d.done !== undefined);
+        body = list.length
+          ? `<p class="small muted">この街でつくった機関車です。</p><ul class="zk-list">${list.map((d) => designCard(d)).join('')}</ul>`
+          : '<p class="small muted">この街では、まだ自社開発の機関車がありません（ツナグ社の車両部門を買い取ると、自社開発ができます）。</p>';
+      } else if (tab === 'parts') {
+        const have = new Set([...(rec.parts ?? []), ...(g.world.parts ?? [])]);
+        body = `<p class="small muted">研究したことのある部品です（この端末で遊んだすべての街）。</p><ul class="zk-list">${PARTS.map((p) => partCard(p, have.has(p.id))).join('')}</ul>`;
       } else {
         const list = (tab === 'engines' ? ENGINE_TYPES : WAGON_TYPES) as VehicleType[];
         body = `<ul class="zk-list">${list.map((t) => card(g.world, t, used, seen)).join('')}</ul>`;
