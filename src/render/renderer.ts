@@ -1040,6 +1040,8 @@ function drawIndustry(g: Graphics, ind: Industry, look = industryLook(ind)) {
       return drawRanch(g, x, y, w, h);
     case 'fishery':
       return drawFishery(g, x, y, w, h);
+    case 'workshop':
+      return drawWorkshop(g, x, y, w, h, ind.specialty ?? 'fruit');
   }
 }
 
@@ -1149,6 +1151,39 @@ function drawRanch(g: Graphics, x0: number, y0: number, w: number, h: number) {
     by = y0 + h - 1;
   box(g, bx - 0.35, by - 0.28, bx + 0.3, by + 0.3, 12, 0xb5433a);
   hipRoof(g, bx - 0.38, by - 0.31, bx + 0.33, by + 0.33, 12, 7, 0x5a3a2c);
+}
+
+/** 名産の工房：種類ごとに見た目を変える */
+function drawWorkshop(g: Graphics, x0: number, y0: number, w: number, h: number, kind: string) {
+  const ground: Record<string, number> = { pottery: 0xb8a58a, fruit: 0x8fc46a, tea: 0x7db35a, driedfish: 0xc9bfa8 };
+  lot(g, x0, y0, w, h, ground[kind] ?? 0xb8a58a);
+  if (kind === 'fruit' || kind === 'tea') {
+    // 果樹の列・茶畑のうね
+    for (let k = 0; k < 4; k++) {
+      const xx = x0 - 0.2 + (k % 2) * 0.6,
+        yy = y0 - 0.2 + Math.floor(k / 2) * 0.6;
+      if (kind === 'fruit') {
+        const p = groundPoly([[xx, yy]], 0);
+        g.rect(p[0] - 1, p[1] - 6, 2, 6).fill(0x6b4a2f);
+        g.circle(p[0], p[1] - 9, 5).fill(0x3f8a3a);
+        g.circle(p[0] + 2, p[1] - 9, 1.6).fill(0xf08a2a);
+      } else {
+        box(g, xx - 0.25, yy - 0.08, xx + 0.25, yy + 0.08, 4, 0x2f7a3a);
+      }
+    }
+  } else if (kind === 'pottery') {
+    // のぼり窯と、煙突
+    box(g, x0 - 0.3, y0 - 0.3, x0 + 0.6, y0 + 0.2, 7, 0x9a5a3a);
+    cylinder(g, x0 + 0.5, y0 - 0.2, 0.08, 22, 0x6a4a3a);
+  } else {
+    // 干物の棚
+    for (let k = 0; k < 3; k++) box(g, x0 - 0.3 + k * 0.3, y0 - 0.2, x0 - 0.2 + k * 0.3, y0 + 0.4, 8, 0xd9c79a);
+  }
+  // 売り場（のれんの小屋）
+  const bx = x0 + w - 1,
+    by = y0 + h - 1;
+  box(g, bx - 0.3, by - 0.3, bx + 0.3, by + 0.3, 10, 0xf3e4c4);
+  hipRoof(g, bx - 0.33, by - 0.33, bx + 0.33, by + 0.33, 10, 6, 0xc85a8a);
 }
 
 /** 漁港：桟橋と漁船と、魚をしまう倉庫 */
@@ -1268,6 +1303,7 @@ const CAR_COLORS: Record<string, number> = {
   bigmaterialcar: 0x985220,
   livestockcar: 0x9a6a3a,
   fishcar: 0x9cc6dc,
+  specialtycar: 0xc85a8a,
   logcar: 0x7a4f2c,
   lumbercar: 0x9a7a52,
   biglogcar: 0x6a4020,

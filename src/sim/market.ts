@@ -8,7 +8,7 @@
 //   - 観光ブーム：小さな町へ行く旅客の運賃が上がり、その町の旅客も増える
 // 方針：プレイヤーの持ち物に損害は出さない。手をかけた人がもっと得をする形にする
 
-import { CARGO_SPECS, CARGOS, INDUSTRY_SPECS, TOWN_GOODS, type Cargo } from './constants';
+import { CARGO_SPECS, CARGOS, INDUSTRY_SPECS, type Cargo } from './constants';
 import { townAccepts } from './towns';
 import { idx, isPrimary, paceMul, pushEvent, townLabel, type World } from './world';
 
@@ -127,7 +127,7 @@ export function startRebuild(world: World, townId: number, burned: number) {
   const town = world.towns.get(townId);
   if (!town) return;
   // 都市（建設資材だけを受け入れる町）なら建設資材だけ。そうでなければ木材も
-  const cargos = TOWN_GOODS.filter((c) => c !== 'food' && townAccepts(world, townId, c));
+  const cargos = (['lumber', 'materials'] as Cargo[]).filter((c) => townAccepts(world, townId, c));
   for (const c of cargos) startBoom(world, 'rebuild', { kind: 'town', id: townId }, c, mul, Math.round(MARKET.rebuildDays / paceMul(world)), false);
   pushEvent(world, {
     type: 'news',
@@ -169,7 +169,7 @@ export function marketMonthly(world: World) {
     const big = towns.filter((t) => t.population >= 300);
     if (big.length) {
       const t = world.rng.pick(big);
-      const cargos = TOWN_GOODS.filter((c) => c !== 'food' && townAccepts(world, t.id, c));
+      const cargos = (['lumber', 'materials'] as Cargo[]).filter((c) => townAccepts(world, t.id, c));
       if (cargos.length) startBoom(world, 'rush', { kind: 'town', id: t.id }, world.rng.pick(cargos), 1.6 + world.rng.next() * 0.4, Math.round((150 + Math.floor(world.rng.next() * 60)) / p));
     }
   }

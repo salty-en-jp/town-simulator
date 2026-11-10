@@ -25,6 +25,7 @@ import { cargoIncome, demandFactor } from './economy';
 import { replaceEngine } from './commands';
 import { companyMonthly } from './company';
 import { eventsMonthly } from './events';
+import { addFame, famePaxMul, isHomeSpecialty, specialtyBonus, specialtyDaily, specialtyMonthly } from './specialty';
 import { intercityMul, TOWN_GROWTH, townAccepts, townNear, townStage, updateTownStage } from './towns';
 import { boomMul, marketIndex, marketMonthly, tourismPaxMul } from './market';
 import { industriesOwnershipDaily, industriesOwnershipMonthly } from './industries';
@@ -167,7 +168,9 @@ export function acceptorStock(world: World, a: { kind: 'industry' | 'town'; id: 
 export function acceptorDemand(world: World, a: { kind: 'industry' | 'town'; id: number }, cargo: Cargo): number {
   const boom = boomMul(world, a, cargo);
   if (cargo === 'passengers') return boom;
-  return demandFactor(acceptorStock(world, a, cargo), a.kind === 'industry' ? INDUSTRY.stockCap : TOWN.stockCap) * marketIndex(world, cargo) * boom;
+  // 名産品は、大きな町ほど高く買う
+  const sp = cargo === 'specialty' && a.kind === 'town' ? specialtyBonus(world.towns.get(a.id)) : 1;
+  return demandFactor(acceptorStock(world, a, cargo), a.kind === 'industry' ? INDUSTRY.stockCap : TOWN.stockCap) * marketIndex(world, cargo) * boom * sp;
 }
 
 // ───────────────────────── 列車 ─────────────────────────
@@ -301,6 +304,8 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
     if (carCargo(car) !== cargo) continue;
     for (const p of car.packets) {
       if (p.from === st.id || p.amount <= 0) continue;
+      // 名産品は、生まれた町では売れない（積んだまま、ほかの町へ）
+      if (cargo === 'specialty' && town && isHomeSpecialty(world, p.fromTile, town)) continue;
       const take = Math.min(p.amount, limit - delivered);
       if (take <= 0) break;
       p.amount -= take;
@@ -530,12 +535,14 @@ function industriesDaily(world: World, ctx: DayContext) {
     ind.outStock -= moved;
     ind.transportedThisMonth += moved;
     ind.transportedTotal += moved;
+    if (ind.type === 'workshop' && moved > 0) addFame(world, ind, moved);
   }
 }
 
 function housesDaily(world: World, ctx: DayContext) {
   for (const [townId, tiles] of ctx.housesByTown) {
-    const mul = tourismPaxMul(world, townId);
+    // 観光ブームと、名産の評判で、旅客が増える
+    const mul = tourismPaxMul(world, townId) * famePaxMul(world.towns.get(townId));
     for (const t of tiles) {
       const o = world.occ[t];
       if (o?.k !== 'house') continue;
@@ -766,6 +773,7 @@ function daily(world: World) {
   industriesDaily(world, ctx);
   housesDaily(world, ctx);
   townsDaily(world, ctx);
+  specialtyDaily(world);
   stationsDaily(world);
   industriesOwnershipDaily(world);
   updateRequests(world);
@@ -801,6 +809,7 @@ function monthly(world: World) {
   industriesOwnershipMonthly(world);
   eventsMonthly(world);
   marketMonthly(world);
+  specialtyMonthly(world);
   companyMonthly(world);
   recordCompany(world);
   for (const town of world.towns.values()) {
