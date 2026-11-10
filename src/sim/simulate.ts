@@ -312,6 +312,7 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
       if (boomMul(world, target, cargo) > 1) stats.boomTons = (stats.boomTons ?? 0) + take;
       if (inter >= 1.5) stats.intercityPax = (stats.intercityPax ?? 0) + take;
       const income = cargoIncome(cargo, take, manhattan(world, p.fromTile, sign), p.days, demand * inter);
+      if (cargo === 'passengers') stats.paxIncome = (stats.paxIncome ?? 0) + income;
       earn(world, 'income', income);
       world.requestState.incomeTotal += income;
       t.incomeThisStop += income;

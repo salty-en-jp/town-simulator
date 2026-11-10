@@ -9,7 +9,8 @@ import { RANKS } from './sim/company';
 import { deserializeWorld, MAX_SAVE_CHARS, SaveError, serializeWorld } from './sim/save';
 import { dateOf, Terrain, type World } from './sim/world';
 
-export type Slot = 'auto' | 'auto1' | 'auto2' | '1' | '2' | '3';
+/** challenge はチャレンジモードのオートセーブ（ふつうの街とは別の枠。セーブ画面には並べない） */
+export type Slot = 'auto' | 'auto1' | 'auto2' | '1' | '2' | '3' | 'challenge';
 /** 画面に並べる順。auto1・auto2 は「ひとつ前・ふたつ前のオートセーブ」（1日1回ずれる） */
 export const SLOTS: Slot[] = ['auto', 'auto1', 'auto2', '1', '2', '3'];
 export const SLOT_NAMES: Record<Slot, string> = {
@@ -19,6 +20,7 @@ export const SLOT_NAMES: Record<Slot, string> = {
   '1': 'スロット 1',
   '2': 'スロット 2',
   '3': 'スロット 3',
+  challenge: 'チャレンジ',
 };
 
 export interface SaveMeta {
@@ -31,6 +33,8 @@ export interface SaveMeta {
   thumb: string;
   /** 会社のランクの名前（v0.5.12 から） */
   rank?: string;
+  /** チャレンジの名前（チャレンジ中のとき） */
+  challenge?: string;
 }
 
 interface SaveRecord {
@@ -117,6 +121,7 @@ export function worldMeta(w: World, slot: Slot): SaveMeta {
     trains: w.trains.size,
     thumb: thumbnail(w),
     rank: RANKS[w.rank ?? 0]?.name,
+    challenge: w.challenge?.title,
   };
 }
 
@@ -150,6 +155,41 @@ async function rotateAuto(): Promise<void> {
 // ───────────────────────── バックアップと保存の状態 ─────────────────────────
 
 const LS_BACKUP = 'tsunagu.lastBackup';
+const LS_RECORDS = 'tsunagu.challengeRecords';
+
+/** チャレンジの最高記録（ステージごと。今日のステージは日付ごと） */
+export interface ChallengeRecord {
+  stars: number;
+  best: number;
+  /** 遊んだ回数 */
+  plays: number;
+  at: string;
+}
+
+export function challengeRecords(): Record<string, ChallengeRecord> {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS_RECORDS) ?? '{}');
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+/** 結果を記録する。最高記録を更新したら true */
+export function recordChallenge(id: string, stars: number, value: number): boolean {
+  const all = challengeRecords();
+  const old = all[id];
+  const better = !old || stars > old.stars || (stars === old.stars && value > old.best);
+  all[id] = better
+    ? { stars, best: value, plays: (old?.plays ?? 0) + 1, at: new Date().toISOString() }
+    : { ...old, plays: old.plays + 1 };
+  try {
+    localStorage.setItem(LS_RECORDS, JSON.stringify(all));
+  } catch {
+    /* 記録できなくても遊べる */
+  }
+  return better;
+}
 
 /** ファイルに書き出した（バックアップした）ことを覚える */
 export function markBackup() {

@@ -1,6 +1,7 @@
 // プレイヤーの操作（コマンド）。
 // すべて「見積もりだけ（dry）」でも呼べる。見積もりなら世界を変えずに費用とエラーだけ返す。
 
+import { ruleBlocksBorrow, ruleBlocksVehicle } from './challenge';
 import {
   COSTS,
   FINANCE,
@@ -579,6 +580,8 @@ export function applyUndo(world: World, rec: UndoRecord): CmdResult {
 // ───────────────────────── お金 ─────────────────────────
 
 export function borrow(world: World): CmdResult {
+  const rule = ruleBlocksBorrow(world);
+  if (rule) return fail(rule);
   if (world.loan + FINANCE.loanStep > world.maxLoan) return fail('これ以上は借りられません');
   world.loan += FINANCE.loanStep;
   world.money += FINANCE.loanStep;
@@ -691,6 +694,8 @@ export function buyVehicle(
 ): CmdResult {
   const depot = world.depots.get(depotId);
   if (!depot) return fail('車庫がありません');
+  const rule = ruleBlocksVehicle(world, type);
+  if (rule) return fail(rule);
   if (!canBuy(world, type)) return fail(`${vehicleName(type)}はまだ買えません（${vehicleYear(type)}年に登場します）`);
   let target: Train | undefined;
   if (!isEngine(type) && opts.attachTo !== undefined && opts.attachTo >= 0) {
