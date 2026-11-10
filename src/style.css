@@ -3399,3 +3399,80 @@ details.relnote.old summary small {
     margin-bottom: 8px;
   }
 }
+
+/* ───────────── v0.6.1：新しいゲームの設定 ───────────── */
+
+.ng-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, calc(100vw - 32px));
+  margin: 0 auto;
+  text-align: left;
+}
+
+.ng-label {
+  margin: 4px 0 0;
+  color: var(--rail-ink);
+  font-family: var(--font-game);
+}
+
+.ng-label small {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+
+.ng-opts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.ng-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid rgba(243, 236, 216, 0.25);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--rail-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ng-opt b {
+  font-family: var(--font-game);
+  font-weight: 400;
+  font-size: 15px;
+}
+
+.ng-opt small {
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+.ng-opt.on {
+  border-color: var(--accent);
+  background: rgba(242, 193, 78, 0.18);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.ng-menu .start-btn {
+  align-self: center;
+  margin-top: 6px;
+}
+
+.ng-menu .sub-btn {
+  align-self: center;
+}
+
+@media (max-width: 480px) {
+  .ng-opts {
+    grid-template-columns: 1fr;
+  }
+}

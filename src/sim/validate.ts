@@ -349,6 +349,7 @@ export function checkSavedWorld(v: unknown): void {
     optional(st.paxIncome, () => num(st.paxIncome, 'stats.paxIncome'));
   });
 
+  optional(s.pace, () => oneOf(s.pace, ['slow', 'normal', 'fast'], 'pace'));
   optional(s.challenge, () => {
     const c = obj(s.challenge, 'challenge');
     oneOf(c.kind, ['stage', 'daily', 'random'], 'challenge.kind');

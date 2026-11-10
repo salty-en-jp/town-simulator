@@ -28,6 +28,7 @@ import {
   type Industry,
   type IndustryOwner,
   type World,
+  paceMul,
 } from './world';
 
 const E = INDUSTRY_ECON;
@@ -385,7 +386,7 @@ export function industriesOwnershipMonthly(world: World) {
     }
   }
   // 他社の一次産業がときどき見つかる
-  if (world.industries.size < E.maxIndustries && world.rng.chance(E.discoverPerMonth)) {
+  if (world.industries.size < E.maxIndustries && world.rng.chance(E.discoverPerMonth * paceMul(world))) {
     const type = world.rng.pick(PRIMARY_TYPES);
     const ind = placeIndustrySomewhere(world, type, 'other');
     if (ind) {

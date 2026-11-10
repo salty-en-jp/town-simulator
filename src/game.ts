@@ -33,7 +33,7 @@ import { buildFactory, startSurvey } from './sim/industries';
 import { generateWorld } from './sim/mapgen';
 import { acceptanceForRect, step, suppliesForRect } from './sim/simulate';
 import { findPath, rectTiles, straightLine } from './sim/track';
-import { canLoadFrom, dateOf, tx, ty, type Axis, type Rect, type World } from './sim/world';
+import { canLoadFrom, dateOf, tx, ty, type Axis, type Pace, type Rect, type World } from './sim/world';
 import { ICONS } from './ui/icons';
 import {
   addOrderFromMap,
@@ -180,8 +180,10 @@ export class Game implements InputTarget {
     window.addEventListener('beforeunload', () => this.autosave());
   }
 
-  newGame(seed: number) {
-    this.startWorld(generateWorld(seed), false);
+  newGame(seed: number, opts: { size?: number; pace?: Pace } = {}) {
+    const w = generateWorld(seed, opts.size ?? 96);
+    w.pace = opts.pace ?? 'normal';
+    this.startWorld(w, false);
   }
 
   /** 世界を差し替える（新しいゲーム・ロード） */
@@ -468,10 +470,10 @@ export class Game implements InputTarget {
           this.toast('セーブファイルを読み込みました', 'good');
         }
       } else if (a === 'new') {
-        if (!confirm('新しいゲームをはじめますか？（今の街はオートセーブに残ります）')) return;
+        if (!confirm('新しいゲームをはじめますか？（今の街はオートセーブに残ります）\nタイトルに戻って、マップの広さと時間の流れを選びます。')) return;
         await saveTo(this.autoSlot(), this.world);
-        this.newGame(Math.floor(Math.random() * 1e9));
-        this.toast('新しいゲームをはじめました', 'good');
+        // タイトルの「新しいゲームの設定」へ
+        location.href = `${location.pathname}?new`;
       }
     } catch (e) {
       this.toast((e as Error).message || 'うまくいきませんでした', 'bad');
