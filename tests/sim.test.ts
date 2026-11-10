@@ -237,9 +237,9 @@ describe('マップ生成', () => {
     const b = generateWorld(42);
     expect(Array.from(a.terrain)).toEqual(Array.from(b.terrain));
     expect(a.towns.size).toBe(4);
-    expect(a.industries.size).toBe(18); // v0.7：牧場と漁港（いろいろの地形は南東に湾がある）＋名産の工房が町ごとに1つ
+    expect(a.industries.size).toBe(20); // v0.7：牧場と漁港（いろいろの地形は南東に湾がある）＋名産の工房が町ごとに1つ ＋ v0.9：港と化学工場
     const types = new Set([...a.industries.values()].map((i) => i.type));
-    expect(types.size).toBe(11);
+    expect(types.size).toBe(13);
     expect([...a.towns.values()].every((t) => t.houses > 5)).toBe(true);
   });
 

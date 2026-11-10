@@ -14,8 +14,8 @@ export type TownStage = 0 | 1 | 2;
 
 export const STAGES = [
   { name: '村', minPop: 0, goods: ['lumber', 'food'] as Cargo[] },
-  { name: '町', minPop: 1000, goods: ['lumber', 'food', 'materials', 'specialty'] as Cargo[] },
-  { name: '都市', minPop: 5000, goods: ['food', 'materials', 'specialty'] as Cargo[] },
+  { name: '町', minPop: 1000, goods: ['lumber', 'food', 'materials', 'specialty', 'goods'] as Cargo[] },
+  { name: '都市', minPop: 5000, goods: ['food', 'materials', 'specialty', 'goods'] as Cargo[] },
 ] as const;
 
 export const TOWN_GROWTH = {

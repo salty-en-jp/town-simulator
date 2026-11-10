@@ -80,6 +80,9 @@ interface SavedWorld {
   tech?: number;
   parts?: string[];
   makerOwned?: boolean;
+  foreignMarket?: number;
+  noPort?: boolean;
+  noAirport?: boolean;
   designs?: Design[];
   devFame?: number;
 }
@@ -160,6 +163,9 @@ export function toSaveFile(w: World): SaveFile {
       awards: w.awards?.length ? w.awards : undefined,
       tech: w.tech || undefined,
       makerOwned: w.makerOwned || undefined,
+      foreignMarket: w.foreignMarket,
+      noPort: w.noPort || undefined,
+      noAirport: w.noAirport || undefined,
       parts: w.parts?.length ? w.parts : undefined,
       designs: w.designs?.length ? w.designs : undefined,
       devFame: w.devFame || undefined,
@@ -269,6 +275,9 @@ export function deserializeWorld(text: string): World {
     awards: s.awards ?? [],
     tech: s.tech ?? 0,
     makerOwned: s.makerOwned ?? false,
+    foreignMarket: s.foreignMarket,
+    noPort: s.noPort,
+    noAirport: s.noAirport,
     parts: s.parts ?? [],
     designs: s.designs ?? [],
     devFame: s.devFame ?? 0,

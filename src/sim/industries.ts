@@ -73,8 +73,9 @@ export function canPlaceIndustry(world: World, type: IndustryType, x: number, y:
     for (let xx = x - 1; xx <= x + w; xx++) {
       const t = idx(world, xx, yy);
       const inside = xx >= x && xx < x + w && yy >= y && yy < y + h;
-      // 漁港だけは水辺に置ける（建物の下は陸地）
-      if (world.terrain[t] === Terrain.Water && (type !== 'fishery' || inside)) return type === 'fishery' ? '水の上には置けません' : '水の近くには置けません';
+      // 漁港と港だけは水辺に置ける（建物の下は陸地）
+      const shore = type === 'fishery' || type === 'port';
+      if (world.terrain[t] === Terrain.Water && (!shore || inside)) return shore ? '水の上には置けません' : '水の近くには置けません';
       if (inside && world.occ[t]) return '建物があります';
       if (inside && world.track[t]) return '線路があります';
       if (!inside && world.occ[t]?.k === 'industry') return 'ほかの産業と近すぎます';
@@ -82,6 +83,7 @@ export function canPlaceIndustry(world: World, type: IndustryType, x: number, y:
   }
   if (world.surveys.some((s) => Math.abs(s.x - x) < 4 && Math.abs(s.y - y) < 4)) return '調査中の場所と重なります';
   if (type === 'fishery' && waterAround(world, x, y, w, h) < 8) return '漁港は、広い水辺（海）のそばに置いてください';
+  if (type === 'port' && waterAround(world, x, y, w, h) < 12) return '港は、広い海のそばに置いてください';
   if (!spacing) return null;
   const cx = x + w / 2,
     cy = y + h / 2;
@@ -234,6 +236,7 @@ export function upkeepPerMonth(ind: Industry): number {
 export function buyRights(world: World, id: number, opts: { dry?: boolean } = {}): CmdResult {
   const ind = world.industries.get(id);
   if (!ind) return fail('産業がありません');
+  if (INDUSTRY_SPECS[ind.type].partner) return fail('取引先の施設です（いまは買い取れません）');
   if (ind.owner === 'player') return fail('もう自社の産業です');
   if (ind.status !== 'active') return fail('建設中です');
   const cost = rightsPrice(ind);
@@ -252,6 +255,7 @@ export function buyRights(world: World, id: number, opts: { dry?: boolean } = {}
 export function signContract(world: World, id: number, opts: { dry?: boolean } = {}): CmdResult {
   const ind = world.industries.get(id);
   if (!ind) return fail('産業がありません');
+  if (INDUSTRY_SPECS[ind.type].partner) return fail('取引先の施設です（いまは買い取れません）');
   if (ind.owner !== 'other') return fail('契約は他社の産業とだけ結べます');
   if (ind.status !== 'active') return fail('建設中です');
   if (ind.contractUntil - world.day > 180) return fail('契約の更新は、残り180日を切ってからできます');
@@ -279,6 +283,7 @@ export function signContract(world: World, id: number, opts: { dry?: boolean } =
 export function expandIndustry(world: World, id: number, opts: { dry?: boolean } = {}): CmdResult {
   const ind = world.industries.get(id);
   if (!ind) return fail('産業がありません');
+  if (INDUSTRY_SPECS[ind.type].partner) return fail('取引先の施設です（いまは買い取れません）');
   if (ind.owner !== 'player') return fail('増産できるのは自社の産業だけです');
   if (ind.status !== 'active') return fail('建設中です');
   if (ind.prodRate >= 400) return fail('これ以上は増産できません');
@@ -351,6 +356,7 @@ export function startSurvey(world: World, type: IndustryType, x: number, y: numb
 
 /** 工場を建てる（建設期間のあと動き出す） */
 export function buildFactory(world: World, type: IndustryType, x: number, y: number, opts: { dry?: boolean } = {}): CmdResult {
+  if (INDUSTRY_SPECS[type].partner) return fail('この施設は建てられません');
   if (isPrimary(type)) return fail('一次産業は探鉱で手に入れます');
   const err = canPlaceIndustry(world, type, x, y, false);
   if (err) return fail(err);
@@ -452,6 +458,7 @@ export function industriesOwnershipMonthly(world: World) {
 
 export function ownerLabel(world: World, ind: Industry): string {
   if (ind.status === 'building') return '建設中';
+  if (INDUSTRY_SPECS[ind.type].partner) return '取引先';
   if (ind.owner === 'player') return '自社';
   if (ind.owner === 'public') return '地元';
   return canLoadFrom(world, ind) ? '契約中' : '他社';
@@ -467,7 +474,7 @@ export function industryStatus(world: World, ind: Industry): { code: IndustrySta
   if (ind.outStock > 500 * 0.95) {
     return { code: 'full', text: `${CARGO_SPECS[spec.output].name}の置き場がいっぱいで止まっています。運び出してください`, tone: 'bad' };
   }
-  if (spec.inputs.length) {
+  if (spec.inputs.length && !spec.sink) {
     const have = spec.inputs.filter((c) => (ind.inputs[c] ?? 0) >= 1);
     const recent = ind.receivedThisMonth + ind.receivedLastMonth > 0;
     if (!have.length && !recent) {

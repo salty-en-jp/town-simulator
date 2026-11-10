@@ -170,6 +170,10 @@ export function vehicleSvg(type: VehicleType, silhouette = false): string {
       parts.push(`<rect x="${x0}" y="24" width="${len}" height="6" fill="${dark}"/>`);
       if (!silhouette) for (let k = 0; k < 3; k++) parts.push(`<rect x="${x0 + 3}" y="${12 + k * 4}" width="${len - 6}" height="4" rx="2" fill="${hex(CARGO_SPECS[w.cargo].color)}"/>`);
       else parts.push(`<rect x="${x0 + 3}" y="12" width="${len - 6}" height="12" fill="${body}"/>`);
+    } else if (w.cargo === 'oil') {
+      // タンク車：まるい胴
+      parts.push(`<rect x="${x0}" y="12" width="${len}" height="16" rx="8" fill="${body}"/>`);
+      parts.push(`<rect x="${x0 + len / 2 - 4}" y="8" width="8" height="5" fill="${dark}"/>`);
     } else if (['ore', 'coal', 'grain'].includes(w.cargo)) {
       parts.push(`<path d="M${x0} 12 L${x0 + len} 12 L${x0 + len - 6} 30 L${x0 + 6} 30 Z" fill="${body}"/>`);
     } else {

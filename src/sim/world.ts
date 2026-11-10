@@ -359,6 +359,11 @@ export interface World {
   devTrend?: { use: DevUse; year: number };
   devOrders?: DevOrder[];
   awards?: Award[];
+  /** 海外の相場（港の輸出の買い取り。v0.9 から。ないときは 1） */
+  foreignMarket?: number;
+  /** 港・空港を置ける場所がなかった（毎月さがさない） */
+  noPort?: boolean;
+  noAirport?: boolean;
   /** ツナグ社の車両部門を買い取った（v0.8.5 から。自社開発ができる） */
   makerOwned?: boolean;
   /** 技術点と研究した部品（v0.8.4 から） */

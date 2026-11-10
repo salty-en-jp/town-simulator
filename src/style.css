@@ -3851,3 +3851,16 @@ details.relnote.old summary small {
 .chip.electric {
   background: #2f7a8a;
 }
+
+/* v0.9：石油・日用品 */
+.cargo-dot.oil,
+.car-dot.tankcar,
+.chip.tankcar {
+  background: #2b2b30;
+}
+
+.cargo-dot.goods,
+.car-dot.goodscar,
+.chip.goodscar {
+  background: #6a5a8a;
+}

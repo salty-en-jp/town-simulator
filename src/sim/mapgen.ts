@@ -3,6 +3,7 @@
 // ・最初の「森 → 製材所 → 町」は、川を渡らずに近くでつくれるように置く（はじめの目標用）
 // ・ほかの産業は、ほどよく離して置く。同じ種類の工場が複数あると「どこへ運ぶか」を選べる
 
+import { ensurePort } from './partners';
 import type { IndustryType } from './constants';
 import { placeIndustryAt, placeIndustrySomewhere } from './industries';
 import { growHouse, housesByTown, refreshStats } from './simulate';
@@ -180,6 +181,8 @@ export function generateWorld(seed: number, size = 96, landform: Landform = 'mix
   refreshStats(world);
   // どの町にも、そばに名産の工房を1つ（種類はまわりの土地で決まる）
   for (const t of world.towns.values()) placeWorkshop(world, t);
+  // 海のあるマップには港（と化学工場）
+  ensurePort(world, false);
   world.version++;
   return world;
 }

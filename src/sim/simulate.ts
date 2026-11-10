@@ -3,6 +3,7 @@
 import { comfortMul, develDaily, hasMaker, MAKER } from './devel';
 import { salesMonthly, salesYearly } from './sales';
 import { techMonthly } from './tech';
+import { partnersMonthly } from './partners';
 import {
   CARGOS,
   COSTS,
@@ -12,6 +13,7 @@ import {
   HOUSE_POP,
   INDUSTRY,
   INDUSTRY_SPECS,
+  PARTNER,
   STATION,
   vehicleName,
   vehicleValue,
@@ -172,6 +174,10 @@ export function acceptorStock(world: World, a: { kind: 'industry' | 'town'; id: 
 /** 受け入れ先の買取係数（在庫が少ないほど高い。旅客は 1） */
 export function acceptorDemand(world: World, a: { kind: 'industry' | 'town'; id: number }, cargo: Cargo): number {
   const boom = boomMul(world, a, cargo);
+  // 取引先：港は海外の相場で買い取り、空港は旅客を高い運賃で受け入れる
+  const partner = a.kind === 'industry' ? INDUSTRY_SPECS[world.industries.get(a.id)?.type ?? 'forest'].partner : undefined;
+  if (partner === 'airport') return boom * PARTNER.airportFare;
+  if (partner === 'port') return boom * (world.foreignMarket ?? 1) * PARTNER.exportMul;
   if (cargo === 'passengers') return boom;
   // 名産品は、大きな町ほど高く買う
   const sp = cargo === 'specialty' && a.kind === 'town' ? specialtyBonus(world.towns.get(a.id)) : 1;
@@ -511,7 +517,13 @@ function industriesDaily(world: World, ctx: DayContext) {
     const spec = INDUSTRY_SPECS[ind.type];
     const perDay = ind.prodRate / 30;
     const room = Math.max(0, INDUSTRY.stockCap - ind.outStock);
-    if (spec.inputs.length === 0) {
+    if (spec.sink) {
+      // 取引先（港・空港）：受け入れた貨物はそのまま輸出・出発。生産は毎月決まった量
+      for (const c of spec.inputs) ind.inputs[c] = 0;
+      const p = Math.min(perDay, room);
+      ind.outStock += p;
+      ind.producedThisMonth += p;
+    } else if (spec.inputs.length === 0) {
       const p = Math.min(perDay, room);
       ind.outStock += p;
       ind.producedThisMonth += p;
@@ -701,9 +713,14 @@ function townsDaily(world: World, ctx: DayContext) {
     const food = stock.food ?? 0;
     town.fed = food > 0 && food >= eat * 0.5;
     stock.food = Math.max(0, food - eat);
+    // 日用品（v0.9。町・都市）：足りていると、もう少し速く育つ
+    const useGoods = eat * 0.5;
+    const goods = stock.goods ?? 0;
+    const goodsOk = goods > 0 && goods >= useGoods * 0.5;
+    if (goods > 0) stock.goods = Math.max(0, goods - useGoods);
 
-    // ふだんの成長（使われている駅が多いほど速い。食料品が足りているとさらに速い）
-    town.growthTimer -= (town.fed ? 2 : 1) * paceMul(world);
+    // ふだんの成長（使われている駅が多いほど速い。食料品が足りているとさらに速い。日用品でも少し速い）
+    town.growthTimer -= ((town.fed ? 2 : 1) + (goodsOk ? 0.5 : 0)) * paceMul(world);
     if (town.growthTimer <= 0) {
       // 大きな町ほど、ふだんの成長はゆっくり（材料を運ぶ意味が大きくなる）
       const base = active === 0 ? 60 : active === 1 ? 20 : active === 2 ? 14 : 9;
@@ -820,6 +837,7 @@ function monthly(world: World) {
   salesMonthly(world);
   techMonthly(world);
   specialtyMonthly(world);
+  partnersMonthly(world);
   companyMonthly(world);
   recordCompany(world);
   for (const town of world.towns.values()) {

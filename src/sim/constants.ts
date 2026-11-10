@@ -16,10 +16,27 @@ export type Cargo =
   | 'materials'
   | 'livestock'
   | 'fish'
-  | 'specialty';
-export const CARGOS: readonly Cargo[] = ['passengers', 'logs', 'lumber', 'grain', 'livestock', 'fish', 'food', 'ore', 'coal', 'steel', 'materials', 'specialty'];
+  | 'specialty'
+  | 'oil'
+  | 'goods';
+export const CARGOS: readonly Cargo[] = [
+  'passengers',
+  'logs',
+  'lumber',
+  'grain',
+  'livestock',
+  'fish',
+  'food',
+  'ore',
+  'coal',
+  'steel',
+  'materials',
+  'specialty',
+  'oil',
+  'goods',
+];
 /** 町が受け入れる貨物（旅客以外） */
-export const TOWN_GOODS: readonly Cargo[] = ['lumber', 'food', 'materials', 'specialty'];
+export const TOWN_GOODS: readonly Cargo[] = ['lumber', 'food', 'materials', 'specialty', 'goods'];
 
 export interface CargoSpec {
   name: string;
@@ -46,6 +63,8 @@ export const CARGO_SPECS: Record<Cargo, CargoSpec> = {
   livestock: { name: '家畜', unit: '頭', rate: 520, days1: 10, days2: 30, color: 0xb88a5a },
   fish: { name: '魚', unit: 't', rate: 600, days1: 5, days2: 15, color: 0x6fa8c8 },
   specialty: { name: '名産品', unit: '箱', rate: 560, days1: 25, days2: 50, color: 0xc85a8a },
+  oil: { name: '石油', unit: 'kL', rate: 520, days1: 30, days2: 60, color: 0x3a3226 },
+  goods: { name: '日用品', unit: '箱', rate: 760, days1: 15, days2: 40, color: 0x7a8fc8 },
 };
 
 /** 名産の種類（町のまわりの土地で決まる。v0.7.1） */
@@ -78,7 +97,9 @@ export type WagonType =
   | 'bigmaterialcar'
   | 'livestockcar'
   | 'fishcar'
-  | 'specialtycar';
+  | 'specialtycar'
+  | 'tankcar'
+  | 'goodscar';
 export type BaseEngineType = 'steam' | 'express' | 'heavy' | 'electric' | 'superexpress';
 /** 自社開発の機関車は dev12 のような名前（v0.8.2。その街のセーブに入っている） */
 export type DevEngineType = `dev${number}`;
@@ -141,6 +162,8 @@ export const WAGON_SPECS: Record<WagonType, WagonSpec> = {
   livestockcar: { name: '家畜車', cargo: 'livestock', capacity: 20, cost: 1_600_000 },
   fishcar: { name: '魚の冷蔵車', cargo: 'fish', capacity: 25, cost: 2_000_000, fresh: 0.6 },
   specialtycar: { name: '名産品車', cargo: 'specialty', capacity: 20, cost: 1_800_000 },
+  tankcar: { name: 'タンク車', cargo: 'oil', capacity: 30, cost: 2_000_000 },
+  goodscar: { name: '有蓋車', cargo: 'goods', capacity: 25, cost: 1_800_000 },
 };
 
 export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
@@ -271,7 +294,10 @@ export type IndustryType =
   | 'materialsplant'
   | 'ranch'
   | 'fishery'
-  | 'workshop';
+  | 'workshop'
+  | 'port'
+  | 'airport'
+  | 'chemplant';
 
 export interface IndustrySpec {
   /** 名前の後ろ（「桜川」＋「製材所」） */
@@ -280,6 +306,10 @@ export interface IndustrySpec {
   inputs: Cargo[];
   /** 材料はどれか1つでよい（食品工場：穀物・家畜・魚） */
   anyInput?: boolean;
+  /** 受け入れた貨物は加工せず、そのまま消える（港の輸出・空港の旅客）。生産は一次産業と同じく毎月決まった量 */
+  sink?: boolean;
+  /** 取引先（港・空港）：権利の購入・契約・増産はできない。運営会社の名前（PARTNER_NAMES のキー） */
+  partner?: 'port' | 'airport';
   output: Cargo;
   /** 一次産業：1か月の生産量。加工：1か月に加工できる最大量 */
   rate: number;
@@ -287,6 +317,8 @@ export interface IndustrySpec {
   h: number;
   desc: string;
 }
+
+const EXPORT_CARGOS_LIST: Cargo[] = ['logs', 'lumber', 'grain', 'livestock', 'fish', 'food', 'ore', 'coal', 'steel', 'materials', 'specialty'];
 
 export const INDUSTRY_SPECS: Record<IndustryType, IndustrySpec> = {
   forest: { suffix: 'の森', inputs: [], output: 'logs', rate: 72, w: 3, h: 3, desc: '原木を生産する森です。' },
@@ -333,18 +365,56 @@ export const INDUSTRY_SPECS: Record<IndustryType, IndustrySpec> = {
     h: 2,
     desc: '木材と鋼材から建設資材をつくります。建設資材を町に届けると高層ビルが建ちます。',
   },
+  port: {
+    suffix: '港',
+    inputs: EXPORT_CARGOS_LIST,
+    sink: true,
+    partner: 'port',
+    output: 'oil',
+    rate: 90,
+    w: 3,
+    h: 3,
+    desc: '海の向こうと取引する港です。どんな貨物も輸出として買い取り（海外の相場）、輸入した石油を出します。',
+  },
+  airport: {
+    suffix: '空港',
+    inputs: ['passengers'],
+    sink: true,
+    partner: 'airport',
+    output: 'passengers',
+    rate: 240,
+    w: 4,
+    h: 3,
+    desc: '遠くの都市と空でつながる空港です。旅客を高い運賃で受け入れ、出張や観光の旅客を出します。',
+  },
+  chemplant: { suffix: '化学工場', inputs: ['oil'], output: 'goods', rate: 100, w: 3, h: 2, desc: '石油から日用品をつくります。日用品は、町や都市が欲しがります（町が早く育ちます）。' },
 };
+
+/** 取引先の運営会社の名前（src/data/zukan.md で書きかえられる） */
+export const PARTNER_NAMES = {
+  port: 'ノルトハーフェン港湾',
+  airport: 'エアロリンク・エアポート',
+};
+
+/** 港が輸出として受け入れる貨物（旅客と石油・日用品以外） */
+export const EXPORT_CARGOS: Cargo[] = EXPORT_CARGOS_LIST;
+
+/** 取引先の買い取り：空港の旅客の運賃の倍率・港の輸出の倍率（海外の相場をかける） */
+export const PARTNER = { airportFare: 1.8, exportMul: 1.1, foreignMin: 0.7, foreignMax: 1.5 };
+
+/** 空港ができる年 */
+export const AIRPORT_YEAR = 1970;
 
 export const INDUSTRY_TYPES = Object.keys(INDUSTRY_SPECS) as IndustryType[];
 export const PRIMARY_TYPES: IndustryType[] = ['forest', 'farm', 'ironmine', 'coalmine', 'ranch', 'fishery'];
-export const FACTORY_TYPES: IndustryType[] = ['sawmill', 'foodplant', 'steelmill', 'materialsplant'];
+export const FACTORY_TYPES: IndustryType[] = ['sawmill', 'foodplant', 'steelmill', 'materialsplant', 'chemplant'];
 
 /** 産業の持ち主・権利・契約・探鉱・建設 */
 export const INDUSTRY_ECON = {
   /** 一次産業の権利の値段：1か月の生産量 1t あたり */
   pricePerMonthlyT: 150_000,
   /** 工場の値段（建設費・権利の値段） */
-  factoryPrice: { sawmill: 25_000_000, foodplant: 30_000_000, steelmill: 50_000_000, materialsplant: 45_000_000 } as Record<
+  factoryPrice: { sawmill: 25_000_000, foodplant: 30_000_000, steelmill: 50_000_000, materialsplant: 45_000_000, chemplant: 45_000_000, port: 200_000_000, airport: 300_000_000 } as Record<
     string,
     number
   >,

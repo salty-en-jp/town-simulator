@@ -4,6 +4,7 @@ import { VERSION } from '../version';
 import { openZukan } from './zukan';
 import { openDevel } from './develUi';
 import { engineList } from '../sim/devel';
+import { partnerName } from '../sim/partners';
 import { manualHtml, releaseNotesHtml } from './manual';
 import {
   addOrder,
@@ -590,6 +591,8 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   livestockcar: '家畜車',
   fishcar: '魚の冷蔵車',
   specialtycar: '名産品車',
+  tankcar: 'タンク車',
+  goodscar: '有蓋車',
 };
 
 /** 名前の入れかえ（src/data/zukan.md の見出し） */
@@ -877,7 +880,9 @@ export function openIndustry(g: Game, id: number) {
       const cap = INDUSTRY.stockCap;
       const out = CARGO_SPECS[spec.output];
       const tr = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
-      const chain = spec.inputs.length
+      const chain = spec.sink
+        ? `受け入れ ${spec.inputs.map((c) => cargoTag(c)).join(' ')} ／ 出す ${cargoTag(spec.output)}`
+        : spec.inputs.length
         ? `${spec.inputs.map((c) => cargoTag(c)).join(spec.anyInput ? ' か ' : ' ＋ ')} → ${cargoTag(spec.output)}`
         : `→ ${cargoTag(spec.output)}`;
       const inputs = spec.inputs
@@ -898,15 +903,25 @@ export function openIndustry(g: Game, id: number) {
         ${boomBox(g, { kind: 'industry', id })}
         <p class="chain">${chain}</p>
         <p class="lead">${esc(spec.desc)}</p>
-        ${spec.inputs.length ? `<h4>材料の在庫 <small class="muted">少ないほど高く買います</small></h4>${inputs}` : ''}
+        ${
+          spec.sink
+            ? `<h4>受け入れ</h4><p class="small">${
+                spec.partner === 'port'
+                  ? `${spec.inputs.map((c) => CARGO_SPECS[c].name).join('・')}を<b>輸出</b>として買い取ります。海外の相場 <b>×${(g.world.foreignMarket ?? 1).toFixed(2)}</b>`
+                  : `旅客を<b>空の旅</b>として、ふつうより高い運賃で受け入れます`
+              }・先月 ${n0(ind.receivedLastMonth)}${CARGO_SPECS[spec.inputs[0]].unit}</p>`
+            : spec.inputs.length
+              ? `<h4>材料の在庫 <small class="muted">少ないほど高く買います</small></h4>${inputs}`
+              : ''
+        }
         ${lacking.length && spec.inputs.some((c) => (ind.inputs[c] ?? 0) >= 1) ? `<p class="warn small">${lacking.map((c) => CARGO_SPECS[c].name).join('・')}が足りないので動いていません。</p>` : ''}
         <h4>製品</h4>
-        <div class="stock"><span>${out.name}</span>${gauge(ind.outStock, cap, full ? 'bad' : '')}<span class="num">${n0(ind.outStock)}/${cap}t</span></div>
+        <div class="stock"><span>${out.name}</span>${gauge(ind.outStock, cap, full ? 'bad' : '')}<span class="num">${n0(ind.outStock)}/${cap}${out.unit}</span></div>
         ${full ? `<p class="warn small">${out.name}の置き場がいっぱいで、生産が止まっています。運び出してください。</p>` : ''}
         <dl class="stats">
-          <dt>${spec.inputs.length ? '加工能力' : '生産量'}</dt><dd>${n0(ind.prodRate)}t/月</dd>
-          ${spec.inputs.length ? `<dt>先月の受け入れ</dt><dd>${n0(ind.receivedLastMonth)}t</dd>` : ''}
-          <dt>先月の${spec.inputs.length ? '加工' : '生産'}</dt><dd>${n0(ind.producedLastMonth)}t（輸送率 ${pct(tr)}）</dd>
+          <dt>${spec.inputs.length && !spec.sink ? '加工能力' : spec.partner === 'airport' ? '出発する旅客' : spec.partner === 'port' ? '輸入' : '生産量'}</dt><dd>${n0(ind.prodRate)}${out.unit}/月</dd>
+          ${spec.inputs.length && !spec.sink ? `<dt>先月の受け入れ</dt><dd>${n0(ind.receivedLastMonth)}t</dd>` : ''}
+          <dt>先月の${spec.inputs.length && !spec.sink ? '加工' : '生産'}</dt><dd>${n0(ind.producedLastMonth)}${out.unit}（輸送率 ${pct(tr)}）</dd>
         </dl>
         ${spec.inputs.length ? '' : '<p class="muted small">輸送率（運び出された割合）が高いほど、生産量が増えやすくなります。</p>'}
         <h4>毎月の${spec.inputs.length ? '受け入れ・加工' : '生産'}と運び出し</h4>
@@ -942,6 +957,10 @@ const STATUS_SHORT: Record<string, string> = {
 /** 持ち主と、権利の購入・輸送契約・増産 */
 function ownerSection(g: Game, ind: Industry): string {
   const w = g.world;
+  const partner = partnerName(ind);
+  if (partner) {
+    return `<div class="owner-box"><span class="owner-badge public">取引先</span><span class="small">運営：<b>${esc(partner)}</b>。だれでも運べます（権利の購入や契約はできません）。</span></div>`;
+  }
   const label = ownerLabel(w, ind);
   const badge = `<span class="owner-badge ${label === '自社' ? 'own' : label === '他社' ? 'other' : label === '契約中' ? 'contract' : label === '建設中' ? 'building' : 'public'}">${label}</span>`;
   if (ind.status === 'building') {

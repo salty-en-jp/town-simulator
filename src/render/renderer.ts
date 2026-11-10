@@ -1074,7 +1074,57 @@ function drawIndustry(g: Graphics, ind: Industry, look = industryLook(ind)) {
       return drawFishery(g, x, y, w, h);
     case 'workshop':
       return drawWorkshop(g, x, y, w, h, ind.specialty ?? 'fruit');
+    case 'port':
+      return drawPort(g, x, y, w, h);
+    case 'airport':
+      return drawAirport(g, x, y, w, h);
+    case 'chemplant':
+      return drawChemPlant(g, x, y, w, h, look.active);
   }
+}
+
+/** 港：倉庫・クレーン・石油タンク・コンテナ */
+function drawPort(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  lot(g, x0, y0, w, h, 0xa9a69e);
+  // 倉庫
+  box(g, x0 - 0.4, y0 - 0.4, x0 + 0.6, y0 + 0.5, 14, 0xb8b2a4);
+  hipRoof(g, x0 - 0.42, y0 - 0.42, x0 + 0.62, y0 + 0.52, 14, 5, 0x6a7f8f);
+  // 石油タンク
+  cylinder(g, x0 + w - 1.0, y0 - 0.05, 0.3, 16, 0xe2e2dc);
+  cylinder(g, x0 + w - 1.0, y0 + 0.75, 0.3, 16, 0xe2e2dc);
+  // コンテナ（赤・青）
+  box(g, x0 - 0.3, y0 + h - 1.1, x0 + 0.4, y0 + h - 0.85, 5, 0xb5483a);
+  box(g, x0 - 0.3, y0 + h - 0.8, x0 + 0.4, y0 + h - 0.55, 5, 0x3a6a9a);
+  box(g, x0 - 0.3, y0 + h - 1.1, x0 + 0.4, y0 + h - 0.85, 5, 0x3a6a9a, 5);
+  // クレーン（脚と腕）
+  const cx = x0 + 1.1,
+    cy = y0 + h - 0.9;
+  box(g, cx - 0.08, cy - 0.08, cx + 0.08, cy + 0.08, 36, 0xd9a032);
+  box(g, cx - 0.08, cy - 0.08, cx + 0.9, cy + 0.08, 3, 0xd9a032, 36);
+}
+
+/** 空港：滑走路・ターミナル・管制塔 */
+function drawAirport(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  lot(g, x0, y0, w, h, 0x9aa38e);
+  // 滑走路（白い線）
+  box(g, x0 - 0.45, y0 + h - 1.3, x0 + w - 0.55, y0 + h - 0.75, 0.6, 0x4a4d52);
+  for (let i = 0; i < w; i++) box(g, x0 - 0.2 + i, y0 + h - 1.06, x0 + 0.2 + i, y0 + h - 0.99, 0.2, 0xf0f0f0, 0.6);
+  // ターミナル
+  box(g, x0 - 0.35, y0 - 0.35, x0 + w - 1.6, y0 + 0.6, 12, 0xdfe5ea);
+  box(g, x0 - 0.37, y0 - 0.37, x0 + w - 1.58, y0 + 0.62, 2, 0x4f7d9a, 12);
+  // 管制塔
+  cylinder(g, x0 + w - 1.0, y0 - 0.1, 0.12, 30, 0xd8dde2);
+  cylinder(g, x0 + w - 1.0, y0 - 0.1, 0.22, 6, 0x5a8ab0, 30);
+}
+
+/** 化学工場：塔とタンクと配管 */
+function drawChemPlant(g: Graphics, x0: number, y0: number, w: number, h: number, working: boolean) {
+  lot(g, x0, y0, w, h, 0xb4b2aa);
+  box(g, x0 - 0.3, y0 - 0.3, x0 + 0.7, y0 + h - 0.7, 14, 0xc9ccd0);
+  cylinder(g, x0 + 1.2, y0 - 0.05, 0.14, 38, 0xe6e6e0);
+  cylinder(g, x0 + w - 0.9, y0 + 0.1, 0.25, 14, 0xd6d6cf);
+  cylinder(g, x0 + w - 0.9, y0 + h - 0.8, 0.2, 12, 0xd6d6cf);
+  if (working) g.circle(isoX(x0 + 1.2, y0 - 0.05), isoY(x0 + 1.2, y0 - 0.05) - 44, 3).fill({ color: 0xe8e8e8, alpha: 0.8 });
 }
 
 /** 建設中の工場：囲いと足場とクレーン */
@@ -1347,6 +1397,8 @@ export const CAR_COLORS: Record<string, number> = {
   coalcar: 0x3a3a3e,
   steelcar: 0x55606c,
   materialcar: 0xa8622a,
+  tankcar: 0x2b2b30,
+  goodscar: 0x6a5a8a,
 };
 
 function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car: Car, selected: boolean) {
