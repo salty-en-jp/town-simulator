@@ -13,6 +13,8 @@ import type { World } from './sim/world';
 import { VERSION } from './version';
 import { daysSinceBackup, isSafeStorage, listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence, storageStatus } from './storage';
 
+const escHtml = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
 async function main() {
   const renderer = await Renderer.create(document.getElementById('stage')!, document.getElementById('labels')!);
   const game = new Game(renderer);
@@ -54,7 +56,7 @@ async function main() {
   if (auto && !params.has('seed')) {
     actions.innerHTML = `
       <button id="continue-btn" class="start-btn">続きから</button>
-      <p class="continue-meta">${metaLabel(auto)}・${formatYen(auto.money)}・人口 ${auto.population.toLocaleString('ja-JP')}人</p>
+      <p class="continue-meta">${auto.rank ? `${escHtml(auto.rank)}・` : ''}${metaLabel(auto)}・${formatYen(auto.money)}・人口 ${auto.population.toLocaleString('ja-JP')}人</p>
       <div class="title-sub">
         <button id="new-btn" class="sub-btn">はじめから</button>
         <button id="file-btn" class="sub-btn">ファイルから読み込む</button>

@@ -66,6 +66,7 @@ import {
   signContract,
   upkeepPerMonth,
 } from '../sim/industries';
+import { achievedLabel, ACHIEVEMENTS, companyValue, connectedPopulation, rankIndex, RANKS } from '../sim/company';
 import { activeBooms, BOOM_LABEL, boomPlace, boomTile, marketIndex, type Boom } from '../sim/market';
 import { daysLeft, rewardText } from '../sim/requests';
 import { intercityMul, STAGES, stageName, townAccepts, townStage } from '../sim/towns';
@@ -1012,6 +1013,48 @@ export function openTown(g: Game, id: number) {
   });
 }
 
+// ───────────────────────── 会社のランクと実績 ─────────────────────────
+
+export function openCompany(g: Game) {
+  g.wm.open({
+    id: 'company',
+    title: '会社と実績',
+    width: 400,
+    render: () => {
+      const w = g.world;
+      const r = rankIndex(w);
+      const value = companyValue(w);
+      const pop = connectedPopulation(w);
+      const next = RANKS[r + 1];
+      const bar = (cur: number, goal: number) => `<span class="gauge"><i style="width:${Math.max(0, Math.min(100, (cur / goal) * 100)).toFixed(0)}%"></i></span>`;
+      const ladder = RANKS.map((k, i) => `<li class="${i < r ? 'done' : i === r ? 'cur' : ''}">${k.name}</li>`).join('');
+      const got = ACHIEVEMENTS.filter((a) => w.achievements?.[a.id] !== undefined).length;
+      const list = ACHIEVEMENTS.map((a) => {
+        const day = w.achievements?.[a.id];
+        return day !== undefined
+          ? `<li class="ach got"><b>★ ${esc(a.name)}</b><small>${achievedLabel(day)}</small></li>`
+          : `<li class="ach"><b>☆ ${esc(a.name)}</b><small>${esc(a.hint)}</small></li>`;
+      }).join('');
+      return `
+        <div class="rank-card">
+          <p class="muted small">会社のランク</p>
+          <p class="rank-name">${RANKS[r].name}</p>
+          <ol class="rank-ladder">${ladder}</ol>
+          ${
+            next
+              ? `<p class="small">次は「<b>${next.name}</b>」：</p>
+                 <div class="rank-goal"><span>会社の価値</span>${bar(value, next.value)}<span class="num">${formatYen(value)} / ${formatYen(next.value)}</span></div>
+                 <div class="rank-goal"><span>つないだ町の人口</span>${bar(pop, next.pop)}<span class="num">${n0(pop)} / ${n0(next.pop)}人</span></div>
+                 <p class="muted small">ランクが上がると、借入の上限が ${formatYen(next.maxLoan)} になります。会社の価値は、お金 − 借入 ＋ 車両 ＋ 自社の産業 です。</p>`
+              : '<p class="pos">いちばん上のランクです！</p>'
+          }
+        </div>
+        <h4>実績 <small class="muted">${got} / ${ACHIEVEMENTS.length}</small></h4>
+        <ul class="ach-list">${list}</ul>`;
+    },
+  });
+}
+
 // ───────────────────────── 財務 ─────────────────────────
 
 const FIN_LABELS: Record<FinanceCategory, string> = {
@@ -1036,6 +1079,7 @@ export function openFinance(g: Game) {
       const sum = (r: Record<FinanceCategory, number>) => FINANCE_CATEGORIES.reduce((s, k) => s + r[k], 0);
       const y = new Date(Date.UTC(1960, 0, 1) + w.day * 86400000).getUTCFullYear();
       return `
+        <div class="rank-line"><span class="muted small">会社のランク</span><b>${RANKS[rankIndex(w)].name}</b><span class="grow"></span><button class="small-btn" data-action="company">${ICONS.trophy}会社と実績</button></div>
         <table class="tbl fin">
           <tr><th></th><th class="num">${y}年</th><th class="num">${y - 1}年</th></tr>
           ${FINANCE_CATEGORIES.map((k) => `<tr><th>${FIN_LABELS[k]}</th><td class="num ${w.finance.thisYear[k] < 0 ? 'neg' : 'pos'}">${formatYen(w.finance.thisYear[k])}</td><td class="num">${formatYen(w.finance.lastYear[k])}</td></tr>`).join('')}
@@ -1053,6 +1097,7 @@ export function openFinance(g: Game) {
         ${financeCharts(g)}`;
     },
     onAction: (a) => {
+      if (a === 'company') return openCompany(g);
       if (a === 'borrow') g.result(borrow(g.world));
       if (a === 'repay') g.result(repay(g.world));
       g.wm.refreshAll();
@@ -1409,6 +1454,7 @@ export function openMenu(g: Game) {
         <button data-action="build-industry">${ICONS.industry}<span>産業をつくる</span></button>
         <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
+        <button data-action="company">${ICONS.trophy}<span>会社と実績</span></button>
         <button data-action="news">${ICONS.news}<span>お知らせ</span></button>
         <button data-action="help">${ICONS.help}<span>ヘルプ</span></button>
       </div>`,
@@ -1425,6 +1471,7 @@ export function openMenu(g: Game) {
       if (a === 'save') g.openSaveLoad();
       if (a === 'help') openHelp(g);
       if (a === 'news') openNews(g);
+      if (a === 'company') openCompany(g);
     },
   });
 }
