@@ -872,7 +872,7 @@ export function openIndustry(g: Game, id: number) {
       const out = CARGO_SPECS[spec.output];
       const tr = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
       const chain = spec.inputs.length
-        ? `${spec.inputs.map((c) => cargoTag(c)).join(' ＋ ')} → ${cargoTag(spec.output)}`
+        ? `${spec.inputs.map((c) => cargoTag(c)).join(spec.anyInput ? ' か ' : ' ＋ ')} → ${cargoTag(spec.output)}`
         : `→ ${cargoTag(spec.output)}`;
       const inputs = spec.inputs
         .map((c) => {
@@ -882,7 +882,8 @@ export function openIndustry(g: Game, id: number) {
             <p class="small indent">買取係数 <b class="${df >= 1 ? 'pos' : 'neg'}">×${df.toFixed(2)}</b></p>`;
         })
         .join('');
-      const lacking = spec.inputs.length > 1 ? spec.inputs.filter((c) => (ind.inputs[c] ?? 0) < 1) : [];
+      // 材料が全部いる工場だけ（食品工場は、どれか1つで動く）
+      const lacking = spec.inputs.length > 1 && !spec.anyInput ? spec.inputs.filter((c) => (ind.inputs[c] ?? 0) < 1) : [];
       const full = ind.outStock > cap * 0.95;
       const status = industryStatus(g.world, ind);
       return `
@@ -1331,7 +1332,7 @@ export function openIndustryList(g: Game) {
       if (c.sort === 'name') list.sort(byName);
       return `${c.html}${list.length ? '' : emptyFilter}<ul class="list">${list
         .map(({ ind, stt, ol }) => {
-          return `<li data-action="open" data-id="${ind.id}" class="clickable"><span class="owner-badge ${ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : 'public'}">${ol}</span><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((k) => CARGO_SPECS[k].name).join('＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="ind-st ${stt.tone}" title="${esc(stt.text)}"><i></i>${STATUS_SHORT[stt.code]}</span><span class="small muted">${pct(rate(ind))}</span></li>`;
+          return `<li data-action="open" data-id="${ind.id}" class="clickable"><span class="owner-badge ${ol === '自社' ? 'own' : ol === '他社' ? 'other' : ol === '契約中' ? 'contract' : ol === '建設中' ? 'building' : 'public'}">${ol}</span><b>${esc(ind.name)}</b><span class="muted small">${INDUSTRY_SPECS[ind.type].inputs.map((k) => CARGO_SPECS[k].name).join(INDUSTRY_SPECS[ind.type].anyInput ? '／' : '＋')}${INDUSTRY_SPECS[ind.type].inputs.length ? '→' : ''}${CARGO_SPECS[INDUSTRY_SPECS[ind.type].output].name}</span><span class="grow"></span><span class="ind-st ${stt.tone}" title="${esc(stt.text)}"><i></i>${STATUS_SHORT[stt.code]}</span><span class="small muted">${pct(rate(ind))}</span></li>`;
         })
         .join('')}</ul>
        <p class="muted small">森→製材所→木材（町に家）／農場→食品工場→食料品（町が早く育つ）／鉄鉱山＋炭鉱→製鉄所→鋼材／木材＋鋼材→建材工場→建設資材（町に高層ビル）</p>`;
@@ -1715,7 +1716,7 @@ export function openBuildIndustry(g: Game) {
         <p class="muted small">${INDUSTRY_ECON.surveyDays}日の調査のあと、成功か失敗かがわかります。失敗すると費用はもどりません。成功率は場所を選ぶと表示されます。</p>
         ${surveys ? `<ul class="list">${surveys}</ul>` : ''}
         <h4>工場を建てる <small class="muted">${INDUSTRY_ECON.buildDays}日で完成・自社の工場</small></h4>
-        <div class="buy-grid">${FACTORY_TYPES.map((t) => item(t, INDUSTRY_ECON.factoryPrice[t], `${INDUSTRY_SPECS[t].inputs.map((c) => CARGO_SPECS[c].name).join('＋')}→${CARGO_SPECS[INDUSTRY_SPECS[t].output].name}`)).join('')}</div>
+        <div class="buy-grid">${FACTORY_TYPES.map((t) => item(t, INDUSTRY_ECON.factoryPrice[t], `${INDUSTRY_SPECS[t].inputs.map((c) => CARGO_SPECS[c].name).join(INDUSTRY_SPECS[t].anyInput ? '／' : '＋')}→${CARGO_SPECS[INDUSTRY_SPECS[t].output].name}`)).join('')}</div>
         <p class="muted small">自社の産業は、運び出した製品の量に応じて毎月利益が入ります（維持費がかかります）。</p>`;
     },
     onAction: (a, el) => {

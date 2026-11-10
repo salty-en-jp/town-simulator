@@ -70,7 +70,7 @@ describe('販売', () => {
     develop(w, d);
     expect(w.devOrders.length).toBe(0);
     expect(saleOf(d).sold).toBeGreaterThanOrEqual(5);
-    expect(w.money).toBeGreaterThan(money - 15_000_000);
+    expect(w.money).toBeGreaterThan(money - 50_000_000);
     // 用途がちがえば、かなわない
     w.devOrders = [{ id: 1000, from: '北辰鉄道', use: 'express', minRating: 1, deadline: w.day + 2000, units: 5 }];
     salesOnDesignDone(w, d);

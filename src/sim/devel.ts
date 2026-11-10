@@ -67,9 +67,9 @@ export interface Design {
 export const DEV = {
   maxDesigns: 24,
   budgets: [
-    { name: '試作', cost: 15_000_000, days: 100, pool: 100 },
-    { name: '本格', cost: 40_000_000, days: 160, pool: 180 },
-    { name: '社運をかけた', cost: 100_000_000, days: 240, pool: 280 },
+    { name: '試作', cost: 50_000_000, days: 100, pool: 100 },
+    { name: '本格', cost: 120_000_000, days: 160, pool: 180 },
+    { name: '社運をかけた', cost: 300_000_000, days: 240, pool: 280 },
   ],
   /** 試験の時期（進み具合） */
   tests: [0.3, 0.7],
@@ -217,7 +217,7 @@ export interface DevPlan {
 
 export const MAKER = {
   year: 1972,
-  price: 80_000_000,
+  price: 300_000_000,
   /** 買い取ったときにもらえる技術点と評判（ツナグ社の技術者たち） */
   tech: 30,
   fame: 5,

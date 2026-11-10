@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { industryStatus } from '../src/sim/industries';
 import { buildStation, buildTrack } from '../src/sim/commands';
 import { TICKS_PER_DAY } from '../src/sim/constants';
 import { canPlaceIndustry } from '../src/sim/industries';
@@ -65,6 +66,8 @@ describe('食品工場の材料', () => {
       step(w, 5 * TICKS_PER_DAY);
       expect(f.producedThisMonth).toBeGreaterThan(5);
       expect(f.inputs[c]!).toBeLessThan(100);
+      // 「足りないので止まっています」と出さない
+      expect(industryStatus(w, f).code).not.toBe('lacking');
     }
   });
 });
