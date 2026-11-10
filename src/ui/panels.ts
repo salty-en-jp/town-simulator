@@ -592,6 +592,11 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   specialtycar: '名産品車',
 };
 
+/** 名前の入れかえ（src/data/zukan.md の見出し） */
+export function setShortName(t: VehicleType, name: string) {
+  SHORT_NAMES[t] = name;
+}
+
 /** 短い名前（自社開発の機関車は付けた名前） */
 function shortName(t: VehicleType): string {
   return SHORT_NAMES[t] ?? vehicleName(t);

@@ -67,11 +67,16 @@ export const SALES = {
   awardPrize: 80_000_000,
 };
 
-export const CUSTOMERS = ['北辰鉄道', '港南電鉄', '山城鉄道', '白浜急行', '湖西鉄道', '桜ヶ丘電鉄', '峠越え鉄道'];
-/** 観光用の注文は、観光の大手から */
-export const TOURISM_CUSTOMER = 'シルフィード社';
-export const RIVAL_MAKER = 'ハルモニア・レールウェイズ';
-const RIVAL_NAMES = ['カナデ形', 'シラベ形', 'ヒビキ形', 'ユニゾン形', 'コーダ形', 'リフレイン形', 'カデンツ形', 'フーガ形'];
+/** 会社や車両の名前（src/data/zukan.md で書きかえられる。ゲームのはじめに入れかえる） */
+export const SALES_NAMES = {
+  /** 機関車を買ってくれる鉄道会社 */
+  customers: ['北辰鉄道', '港南電鉄', '山城鉄道', '白浜急行', '湖西鉄道', '桜ヶ丘電鉄', '峠越え鉄道'],
+  /** 観光用の注文は、観光の大手から */
+  tourism: 'シルフィード社',
+  /** ライバルのメーカーと、鉄道車両大賞をとる車両の名前（順番に使う） */
+  rivalMaker: 'ハルモニア・レールウェイズ',
+  rivalModels: ['カナデ形', 'シラベ形', 'ヒビキ形', 'ユニゾン形', 'コーダ形', 'リフレイン形', 'カデンツ形', 'フーガ形'],
+};
 
 /** 時代ごとの動力の人気（1 がふつう） */
 export function powerEra(power: DevPower, year: number): number {
@@ -209,7 +214,7 @@ export function salesYearly(world: World) {
     const powers: DevPower[] = y >= 1965 ? ['steam', 'diesel', 'electric'] : ['steam', 'diesel'];
     const o: DevOrder = {
       id: world.nextId++,
-      from: ou === 'tourist' ? TOURISM_CUSTOMER : rng.pick(CUSTOMERS),
+      from: ou === 'tourist' ? SALES_NAMES.tourism : rng.pick(SALES_NAMES.customers),
       use: ou,
       power: rng.chance(0.5) ? rng.pick(powers) : undefined,
       minRating: (world.devFame ?? 0) >= 30 ? 4 : 3,
@@ -245,12 +250,14 @@ export function salesYearly(world: World) {
       tone: 'good',
     });
   } else if (y > 1961) {
-    const name = RIVAL_NAMES[(y - 1961) % RIVAL_NAMES.length];
-    world.awards.push({ year: y - 1, name, maker: RIVAL_MAKER, mine: false });
+    const models = SALES_NAMES.rivalModels;
+    const name = models[(y - 1961) % models.length];
+    const maker = SALES_NAMES.rivalMaker;
+    world.awards.push({ year: y - 1, name, maker, mine: false });
     if (anyDesign)
       pushEvent(world, {
         type: 'news',
-        text: `${y - 1}年の鉄道車両大賞は、${RIVAL_MAKER}の${name}でした${best ? `（わが社の${best.name}は届きませんでした）` : ''}`,
+        text: `${y - 1}年の鉄道車両大賞は、${maker}の${name}でした${best ? `（わが社の${best.name}は届きませんでした）` : ''}`,
         tone: 'info',
       });
   }

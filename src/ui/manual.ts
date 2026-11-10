@@ -14,6 +14,14 @@ export interface ReleaseNote {
 /** 新しい順 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.8.7',
+    date: '2026年11月',
+    items: [
+      '車両の名前・ライバルのメーカー・機関車を買ってくれる会社などの名前を、図鑑の文章ファイル（src/data/zukan.md）で決められるようにしました（作る人向け）',
+      'いま遊んでいるセーブは、そのまま使えます',
+    ],
+  },
+  {
     version: '0.8.6',
     date: '2026年11月',
     items: [
