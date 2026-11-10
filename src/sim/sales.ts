@@ -8,7 +8,7 @@
 // 方針：売れなくても損はしない（つくる分のお金は、売れた分の利益から引いてある）
 
 import { DEV_POWER_NAMES, DEV_USE_NAMES, DEV_USES, type DevPower, type DevUse } from './constants';
-import { compat, designSpec, devKey, type Design } from './devel';
+import { compat, designSpec, devKey, hasMaker, type Design } from './devel';
 import { dateOf, earn, pushEvent, type World } from './world';
 import { partMakeCost } from './tech';
 
@@ -49,7 +49,7 @@ export const SALES = {
   /** 何年売れるか */
   years: 8,
   /** 基本の注文（月あたりの両数） */
-  base: 0.25,
+  base: 0.7,
   /** 予算の大きい機関車ほど注目される（試作・本格・社運をかけた） */
   budgetMul: [0.5, 1.2, 2.5],
   /** 値段：機関車の値段に対する倍率。つくる費用は 0.75 */
@@ -64,7 +64,7 @@ export const SALES = {
   orderYears: 3,
   /** 注文をかなえたときの利益（機関車の値段 × 両数 × これ） */
   orderMargin: 0.4,
-  awardPrize: 30_000_000,
+  awardPrize: 80_000_000,
 };
 
 export const CUSTOMERS = ['北辰鉄道', '港南電鉄', '山城鉄道', '白浜急行', '湖西鉄道', '桜ヶ丘電鉄', '峠越え鉄道'];
@@ -204,7 +204,7 @@ export function salesYearly(world: World) {
 
   // 他社からの注文
   world.devOrders ??= [];
-  if (world.devOrders.length < SALES.maxOrders && rng.chance(SALES.orderChance)) {
+  if (hasMaker(world) && world.devOrders.length < SALES.maxOrders && rng.chance(SALES.orderChance)) {
     const ou = rng.pick([...DEV_USES]);
     const powers: DevPower[] = y >= 1965 ? ['steam', 'diesel', 'electric'] : ['steam', 'diesel'];
     const o: DevOrder = {

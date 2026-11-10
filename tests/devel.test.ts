@@ -24,6 +24,7 @@ function world() {
   const w = createEmptyWorld(30, 16, 3);
   w.money = 1e10;
   w.requestState.nextCheckDay = 1e9;
+  w.makerOwned = true;
   return w;
 }
 
@@ -130,5 +131,30 @@ describe('自社開発', () => {
     const bad = JSON.parse(text);
     bad.world.designs = [];
     expect(() => deserializeWorld(JSON.stringify(bad))).toThrow();
+  });
+});
+
+describe('ツナグ社の車両部門の買収', () => {
+  it('1972年ごろから買い取れる。買い取るまで開発できない。前の版で開発していたセーブは持っていることにする', async () => {
+    const { buyMaker, hasMaker, makerError, MAKER } = await import('../src/sim/devel');
+    const w = createEmptyWorld(30, 16, 3);
+    w.money = 1e10;
+    w.requestState.nextCheckDay = 1e9;
+    expect(hasMaker(w)).toBe(false);
+    expect(startDesign(w, { name: 'X', power: 'diesel', use: 'freight', budget: 0 })).toContain('車両部門');
+    expect(makerError(w)).toContain(`${MAKER.year}`);
+    w.day = dayOfYear(MAKER.year);
+    const money = w.money;
+    expect(buyMaker(w)).toBeNull();
+    expect(w.money).toBe(money - MAKER.price);
+    expect(w.tech).toBe(MAKER.tech);
+    expect(typeof startDesign(w, { name: 'X', power: 'diesel', use: 'freight', budget: 0 })).toBe('object');
+    expect(buyMaker(w)).not.toBeNull();
+    const w2 = deserializeWorld(serializeWorld(w));
+    expect(hasMaker(w2)).toBe(true);
+    // 前の版のセーブ：makerOwned はないが、開発記録がある
+    const old = createEmptyWorld(30, 16, 3);
+    old.designs = [{ ...w.designs![0] }];
+    expect(hasMaker(old)).toBe(true);
   });
 });
