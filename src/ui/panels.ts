@@ -579,6 +579,7 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   biglumbercar: '大型木材車',
   heavy: 'ゴウリキ形',
   superexpress: 'ツバサ形',
+  electric: 'イカズチ形',
   biggraincar: '大型穀物車',
   freshcar: '新型冷蔵車',
   bigcoach: '大型客車',

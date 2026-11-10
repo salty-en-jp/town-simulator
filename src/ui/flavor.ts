@@ -9,7 +9,8 @@ export function parseFlavor(md: string): Record<string, string[]> {
   let cur: string | null = null;
   let buf: string[] = [];
   const flush = () => {
-    if (cur && all.has(cur)) {
+    // 車両の英字と、自社開発（dev-…）・部品（part-…）の見出しを読む
+    if (cur && (all.has(cur) || /^(dev|part)-[a-z0-9-]+$/.test(cur))) {
       // 改行したところで段落を分ける（空行はあってもなくてもよい）
       const paras = buf.map((l) => l.trim()).filter(Boolean);
       if (paras.length) out[cur] = paras;
@@ -30,3 +31,9 @@ export function parseFlavor(md: string): Record<string, string[]> {
   return out;
 }
 
+
+/** 何行か書いてある中から、番号で1行を選ぶ（同じ番号ならいつも同じ行） */
+export function pickLine(lines: string[] | undefined, n: number): string | undefined {
+  if (!lines?.length) return undefined;
+  return lines[Math.abs(Math.floor(n)) % lines.length];
+}

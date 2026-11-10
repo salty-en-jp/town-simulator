@@ -1325,6 +1325,7 @@ export const CAR_COLORS: Record<string, number> = {
   express: 0x2f5f8f,
   heavy: 0x5a3a2a,
   superexpress: 0xe8eef2,
+  electric: 0x2f7a8a,
   coach: 0x3d7a5a,
   bigcoach: 0x2f6a4a,
   biggraincar: 0xa07a22,
@@ -1389,7 +1390,7 @@ function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car:
     if (car.type === 'steam' || (isDevEngine(car.type) && ENGINE_SPECS[car.type].power === 'steam')) g.ellipse(isoX(fx, fy), isoY(fx, fy) - base - h - 3, 2.2, 3.2).fill(0x1b2129);
     const s0 = groundPoly([[x - dx * 0.2, y - dy * 0.2]], base + h - 3),
       s1 = groundPoly([[x + dx * 0.2, y + dy * 0.2]], base + h - 3);
-    const stripe: Record<string, number> = { steam: 0xc0443a, express: 0xf2c14e, heavy: 0xe8a317, superexpress: 0x2f5f8f };
+    const stripe: Record<string, number> = { steam: 0xc0443a, express: 0xf2c14e, heavy: 0xe8a317, superexpress: 0x2f5f8f, electric: 0xf0f0f0 };
     // 自社開発の機関車：電気は白、ディーゼルは黄色、蒸気は赤の帯
     const devStripe = { electric: 0xf0f0f0, diesel: 0xf2c14e, steam: 0xc0443a }[ENGINE_SPECS[car.type as EngineType]?.power ?? 'steam'];
     g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: car.type === 'superexpress' ? 2.5 : 1.5, color: stripe[car.type] ?? devStripe });
