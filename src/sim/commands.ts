@@ -29,6 +29,9 @@ import {
   spend,
   earn,
   Terrain,
+  dateOf,
+  ELECTRIFY_YEAR,
+  isElectric,
   tx,
   ty,
   W,
@@ -63,6 +66,8 @@ interface TileSnap {
   terrain: number;
   track: number;
   occ: Occupant | null;
+  /** 電化（v0.8.1） */
+  elec?: number;
 }
 
 export interface UndoRecord {
@@ -92,7 +97,7 @@ function snapTiles(world: World, tiles: Iterable<number>): TileSnap[] {
   const out: TileSnap[] = [];
   for (const i of new Set(tiles)) {
     const o = world.occ[i];
-    out.push({ i, terrain: world.terrain[i], track: world.track[i], occ: o ? { ...o } : null });
+    out.push({ i, terrain: world.terrain[i], track: world.track[i], occ: o ? { ...o } : null, elec: world.electric?.[i] ?? 0 });
   }
   return out;
 }
@@ -165,7 +170,34 @@ function trainsInDepot(world: World, depotId: number): boolean {
 
 function changed(world: World, trackChanged: boolean) {
   world.version++;
-  if (trackChanged) world.trackVersion++;
+  if (trackChanged) {
+    world.trackVersion++;
+    // 線路がなくなったマスの架線も外す
+    const e = world.electric;
+    if (e) for (let i = 0; i < e.length; i++) if (e[i] && !world.track[i]) e[i] = 0;
+  }
+}
+
+// ───────────────────────── 電化（v0.8.1） ─────────────────────────
+
+/** 線路をなぞって電化する（remove なら架線を外す）。1965年から */
+export function electrify(world: World, a: number, b: number, opts: { remove?: boolean; dry?: boolean } = {}): CmdResult {
+  if (!opts.remove && dateOf(world.day).y < ELECTRIFY_YEAR)
+    return fail(`電化は${ELECTRIFY_YEAR}年からできます`);
+  const path = dragLine(world, a, b);
+  const tiles = path.filter((t) => world.track[t] !== 0 && (opts.remove ? isElectric(world, t) : !isElectric(world, t)));
+  if (!tiles.length) return fail(opts.remove ? '外す架線がありません' : path.some((t) => world.track[t]) ? 'もう電化されています' : '線路の上をなぞってください');
+  let cost = 0;
+  for (const t of tiles)
+    cost += opts.remove ? COSTS.removeElectricPerTile : COSTS.electrifyPerTile * (world.terrain[t] === Terrain.Rock ? COSTS.trackRockMultiplier : 1);
+  if (opts.dry) return { ok: true, cost };
+  if (cost > world.money) return fail(`資金が足りません（${formatYen(cost)} 必要）`, cost);
+  const rec = new Recorder(world, tiles);
+  const e = (world.electric ??= new Uint8Array(world.w * world.h));
+  for (const t of tiles) e[t] = opts.remove ? 0 : 1;
+  spend(world, 'construction', cost);
+  changed(world, true);
+  return { ok: true, cost, undo: rec.finish(opts.remove ? '架線の撤去' : '電化', cost) };
 }
 
 // ───────────────────────── 線路 ─────────────────────────
@@ -536,7 +568,7 @@ export function demolish(world: World, a: number, b: number, opts: { dry?: boole
 
 export function canUndo(world: World, rec: UndoRecord): string | null {
   for (const s of rec.after) {
-    if (world.terrain[s.i] !== s.terrain || world.track[s.i] !== s.track || !sameOcc(world.occ[s.i], s.occ)) {
+    if (world.terrain[s.i] !== s.terrain || world.track[s.i] !== s.track || !sameOcc(world.occ[s.i], s.occ) || (world.electric?.[s.i] ?? 0) !== (s.elec ?? 0)) {
       return 'その後に変更があったため元に戻せません';
     }
   }
@@ -563,6 +595,7 @@ export function applyUndo(world: World, rec: UndoRecord): CmdResult {
     world.terrain[s.i] = s.terrain;
     world.track[s.i] = s.track;
     world.occ[s.i] = s.occ ? { ...s.occ } : null;
+    if (s.elec || world.electric) (world.electric ??= new Uint8Array(world.w * world.h))[s.i] = s.elec ?? 0;
   }
   for (const [id, before] of rec.stationsBefore) {
     const cur = world.stations.get(id);

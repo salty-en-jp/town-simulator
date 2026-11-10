@@ -68,6 +68,8 @@ interface SavedWorld {
   challenge?: World['challenge'];
   pace?: World['pace'];
   landform?: World['landform'];
+  /** 電化したマス（base64。v0.8.1） */
+  electric?: string;
 }
 
 export interface SaveFile {
@@ -139,6 +141,7 @@ export function toSaveFile(w: World): SaveFile {
       challenge: w.challenge ?? null,
       pace: w.pace ?? 'normal',
       landform: w.landform ?? 'mixed',
+      electric: w.electric && w.electric.some((v) => v) ? bytesToB64(w.electric) : undefined,
     },
   };
 }
@@ -181,12 +184,15 @@ export function deserializeWorld(text: string): World {
   const occ: (Occupant | null)[] = new Array(n).fill(null);
   for (const [i, o] of s.occ) occ[i] = o;
   let terrain: Uint8Array, track: Uint8Array;
+  let electric: Uint8Array | undefined;
   try {
     terrain = b64ToBytes(s.terrain);
     track = b64ToBytes(s.track);
+    if (s.electric) electric = b64ToBytes(s.electric);
   } catch {
     throw new SaveError('セーブデータが壊れています');
   }
+  if (electric && electric.length !== n) throw new SaveError('セーブデータが壊れています');
   if (terrain.length !== n || track.length !== n) throw new SaveError('セーブデータが壊れています');
   const rng = new Rng(0);
   rng.state = s.rng >>> 0;
@@ -235,5 +241,6 @@ export function deserializeWorld(text: string): World {
     challenge: s.challenge ?? null,
     pace: s.pace ?? 'normal',
     landform: s.landform ?? 'mixed',
+    electric,
   };
 }

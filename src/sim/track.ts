@@ -1,12 +1,12 @@
 // 線路の経路探索と、ドラッグで引く線のタイル列
 
-import { connected, DIRS, idx, tx, ty, type World } from './world';
+import { connected, DIRS, idx, isElectric, tx, ty, type World } from './world';
 
 /**
  * start から goals のいずれかまでの最短経路（幅優先探索）。
  * 見つからなければ null。戻り値は start を含むタイル列。
  */
-export function findPath(world: World, start: number, goals: Set<number>): number[] | null {
+export function findPath(world: World, start: number, goals: Set<number>, electricOnly = false): number[] | null {
   if (goals.has(start)) return [start];
   const prev = new Int32Array(world.w * world.h).fill(-1);
   prev[start] = start;
@@ -17,6 +17,8 @@ export function findPath(world: World, start: number, goals: Set<number>): numbe
     for (const d of DIRS) {
       const nb = connected(world, cur, d);
       if (nb < 0 || prev[nb] !== -1) continue;
+      // 電気の車両は、電化したマスだけを通る
+      if (electricOnly && !isElectric(world, nb)) continue;
       prev[nb] = cur;
       if (goals.has(nb)) {
         const path = [nb];
