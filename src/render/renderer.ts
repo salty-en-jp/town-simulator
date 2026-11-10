@@ -64,6 +64,8 @@ const C = {
   ballast: 0x958a78,
   sleeper: 0x5b4330,
   rail: 0xe2e2e2,
+  wire: 0x3b3f46,
+  pole: 0x6b6f78,
   deck: 0x8a6a4a,
   platform: 0xd8cfbd,
   roofStation: 0xb94a3f,
@@ -344,6 +346,7 @@ export class Renderer {
       }
     }
     drawRails(g, segs, 1);
+    if (w.electric) drawCatenary(g, w);
   }
 
   // ───────────── 建物など（奥から順に） ─────────────
@@ -728,6 +731,35 @@ function tileDiamond(g: Graphics, x: number, y: number, color: number, alpha: nu
 }
 
 /** 線路：道床 → 枕木 → レール の順に描く */
+/** 電化したマスの架線：線路の上に張った線と、ところどころに柱 */
+function drawCatenary(g: Graphics, w: World) {
+  const e = w.electric!;
+  const H = 14;
+  const poles: [number, number][] = [];
+  for (let i = 0; i < e.length; i++) {
+    if (!e[i] || !w.track[i]) continue;
+    const x = tx(w, i),
+      y = ty(w, i);
+    const bits = w.track[i];
+    for (const d of DIRS) {
+      if (!(bits & d)) continue;
+      const ex = x + DX[d] * 0.5,
+        ey = y + DY[d] * 0.5;
+      g.moveTo(isoX(x, y), isoY(x, y) - H).lineTo(isoX(ex, ey), isoY(ex, ey) - H);
+    }
+    if ((x + y) % 2 === 0) poles.push([x, y]);
+  }
+  g.stroke({ width: 1.5, color: C.wire, alpha: 0.9 });
+  for (const [x, y] of poles) {
+    // 柱は線路の脇に立て、腕を線路の上へのばす
+    const px = isoX(x + 0.32, y - 0.32),
+      py = isoY(x + 0.32, y - 0.32);
+    g.moveTo(px, py).lineTo(px, py - H - 3);
+    g.moveTo(px, py - H - 1).lineTo(isoX(x, y), isoY(x, y) - H - 1);
+  }
+  g.stroke({ width: 2, color: C.pole, alpha: 0.95 });
+}
+
 function drawRails(g: Graphics, segs: [number, number, number][], alpha: number, tint?: number) {
   for (const [x, y, d] of segs) {
     const ex = x + DX[d] * 0.5,

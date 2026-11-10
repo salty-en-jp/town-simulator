@@ -14,6 +14,7 @@ export const ICONS = {
   rail: svg('<path d="M8 3L5 21M16 3l3 18"/><path d="M6.5 7h11M6 12h12M5.5 17h13"/>'),
   depot: svg('<path d="M3 11l9-7 9 7v9H3z"/><path d="M8 20v-6h8v6"/>'),
   demolish: svg('<rect x="8" y="9" width="8" height="12" rx="1.5"/><path d="M12 9V6c0-2 2-3 4-3"/><path d="M18 2l1.5 1.5M20 5h2M17 0.5V0"/>'),
+  wire: svg('<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>'),
   remove: svg('<path d="M5 5l14 14M19 5L5 19"/>'),
   undo: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/>'),
   help: svg('<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 .5c0 2-2.5 2-2.5 4"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/>'),

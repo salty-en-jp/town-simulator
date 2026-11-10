@@ -1116,6 +1116,9 @@ body.touch #mobile-tools {
   right: calc(var(--safe-r) + 8px);
   top: calc(var(--safe-t) + 58px);
   z-index: 30;
+  /* 高さが足りないときは、左にもう1列ならべる */
+  flex-wrap: wrap-reverse;
+  max-height: calc(100dvh - var(--safe-t) - var(--safe-b) - 70px);
 }
 
 #mobile-tools button {

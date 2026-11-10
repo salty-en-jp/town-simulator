@@ -7,6 +7,7 @@ import {
   buildDepot,
   buildStation,
   buildTrack,
+  electrify,
   cloneTrain,
   deleteOrder,
   demolish,
@@ -33,8 +34,8 @@ import {
 import { buildFactory, startSurvey } from './sim/industries';
 import { generateWorld, type Landform } from './sim/mapgen';
 import { acceptanceForRect, step, suppliesForRect } from './sim/simulate';
-import { findPath, rectTiles, straightLine } from './sim/track';
-import { canLoadFrom, dateOf, tx, ty, type Axis, type Pace, type Rect, type World } from './sim/world';
+import { dragLine, findPath, rectTiles, straightLine } from './sim/track';
+import { canLoadFrom, dateOf, ELECTRIFY_YEAR, needsWire, tx, ty, type Axis, type Pace, type Rect, type World } from './sim/world';
 import { ICONS } from './ui/icons';
 import {
   addOrderFromMap,
@@ -79,9 +80,9 @@ import {
   type StorageStatus,
 } from './storage';
 
-export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'industry' | 'order' | 'clone' | 'replace';
-type BuildTool = 'track' | 'station' | 'depot' | 'demolish' | 'industry';
-const BUILD_TOOLS: Tool[] = ['track', 'station', 'depot', 'demolish', 'industry'];
+export type Tool = 'none' | 'track' | 'station' | 'depot' | 'demolish' | 'industry' | 'electrify' | 'order' | 'clone' | 'replace';
+type BuildTool = 'track' | 'station' | 'depot' | 'demolish' | 'industry' | 'electrify';
+const BUILD_TOOLS: Tool[] = ['track', 'station', 'depot', 'demolish', 'industry', 'electrify'];
 
 const MS_PER_DAY = 2000; // 速度×1で 1日 = 2秒
 const SPEEDS = [1, 2, 4];
@@ -92,6 +93,7 @@ const TOOL_NAMES: Record<BuildTool, string> = {
   depot: '車庫',
   demolish: '解体',
   industry: '産業',
+  electrify: '電化',
 };
 
 interface Pending {
@@ -693,7 +695,7 @@ export class Game implements InputTarget {
       for (let i = 0; i < stops.length; i++) {
         const a = this.world.stations.get(stops[i])!;
         const b = this.world.stations.get(stops[(i + 1) % stops.length])!;
-        paths.push(findPath(this.world, a.tiles[0], new Set(b.tiles)));
+        paths.push(findPath(this.world, a.tiles[0], new Set(b.tiles), needsWire(t)));
       }
     }
     this.renderer.setRoute({ stops, paths, current: t.curOrder });
@@ -701,7 +703,7 @@ export class Game implements InputTarget {
 
   toggleRemove() {
     this.removeMode = !this.removeMode;
-    if (this.removeMode && this.tool !== 'track') this.setTool('track');
+    if (this.removeMode && this.tool !== 'track' && this.tool !== 'electrify') this.setTool('track');
     this.refreshPreview();
     this.updateHud();
   }
@@ -795,6 +797,8 @@ export class Game implements InputTarget {
         return demolish(w, p.a, p.b, { dry: true });
       case 'industry':
         return this.industryCmd(p.b, true);
+      case 'electrify':
+        return electrify(w, p.a, p.b, { remove, dry: true });
     }
   }
 
@@ -851,6 +855,9 @@ export class Game implements InputTarget {
       case 'demolish':
         r = demolish(w, p.a, p.b);
         break;
+      case 'electrify':
+        r = electrify(w, p.a, p.b, { remove });
+        break;
       case 'industry': {
         r = this.industryCmd(p.b, false);
         if (r.ok && PRIMARY_TYPES.includes(this.industryType)) {
@@ -901,6 +908,10 @@ export class Game implements InputTarget {
       }
       case 'depot':
         return { tiles: [p.b] };
+      case 'electrify': {
+        const path = dragLine(w, p.a, p.b);
+        return { tiles: path, path };
+      }
       case 'demolish':
         return { tiles: rectTiles(w, p.a, p.b) };
       case 'industry': {
@@ -928,8 +939,8 @@ export class Game implements InputTarget {
     const preview: Preview = {
       ...t,
       ok: r.ok,
-      remove: remove && p.kind === 'track',
-      kind: p.kind === 'industry' ? 'depot' : p.kind,
+      remove: remove && (p.kind === 'track' || p.kind === 'electrify'),
+      kind: p.kind === 'industry' ? 'depot' : p.kind === 'electrify' ? 'track' : p.kind,
       marks: info?.marks,
     };
     this.renderer.setOverlay({ preview });
@@ -993,7 +1004,8 @@ export class Game implements InputTarget {
       return;
     }
     c.hidden = false;
-    const name = p.kind === 'track' && this.removeMode ? '線路の撤去' : p.kind === 'industry' ? this.industryLabel() : TOOL_NAMES[p.kind];
+    const name =
+      p.kind === 'track' && this.removeMode ? '線路の撤去' : p.kind === 'electrify' && this.removeMode ? '架線の撤去' : p.kind === 'industry' ? this.industryLabel() : TOOL_NAMES[p.kind];
     const chance = (r as CmdResult & { chance?: number }).chance;
     c.innerHTML = `
       ${p.kind === 'station' && this.lastStationInfo ? `<div class="confirm-info">${this.lastStationInfo}</div>` : ''}
@@ -1001,7 +1013,7 @@ export class Game implements InputTarget {
         <b>${name}</b>
         <span>${r.ok ? formatYen(r.cost) : esc(r.error ?? '')}</span>
         ${r.ok && chance !== undefined ? `<small>成功率 ${Math.round(chance * 100)}%（失敗すると費用はもどりません）</small>` : ''}
-        ${p.kind === 'track' && p.a === p.b ? '<small>もう一度タップで終点</small>' : ''}
+        ${(p.kind === 'track' || p.kind === 'electrify') && p.a === p.b ? '<small>もう一度タップで終点</small>' : ''}
       </div>
       ${p.kind === 'station' && p.a === p.b ? `<button class="round rotate" data-c="rotate" aria-label="向きを変える">${ICONS.rotate}</button>` : ''}
       <button class="round cancel" data-c="cancel" aria-label="取り消し">${ICONS.close}</button>
@@ -1095,7 +1107,7 @@ export class Game implements InputTarget {
       if (t < 0) return;
       const kind = this.tool as BuildTool;
       // 線路：1回目のタップで始点、2回目で終点
-      if (kind === 'track' && this.pending && this.pending.a === this.pending.b && this.pending.kind === 'track') {
+      if ((kind === 'track' || kind === 'electrify') && this.pending && this.pending.a === this.pending.b && this.pending.kind === kind) {
         this.pending = { kind, a: this.pending.a, b: t };
       } else {
         this.pending = { kind, a: t, b: t };
@@ -1189,6 +1201,7 @@ export class Game implements InputTarget {
       else if (this.railToolbarOpen && (k === 'o' || k === 'O')) this.rotateStation();
       else if (this.railToolbarOpen && ['s', 'S', 'b', 'B', 't', 'T', '8', 'c', 'C'].includes(k)) this.notYet(k.toUpperCase());
       else if (k === 'x' || k === 'X') this.toggleFade();
+      else if (this.railToolbarOpen && (k === 'e' || k === 'E')) this.setToolKey('electrify');
       else if (['q', 'Q', 'w', 'W', 'e', 'E'].includes(k)) this.notYet('地形の変更');
       else handled = false;
       if (handled) e.preventDefault();
@@ -1260,6 +1273,7 @@ export class Game implements InputTarget {
       <button data-a="na" title="信号 S（試作版では未実装）" disabled><span class="na">信号</span><kbd>S</kbd></button>
       <button data-a="na" title="橋 B（試作版では川の上に線路を引くと自動で橋になります）" disabled><span class="na">橋</span><kbd>B</kbd></button>
       <button data-a="na" title="トンネル T（試作版では未実装）" disabled><span class="na">トンネル</span><kbd>T</kbd></button>
+      <button data-a="t-electrify" title="電化 E ・ 線路をなぞって架線を張る（${ELECTRIFY_YEAR}年から）">${ICONS.wire}<kbd>E</kbd></button>
       <button data-a="t-remove" title="建設／撤去の切り替え R">${ICONS.remove}<kbd>R</kbd></button>
       <button data-a="t-close" class="rb-close" title="閉じる">${ICONS.close}</button>`;
     this.el.status.innerHTML = `
@@ -1278,6 +1292,7 @@ export class Game implements InputTarget {
       <button data-a="t-station" aria-label="駅">${ICONS.station}<span>駅</span></button>
       <button data-a="t-depot" aria-label="車庫">${ICONS.depot}<span>車庫</span></button>
       <button data-a="t-demolish" aria-label="解体">${ICONS.demolish}<span>解体</span></button>
+      <button data-a="t-electrify" aria-label="電化">${ICONS.wire}<span>電化</span></button>
       <button data-a="t-remove" class="remove" aria-label="撤去">${ICONS.remove}<span>撤去</span></button>
       <button data-a="undo" aria-label="元に戻す">${ICONS.undo}<span>戻す</span></button>`;
 
@@ -1391,6 +1406,12 @@ export class Game implements InputTarget {
       case 't-demolish':
         this.setTool('demolish');
         break;
+      case 't-electrify':
+        if (this.removeMode && this.tool === 'electrify') this.removeMode = false;
+        this.setTool('electrify');
+        if (this.tool === 'electrify' && dateOf(this.world.day).y < ELECTRIFY_YEAR) this.toast(`電化は${ELECTRIFY_YEAR}年からできます`, 'info');
+        else if (this.tool === 'electrify') this.toast(`線路を${this.touchUI ? 'タップして始点と終点を選ぶと' : 'なぞると'}架線を張ります`, 'info');
+        break;
       case 't-rotate':
         this.rotateStation();
         break;
@@ -1416,6 +1437,7 @@ export class Game implements InputTarget {
       (el) => (el.textContent = this.stationAxis === 'auto' ? '自動' : this.stationAxis === 'x' ? '＼' : '／'),
     );
     on('[data-a="t-depot"]', this.tool === 'depot');
+    on('[data-a="t-electrify"]', this.tool === 'electrify' && !this.removeMode);
     on('[data-a="t-demolish"], [data-a="demolish"]', this.tool === 'demolish');
     on('[data-a="t-remove"]', this.removeMode);
     this.el.railbar.hidden = !this.railToolbarOpen || this.touchUI;

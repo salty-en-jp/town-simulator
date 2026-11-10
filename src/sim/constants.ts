@@ -102,6 +102,8 @@ export interface EngineSpec {
   speed: number;
   /** 年間維持費（走っているときだけ。月割りで引かれる） */
   runningCostPerYear: number;
+  /** 動力。電気は電化した線路だけを走る（v0.8.1。ないときはディーゼル扱い＝どこでも走る） */
+  power?: 'steam' | 'diesel' | 'electric';
   /** つなげる車両（機関車をのぞく）の両数の上限 */
   maxCars: number;
   /** つなげられる車両：なんでも／客車だけ／貨車だけ */
@@ -136,7 +138,7 @@ export const WAGON_SPECS: Record<WagonType, WagonSpec> = {
 };
 
 export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
-  steam: { name: 'ツナグ形蒸気機関車', cost: 12_000_000, speed: 4, runningCostPerYear: 1_500_000, maxCars: 8, allow: 'any', desc: 'なんでも引ける' },
+  steam: { name: 'ツナグ形蒸気機関車', cost: 12_000_000, speed: 4, runningCostPerYear: 1_500_000, maxCars: 8, allow: 'any', desc: 'なんでも引ける', power: 'steam' },
   heavy: {
     name: 'ゴウリキ形貨物機関車',
     cost: 18_000_000,
@@ -189,6 +191,9 @@ export const COSTS = {
   trackWaterMultiplier: 5,
   /** 山地の岩場に線路を引くときの倍率 */
   trackRockMultiplier: 2.5,
+  /** 電化（架線）：1マスあたり。岩場は trackRockMultiplier 倍 */
+  electrifyPerTile: 400_000,
+  removeElectricPerTile: 40_000,
   clearTrees: 20_000,
   removeTrackPerConnection: 20_000,
   stationPerTile: 3_000_000,

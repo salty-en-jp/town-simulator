@@ -340,6 +340,8 @@ export interface World {
   challenge?: ChallengeState | null;
   /** 時間の流れ（世の中の動きの速さ）。v0.6.1 から。ないときは「ふつう」 */
   pace?: Pace;
+  /** 電化したマス（1＝架線あり）。v0.8.1 から。ないときは電化なし */
+  electric?: Uint8Array;
   /** 地形（v0.7。表示用） */
   landform?: 'mixed' | 'mountains' | 'plains' | 'coast';
 }
@@ -652,3 +654,17 @@ export function industryValue(ind: Industry): number {
 export function townLabel(t: { name: string; custom?: boolean }): string {
   return t.custom ? t.name : `${t.name}町`;
 }
+
+/** 電気の機関車か（電化した線路だけを走る） */
+export function needsWire(train: Train): boolean {
+  const t = train.cars[0]?.type;
+  return !!t && isEngine(t) && ENGINE_SPECS[t].power === 'electric';
+}
+
+/** そのマスが電化されているか */
+export function isElectric(world: World, t: number): boolean {
+  return world.electric?.[t] === 1;
+}
+
+/** 電化ができるようになる年 */
+export const ELECTRIFY_YEAR = 1965;

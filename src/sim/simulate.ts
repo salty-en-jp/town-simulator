@@ -66,7 +66,9 @@ import {
   type Town,
   type Train,
   type World,
+  needsWire,
   paceMul,
+  ELECTRIFY_YEAR,
   townLabel,
 } from './world';
 
@@ -203,7 +205,7 @@ function ensurePath(world: World, t: Train) {
     const next = t.path[1];
     const d = dirBetween(world, here, next);
     if (d && connected(world, here, d) === next) {
-      const p = goals.has(next) ? [next] : findPath(world, next, goals);
+      const p = goals.has(next) ? [next] : findPath(world, next, goals, needsWire(t));
       if (p) {
         t.path = [here, ...p];
         t.state = 'running';
@@ -212,7 +214,7 @@ function ensurePath(world: World, t: Train) {
     }
   }
   t.progress = 0;
-  const p = findPath(world, here, goals);
+  const p = findPath(world, here, goals, needsWire(t));
   if (p) {
     t.path = p;
     t.state = 'running';
@@ -869,6 +871,7 @@ function changeProduction(world: World, ind: Industry) {
 function yearly(world: World) {
   // 新型車両の登場
   const y = dateOf(world.day).y;
+  if (y === ELECTRIFY_YEAR) pushEvent(world, { type: 'news', text: '電化の工事ができるようになりました（鉄道建設の「電化」で、線路をなぞって架線を張れます）', tone: 'good' });
   const fresh = ([...ENGINE_TYPES, ...WAGON_TYPES] as VehicleType[]).filter((t) => vehicleYear(t) === y);
   if (fresh.length) {
     pushEvent(world, {
