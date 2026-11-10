@@ -57,6 +57,8 @@ import {
 } from './ui/panels';
 import { WindowManager } from './ui/windows';
 import { VERSION } from './version';
+import { challengeProgress, checkChallengeEnd, createChallengeWorld, type ChallengeDef } from './sim/challenge';
+import { challengeCardHtml, openChallengeWindow } from './ui/challengeUi';
 import {
   daysSinceBackup,
   deleteSave,
@@ -214,6 +216,7 @@ export class Game implements InputTarget {
     this.guideClosed = -1;
     this.updateHud();
     this.updateGuide();
+    this.lastStars = world.challenge ? (challengeProgress(world)?.stars ?? 0) : 0;
     this.noticeNewVersion();
     // しばらく遊んだら、バックアップのことをやさしく知らせる（1回の起動で1回だけ）
     window.clearTimeout(this.backupTimer);
@@ -241,7 +244,7 @@ export class Game implements InputTarget {
       return;
     }
     this.saving = true;
-    saveTo('auto', this.world)
+    saveTo(this.autoSlot(), this.world)
       .then(() => {
         if (show) this.showSaved();
       })
@@ -303,6 +306,40 @@ export class Game implements InputTarget {
       'info',
       -1,
     );
+  }
+
+  /** オートセーブの枠：チャレンジ中はふつうの街と別の枠 */
+  autoSlot(): Slot {
+    return this.world?.challenge ? 'challenge' : 'auto';
+  }
+
+  /** チャレンジを始める（今の街は、それぞれのオートセーブ枠に残す） */
+  async startChallenge(def: ChallengeDef) {
+    if (this.started) await saveTo(this.autoSlot(), this.world).catch(() => {});
+    this.wm.closeAll();
+    this.startWorld(createChallengeWorld(def), false);
+    this.lastStars = 0;
+    if (this.paused) this.togglePause();
+    openChallengeWindow(this);
+    this.guideHtml = '';
+  }
+
+  private lastStars = 0;
+
+  /** チャレンジ：★が増えたらお知らせ、期限が来たら結果を出す */
+  private updateChallenge() {
+    const c = this.world?.challenge;
+    if (!c) return;
+    const p = challengeProgress(this.world)!;
+    if (p.stars > this.lastStars && !c.done) {
+      if (this.lastStars >= 0 && this.started) this.news(`${'★'.repeat(p.stars)} 達成！（${c.title}）`, 'good', -1);
+      this.lastStars = p.stars;
+    }
+    if (checkChallengeEnd(this.world)) {
+      if (!this.paused) this.togglePause();
+      openChallengeWindow(this, true);
+      this.autosave();
+    }
   }
 
   centerOnTile(tile: number) {
@@ -411,7 +448,7 @@ export class Game implements InputTarget {
       } else if (a === 'load' && slot) {
         // 先に読み込んでから、今の街をオートセーブに残す（世代がずれても、選んだ街を読む）
         const w = await loadFrom(slot);
-        if (w && slot !== 'auto') await saveTo('auto', this.world);
+        if (w && slot !== 'auto') await saveTo(this.autoSlot(), this.world);
         if (w) {
           this.startWorld(w);
           this.toast(`${SLOT_NAMES[slot]}を読み込みました`, 'good');
@@ -426,13 +463,13 @@ export class Game implements InputTarget {
       } else if (a === 'import') {
         const w = await pickSaveFile();
         if (w) {
-          await saveTo('auto', this.world);
+          await saveTo(this.autoSlot(), this.world);
           this.startWorld(w);
           this.toast('セーブファイルを読み込みました', 'good');
         }
       } else if (a === 'new') {
         if (!confirm('新しいゲームをはじめますか？（今の街はオートセーブに残ります）')) return;
-        await saveTo('auto', this.world);
+        await saveTo(this.autoSlot(), this.world);
         this.newGame(Math.floor(Math.random() * 1e9));
         this.toast('新しいゲームをはじめました', 'good');
       }
@@ -1276,6 +1313,8 @@ export class Game implements InputTarget {
         this.guideClosed = this.guideStage;
       } else if ((e.target as HTMLElement).closest('[data-g="toggle"]')) {
         this.el.guide.classList.toggle('min');
+      } else if ((e.target as HTMLElement).closest('[data-g="result"]')) {
+        openChallengeWindow(this);
       }
     });
   }
@@ -1398,6 +1437,19 @@ export class Game implements InputTarget {
   private updateGuide() {
     if (!this.world) return;
     const w = this.world;
+    if (w.challenge) {
+      // チャレンジ中は、ミッションの札を出す
+      if (this.el.guide.hidden && this.touchUI) this.el.guide.classList.add('min');
+      this.el.guide.hidden = false;
+      this.el.guide.classList.add('challenge');
+      const html = challengeCardHtml(this);
+      if (this.guideHtml !== html) {
+        this.guideHtml = html;
+        this.el.guide.innerHTML = html;
+      }
+      return;
+    }
+    this.el.guide.classList.remove('challenge');
     const inds = [...w.industries.values()];
     const towns = [...w.towns.values()];
     const forest = inds.find((i) => i.type === 'forest');
@@ -1459,6 +1511,7 @@ export class Game implements InputTarget {
       this.autosave(true);
     }
     this.drainEvents();
+    this.updateChallenge();
     this.renderer.frame(now);
     if (now - this.lastUi > 250) {
       this.lastUi = now;

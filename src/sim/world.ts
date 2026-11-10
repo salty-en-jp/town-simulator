@@ -14,6 +14,7 @@ import {
   type IndustryType,
   type VehicleType,
 } from './constants';
+import type { ChallengeState } from './challenge';
 import type { Boom } from './market';
 import type { Request, RequestState } from './requests';
 import { Rng } from './rng';
@@ -322,7 +323,9 @@ export interface World {
   /** 達成した実績と、その日（v0.5.12 から） */
   achievements?: Record<string, number>;
   /** 実績のための数え（v0.5.12 から） */
-  stats?: { cargo?: Partial<Record<Cargo, number>>; boomTons?: number; intercityPax?: number };
+  stats?: { cargo?: Partial<Record<Cargo, number>>; boomTons?: number; intercityPax?: number; paxIncome?: number };
+  /** チャレンジモードで遊んでいるとき（v0.6 から） */
+  challenge?: ChallengeState | null;
 }
 
 /** 記録しておく月数 */
@@ -583,6 +586,8 @@ export function vehicleYear(type: VehicleType): number | undefined {
 
 /** 買えるか：登場した年を過ぎたか、依頼の報酬で早めに使えるようになったか */
 export function canBuy(world: World, type: VehicleType): boolean {
+  // チャレンジの「ツナグ形だけ」
+  if (world.challenge?.rules.includes('steamOnly') && isEngine(type) && type !== 'steam') return false;
   const y = vehicleYear(type);
   return y === undefined || dateOf(world.day).y >= y || world.unlocked.has(type);
 }

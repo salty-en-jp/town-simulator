@@ -7,6 +7,7 @@
 // 方針：形と範囲だけを見る。駅の ID など「どこを指しているか」は確かめない
 // （解体した駅を指令が指したままになるのは、ふつうの遊び方でも起きるため）
 
+import { METRICS, RULE_TEXT } from './challenge';
 import { CARGOS, ENGINE_SPECS, INDUSTRY_SPECS, WAGON_SPECS } from './constants';
 
 export class SaveCheckError extends Error {}
@@ -345,6 +346,25 @@ export function checkSavedWorld(v: unknown): void {
     optional(st.cargo, () => cargoNums(st.cargo, 'stats.cargo'));
     optional(st.boomTons, () => num(st.boomTons, 'stats.boomTons', 0));
     optional(st.intercityPax, () => num(st.intercityPax, 'stats.intercityPax', 0));
+    optional(st.paxIncome, () => num(st.paxIncome, 'stats.paxIncome'));
+  });
+
+  optional(s.challenge, () => {
+    const c = obj(s.challenge, 'challenge');
+    oneOf(c.kind, ['stage', 'daily', 'random'], 'challenge.kind');
+    str(c.id, 'challenge.id', 40);
+    str(c.title, 'challenge.title', 80);
+    str(c.lead, 'challenge.lead', 200);
+    num(c.seed, 'challenge.seed');
+    oneOf(c.metric, Object.keys(METRICS), 'challenge.metric');
+    const g = arr(c.goals, 'challenge.goals', 3);
+    if (g.length !== 3) bad('challenge.goals');
+    g.forEach((x, i) => num(x, `challenge.goals[${i}]`));
+    num(c.years, 'challenge.years', 0, 100);
+    arr(c.rules, 'challenge.rules', 5).forEach((x, i) => oneOf(x, Object.keys(RULE_TEXT), `challenge.rules[${i}]`));
+    num(c.startDay, 'challenge.startDay');
+    num(c.endDay, 'challenge.endDay');
+    optional(c.done, () => bool(c.done, 'challenge.done'));
   });
 
   const hist = obj(s.history, 'history');

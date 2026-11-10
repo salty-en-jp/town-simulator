@@ -11,6 +11,8 @@ import * as events from './sim/events';
 import * as sim from './sim/simulate';
 import type { World } from './sim/world';
 import { VERSION } from './version';
+import type { ChallengeDef } from './sim/challenge';
+import { renderChallengeMenu } from './ui/challengeUi';
 import { daysSinceBackup, isSafeStorage, listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence, storageStatus } from './storage';
 
 const escHtml = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -53,32 +55,72 @@ async function main() {
   // オートセーブがあれば「続きから」を出す
   const saves = await listSaves();
   const auto = saves.auto;
-  if (auto && !params.has('seed')) {
-    actions.innerHTML = `
-      <button id="continue-btn" class="start-btn">続きから</button>
-      <p class="continue-meta">${auto.rank ? `${escHtml(auto.rank)}・` : ''}${metaLabel(auto)}・${formatYen(auto.money)}・人口 ${auto.population.toLocaleString('ja-JP')}人</p>
-      <div class="title-sub">
-        <button id="new-btn" class="sub-btn">はじめから</button>
-        <button id="file-btn" class="sub-btn">ファイルから読み込む</button>
-      </div>`;
-    document.getElementById('continue-btn')!.addEventListener('click', async () => {
+  const challengeSave = saves.challenge;
+  const startChallenge = async (def: ChallengeDef) => {
+    if (busy) return;
+    busy = true;
+    await leaveTitle();
+    game.startChallenge(def);
+  };
+
+  const renderMain = () => {
+    const challengeBtn = '<button id="challenge-btn" class="sub-btn ch-open">チャレンジ</button>';
+    if (auto && !params.has('seed')) {
+      actions.innerHTML = `
+        <button id="continue-btn" class="start-btn">続きから</button>
+        <p class="continue-meta">${auto.rank ? `${escHtml(auto.rank)}・` : ''}${metaLabel(auto)}・${formatYen(auto.money)}・人口 ${auto.population.toLocaleString('ja-JP')}人</p>
+        <div class="title-sub">
+          ${challengeBtn}
+          <button id="new-btn" class="sub-btn">はじめから</button>
+          <button id="file-btn" class="sub-btn">ファイルから読み込む</button>
+        </div>`;
+      document.getElementById('continue-btn')!.addEventListener('click', async () => {
+        try {
+          const w = await loadFrom('auto');
+          if (w) await startWith(w);
+          else await startNew();
+        } catch (e) {
+          alert((e as Error).message);
+        }
+      });
+      document.getElementById('new-btn')!.addEventListener('click', () => {
+        if (confirm('新しいゲームをはじめますか？\n今の街（オートセーブ）は、次のオートセーブで上書きされます。残したいときは、先に「続きから」でスロットにセーブしてください。')) startNew();
+      });
+    } else {
+      actions.innerHTML = `
+        <button id="start-btn" class="start-btn">はじめる</button>
+        <div class="title-sub">${challengeBtn}<button id="file-btn" class="sub-btn">ファイルから読み込む</button></div>`;
+      document.getElementById('start-btn')!.addEventListener('click', startNew);
+    }
+    document.getElementById('file-btn')!.addEventListener('click', async () => {
       try {
-        const w = await loadFrom('auto');
+        const w = await pickSaveFile();
         if (w) await startWith(w);
-        else await startNew();
       } catch (e) {
         alert((e as Error).message);
       }
     });
-    document.getElementById('new-btn')!.addEventListener('click', () => {
-      if (confirm('新しいゲームをはじめますか？\n今の街（オートセーブ）は、次のオートセーブで上書きされます。残したいときは、先に「続きから」でスロットにセーブしてください。')) startNew();
+    document.getElementById('challenge-btn')!.addEventListener('click', () => {
+      title.classList.add('ch-mode');
+      renderChallengeMenu(actions, {
+        saved: challengeSave ? { title: challengeSave.challenge ?? 'チャレンジ' } : null,
+        onPick: (def) => void startChallenge(def),
+        onContinue: async () => {
+          try {
+            const w = await loadFrom('challenge');
+            if (w) await startWith(w);
+          } catch (e) {
+            alert((e as Error).message);
+          }
+        },
+        onBack: () => {
+          title.classList.remove('ch-mode');
+          renderMain();
+        },
+      });
     });
-  } else {
-    actions.innerHTML = `
-      <button id="start-btn" class="start-btn">はじめる</button>
-      <div class="title-sub"><button id="file-btn" class="sub-btn">ファイルから読み込む</button></div>`;
-    document.getElementById('start-btn')!.addEventListener('click', startNew);
-  }
+  };
+  renderMain();
   // データの安全の目安（タイトルの下に小さく）
   void storageStatus().then((s) => {
     const note = document.createElement('p');
@@ -92,14 +134,6 @@ async function main() {
     else if (s.standalone && s.ios) lines.push('Safari で遊んでいた街は、Safari で「ファイルに書き出す」→ ここで「ファイルから読み込む」で移せます');
     note.textContent = lines.join('　／　');
     if (lines.length) actions.after(note);
-  });
-  document.getElementById('file-btn')!.addEventListener('click', async () => {
-    try {
-      const w = await pickSaveFile();
-      if (w) await startWith(w);
-    } catch (e) {
-      alert((e as Error).message);
-    }
   });
   if (params.has('autostart')) startNew();
 

@@ -64,6 +64,7 @@ interface SavedWorld {
   rank?: number;
   achievements?: World['achievements'];
   stats?: World['stats'];
+  challenge?: World['challenge'];
 }
 
 export interface SaveFile {
@@ -132,6 +133,7 @@ export function toSaveFile(w: World): SaveFile {
       rank: w.rank ?? 0,
       achievements: w.achievements ?? {},
       stats: w.stats ?? {},
+      challenge: w.challenge ?? null,
     },
   };
 }
@@ -224,5 +226,6 @@ export function deserializeWorld(text: string): World {
     rank: s.rank ?? 0,
     achievements: s.achievements ?? {},
     stats: s.stats ?? {},
+    challenge: s.challenge ?? null,
   };
 }
