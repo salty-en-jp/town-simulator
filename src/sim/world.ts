@@ -317,6 +317,12 @@ export interface World {
   market?: Partial<Record<Cargo, number>>;
   /** 期間限定のブーム（v0.5.5 から） */
   booms?: Boom[];
+  /** 会社のランク（RANKS の番号。上がるだけ。v0.5.12 から） */
+  rank?: number;
+  /** 達成した実績と、その日（v0.5.12 から） */
+  achievements?: Record<string, number>;
+  /** 実績のための数え（v0.5.12 から） */
+  stats?: { cargo?: Partial<Record<Cargo, number>>; boomTons?: number; intercityPax?: number };
 }
 
 /** 記録しておく月数 */
@@ -377,6 +383,9 @@ export function createEmptyWorld(w: number, h: number, seed: number): World {
     history: { income: [], expense: [], money: [], assets: [] },
     market: {},
     booms: [],
+    rank: 0,
+    achievements: {},
+    stats: {},
   };
 }
 

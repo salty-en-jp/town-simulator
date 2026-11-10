@@ -5,6 +5,7 @@
 // ・iPhone の Safari は、7日間開かなかったサイトのデータを消すことがある。
 //   ホーム画面に追加したアプリは対象外なので、そちらをすすめる。念のため書き出しも用意
 
+import { RANKS } from './sim/company';
 import { deserializeWorld, MAX_SAVE_CHARS, SaveError, serializeWorld } from './sim/save';
 import { dateOf, Terrain, type World } from './sim/world';
 
@@ -28,6 +29,8 @@ export interface SaveMeta {
   population: number;
   trains: number;
   thumb: string;
+  /** 会社のランクの名前（v0.5.12 から） */
+  rank?: string;
 }
 
 interface SaveRecord {
@@ -113,6 +116,7 @@ export function worldMeta(w: World, slot: Slot): SaveMeta {
     population,
     trains: w.trains.size,
     thumb: thumbnail(w),
+    rank: RANKS[w.rank ?? 0]?.name,
   };
 }
 

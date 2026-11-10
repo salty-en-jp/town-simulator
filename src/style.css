@@ -2978,3 +2978,128 @@ details.relnote.old summary small {
   line-height: 1.6;
   color: rgba(243, 236, 216, 0.75);
 }
+
+/* ───────────── v0.5.12：会社のランクと実績 ───────────── */
+
+.rank-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fff4d6;
+  border: 1px solid #f0d48a;
+}
+
+.rank-line b {
+  font-family: var(--font-game);
+  font-weight: 400;
+  font-size: 15px;
+}
+
+.rank-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(#fff8e4, #fff2cf);
+  border: 1px solid #f0d48a;
+}
+
+.rank-card p {
+  margin: 2px 0;
+}
+
+.rank-name {
+  font-family: var(--font-game);
+  font-size: 22px;
+  color: #7a4a00;
+}
+
+.rank-ladder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 6px 0 8px;
+  padding: 0;
+}
+
+.rank-ladder li {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ece3cc;
+  color: var(--ink-soft);
+}
+
+.rank-ladder li.done {
+  background: #d8c48a;
+  color: #4a3a10;
+}
+
+.rank-ladder li.cur {
+  background: #e8a317;
+  color: #fff;
+}
+
+.rank-goal {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin: 3px 0;
+}
+
+.rank-goal .gauge {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: #e6dcc3;
+  overflow: hidden;
+}
+
+.rank-goal .gauge i {
+  display: block;
+  height: 100%;
+  background: #e8a317;
+}
+
+.ach-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.ach {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.ach b {
+  font-weight: 700;
+}
+
+.ach small {
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.ach.got {
+  border: 1px solid #f0d48a;
+  background: #fff8e4;
+  color: var(--ink);
+}
+
+.ach.got b {
+  color: #9a5a00;
+}

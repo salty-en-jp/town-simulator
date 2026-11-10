@@ -61,6 +61,9 @@ interface SavedWorld {
   history: World['history'];
   market?: World['market'];
   booms?: World['booms'];
+  rank?: number;
+  achievements?: World['achievements'];
+  stats?: World['stats'];
 }
 
 export interface SaveFile {
@@ -126,6 +129,9 @@ export function toSaveFile(w: World): SaveFile {
       history: w.history,
       market: w.market ?? {},
       booms: w.booms ?? [],
+      rank: w.rank ?? 0,
+      achievements: w.achievements ?? {},
+      stats: w.stats ?? {},
     },
   };
 }
@@ -215,5 +221,8 @@ export function deserializeWorld(text: string): World {
     history: s.history,
     market: s.market ?? {},
     booms: s.booms ?? [],
+    rank: s.rank ?? 0,
+    achievements: s.achievements ?? {},
+    stats: s.stats ?? {},
   };
 }

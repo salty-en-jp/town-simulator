@@ -30,6 +30,7 @@ export const ICONS = {
   market: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
   factoryPlus: svg('<path d="M3 20V11l5 3v-3l5 3V8h3v12z"/><path d="M3 20h13"/><path d="M19 3v6M16 6h6"/>'),
   news: svg('<path d="M4 5h13v14a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M17 9h3v10a2 2 0 01-2 2"/><path d="M7 9h7M7 13h7M7 17h4"/>'),
+  trophy: svg('<path d="M8 4h8v5a4 4 0 01-8 0z"/><path d="M8 6H5a3 3 0 003 4M16 6h3a3 3 0 01-3 4"/><path d="M12 13v4M8 20h8M9 17h6v3H9z"/>'),
   pencil: svg('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
   up: svg('<path d="M12 19V5M6 11l6-6 6 6"/>'),
   down: svg('<path d="M12 5v14M6 13l6 6 6-6"/>'),

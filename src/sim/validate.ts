@@ -331,6 +331,22 @@ export function checkSavedWorld(v: unknown): void {
     }),
   );
 
+  optional(s.rank, () => int(s.rank, 'rank', 0, 50));
+  optional(s.achievements, () => {
+    const a = obj(s.achievements, 'achievements');
+    if (Object.keys(a).length > 200) bad('achievements');
+    for (const [k, v] of Object.entries(a)) {
+      str(k, 'achievements', 40);
+      num(v, `achievements.${k}`);
+    }
+  });
+  optional(s.stats, () => {
+    const st = obj(s.stats, 'stats');
+    optional(st.cargo, () => cargoNums(st.cargo, 'stats.cargo'));
+    optional(st.boomTons, () => num(st.boomTons, 'stats.boomTons', 0));
+    optional(st.intercityPax, () => num(st.intercityPax, 'stats.intercityPax', 0));
+  });
+
   const hist = obj(s.history, 'history');
   for (const k of ['income', 'expense', 'money', 'assets']) numArr(hist[k], `history.${k}`);
 }

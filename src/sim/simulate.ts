@@ -23,6 +23,7 @@ import {
 } from './constants';
 import { cargoIncome, demandFactor } from './economy';
 import { replaceEngine } from './commands';
+import { companyMonthly } from './company';
 import { eventsMonthly } from './events';
 import { intercityMul, TOWN_GROWTH, townAccepts, townNear, townStage, updateTownStage } from './towns';
 import { boomMul, marketIndex, marketMonthly, tourismPaxMul } from './market';
@@ -305,6 +306,11 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
       delivered += take;
       // 旅客：大きな町どうしを結ぶほど運賃が上がる（乗った町と降りた町の大きさ）
       const inter = cargo === 'passengers' && town ? intercityMul(townNear(world, p.fromTile), town) : 1;
+      // 実績のための数え
+      const stats = (world.stats ??= {});
+      (stats.cargo ??= {})[cargo] = (stats.cargo[cargo] ?? 0) + take;
+      if (boomMul(world, target, cargo) > 1) stats.boomTons = (stats.boomTons ?? 0) + take;
+      if (inter >= 1.5) stats.intercityPax = (stats.intercityPax ?? 0) + take;
       const income = cargoIncome(cargo, take, manhattan(world, p.fromTile, sign), p.days, demand * inter);
       earn(world, 'income', income);
       world.requestState.incomeTotal += income;
@@ -780,6 +786,7 @@ function monthly(world: World) {
   industriesOwnershipMonthly(world);
   eventsMonthly(world);
   marketMonthly(world);
+  companyMonthly(world);
   recordCompany(world);
   for (const town of world.towns.values()) {
     for (const r of Object.values(town.recv)) {
