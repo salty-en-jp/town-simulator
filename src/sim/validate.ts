@@ -8,7 +8,7 @@
 // （解体した駅を指令が指したままになるのは、ふつうの遊び方でも起きるため）
 
 import { METRICS, RULE_TEXT } from './challenge';
-import { CARGOS, ENGINE_SPECS, INDUSTRY_SPECS, WAGON_SPECS } from './constants';
+import { CARGOS, DEV_POWERS, DEV_USES, ENGINE_SPECS, INDUSTRY_SPECS, isDevEngine, WAGON_SPECS } from './constants';
 
 export class SaveCheckError extends Error {}
 
@@ -18,8 +18,10 @@ const MAX_ITEMS = 20_000;
 const MAX_NAME = 40;
 const MAX_TEXT = 300;
 
-const VEHICLES = new Set([...Object.keys(WAGON_SPECS), ...Object.keys(ENGINE_SPECS)]);
-const ENGINES = new Set(Object.keys(ENGINE_SPECS));
+const BASE_ENGINES = Object.keys(ENGINE_SPECS).filter((k) => !isDevEngine(k));
+// 自社開発の機関車（dev12 など）は、そのセーブの開発記録にあるものだけを認める
+let VEHICLES = new Set([...Object.keys(WAGON_SPECS), ...BASE_ENGINES]);
+let ENGINES = new Set(BASE_ENGINES);
 const INDUSTRIES = new Set(Object.keys(INDUSTRY_SPECS));
 const CARGO_SET = new Set<string>(CARGOS);
 
@@ -117,6 +119,7 @@ export function checkSavedWorld(v: unknown): void {
   num(s.seed, 'seed');
   str(s.terrain, 'terrain', n * 2 + 16);
   str(s.track, 'track', n * 2 + 16);
+  designs(s);
 
   arr(s.occ, 'occ', n).forEach((e, i) => {
     const p = `occ[${i}]`;
@@ -377,4 +380,44 @@ export function checkSavedWorld(v: unknown): void {
 
   const hist = obj(s.history, 'history');
   for (const k of ['income', 'expense', 'money', 'assets']) numArr(hist[k], `history.${k}`);
+}
+
+/** 自社開発の記録（v0.8.2）。できあがった機関車を、使ってよい車両に加える */
+function designs(s: Obj) {
+  const done: string[] = [];
+  optional(s.designs, () => {
+    const ids = new Set<number>();
+    arr(s.designs, 'designs', 100).forEach((v, i) => {
+      const p = `designs[${i}]`;
+      const d = obj(v, p);
+      const did = int(d.id, `${p}.id`, 0);
+      if (ids.has(did)) bad(`${p}.id`);
+      ids.add(did);
+      str(d.name, `${p}.name`);
+      oneOf(d.power, DEV_POWERS, `${p}.power`);
+      oneOf(d.use, DEV_USES, `${p}.use`);
+      int(d.budget, `${p}.budget`, 0, 2);
+      int(d.color, `${p}.color`, 0, 0xffffff);
+      num(d.start, `${p}.start`);
+      int(d.days, `${p}.days`, 1, 10_000);
+      int(d.progress, `${p}.progress`, 0, 10_000);
+      const pts = obj(d.pts, `${p}.pts`);
+      for (const k of ['speed', 'might', 'economy', 'comfort']) num(pts[k], `${p}.pts.${k}`, 0, 1e6);
+      arr(d.tests, `${p}.tests`, 2).forEach((t, j) => {
+        const r = obj(t, `${p}.tests[${j}]`);
+        oneOf(r.choice, ['safe', 'bold', 'daring'], `${p}.tests[${j}].choice`);
+        bool(r.ok, `${p}.tests[${j}].ok`);
+      });
+      optional(d.waiting, () => bool(d.waiting, `${p}.waiting`));
+      optional(d.defect, () => bool(d.defect, `${p}.defect`));
+      optional(d.rating, () => int(d.rating, `${p}.rating`, 1, 5));
+      optional(d.done, () => {
+        num(d.done, `${p}.done`);
+        done.push(`dev${did}`);
+      });
+    });
+  });
+  optional(s.devFame, () => num(s.devFame, 'devFame', 0, 100));
+  VEHICLES = new Set([...Object.keys(WAGON_SPECS), ...BASE_ENGINES, ...done]);
+  ENGINES = new Set([...BASE_ENGINES, ...done]);
 }

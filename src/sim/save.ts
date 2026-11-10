@@ -4,6 +4,7 @@
 // ・版番号 SAVE_VERSION を上げたら、migrate() に古い版からの変換を足す
 //   → 試作版で作った街が、次の版でも読み込めるようにする
 
+import { syncDesigns, type Design } from './devel';
 import { Rng } from './rng';
 import type { Request, RequestState } from './requests';
 import {
@@ -70,6 +71,8 @@ interface SavedWorld {
   landform?: World['landform'];
   /** 電化したマス（base64。v0.8.1） */
   electric?: string;
+  designs?: Design[];
+  devFame?: number;
 }
 
 export interface SaveFile {
@@ -142,6 +145,8 @@ export function toSaveFile(w: World): SaveFile {
       pace: w.pace ?? 'normal',
       landform: w.landform ?? 'mixed',
       electric: w.electric && w.electric.some((v) => v) ? bytesToB64(w.electric) : undefined,
+      designs: w.designs?.length ? w.designs : undefined,
+      devFame: w.devFame || undefined,
     },
   };
 }
@@ -196,7 +201,7 @@ export function deserializeWorld(text: string): World {
   if (terrain.length !== n || track.length !== n) throw new SaveError('セーブデータが壊れています');
   const rng = new Rng(0);
   rng.state = s.rng >>> 0;
-  return {
+  const world: World = {
     w: s.w,
     h: s.h,
     seed: s.seed,
@@ -242,5 +247,9 @@ export function deserializeWorld(text: string): World {
     pace: s.pace ?? 'normal',
     landform: s.landform ?? 'mixed',
     electric,
+    designs: s.designs ?? [],
+    devFame: s.devFame ?? 0,
   };
+  syncDesigns(world);
+  return world;
 }

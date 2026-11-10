@@ -2,6 +2,8 @@
 
 import { VERSION } from '../version';
 import { openZukan } from './zukan';
+import { openDevel } from './develUi';
+import { engineList } from '../sim/devel';
 import { manualHtml, releaseNotesHtml } from './manual';
 import {
   addOrder,
@@ -36,7 +38,6 @@ import {
   SPECIALTIES,
   CARGOS,
   ENGINE_SPECS,
-  ENGINE_TYPES,
   FINANCE,
   INDUSTRY,
   FACTORY_TYPES,
@@ -111,7 +112,7 @@ export const esc = (s: string) =>
 const n0 = (v: number) => Math.floor(v).toLocaleString('ja-JP');
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
-function gauge(value: number, max: number, cls = '') {
+export function gauge(value: number, max: number, cls = '') {
   const r = Math.max(0, Math.min(1, value / max));
   return `<span class="gauge ${cls}"><span style="width:${(r * 100).toFixed(1)}%"></span></span>`;
 }
@@ -178,10 +179,10 @@ export function openTrain(g: Game, id: number) {
       const eng = ENGINE_SPECS[trainEngine(t)];
       const cars = t.cars
         .map((c) => {
-          if (isEngine(c.type)) return `<li><span class="car-dot ${c.type}"></span>${esc(vehicleName(c.type))}<span class="grow"></span><span class="muted small">${ageText(g, c.built)}</span></li>`;
+          if (isEngine(c.type)) return `<li><span class="car-dot ${c.type}"${dotStyle(c.type)}></span>${esc(vehicleName(c.type))}<span class="grow"></span><span class="muted small">${ageText(g, c.built)}</span></li>`;
           const cargo = carCargo(c)!;
           const cap = carCapacity(c, cargo);
-          return `<li><span class="car-dot ${c.type}"></span>${esc(vehicleName(c.type))}<span class="grow"></span>${gauge(carLoad(c), cap)}<span class="num">${n0(carLoad(c))}/${cap}${CARGO_SPECS[cargo].unit}</span></li>`;
+          return `<li><span class="car-dot ${c.type}"${dotStyle(c.type)}></span>${esc(vehicleName(c.type))}<span class="grow"></span>${gauge(carLoad(c), cap)}<span class="num">${n0(carLoad(c))}/${cap}${CARGO_SPECS[cargo].unit}</span></li>`;
         })
         .join('');
       const inDepot = t.state === 'in_depot';
@@ -317,7 +318,7 @@ export function openEngineSwap(g: Game, trainId: number) {
       const sameRoute = [...w.trains.values()].filter((x) => x.orderList === t.orderList).length;
       const sameEngine = [...w.trains.values()].filter((x) => x.cars[0]?.type === cur).length;
       const spares = (e: EngineType) => [...w.depots.values()].reduce((n, d) => n + d.stored.filter((c) => c.type === e).length, 0);
-      const engines = ENGINE_TYPES.filter((e) => e !== cur)
+      const engines = engineList(w).filter((e) => e !== cur)
         .map((e) => {
           const avail = canBuy(w, e) || spares(e) > 0;
           // この列車の貨車をそのまま引けるか（両数・客車だけ／貨車だけ）
@@ -326,7 +327,7 @@ export function openEngineSwap(g: Game, trainId: number) {
           const why = !avail ? `${vehicleYear(e)}年に登場します` : (bad ?? '');
           if (!avail && (vehicleYear(e) ?? 0) - dateOf(w.day).y > 5) return '';
           return `<button class="buy ${ui.type === e ? 'on' : ''}" data-action="type" data-e="${e}" ${ok ? '' : `disabled title="${esc(why)}"`}>
-            <span class="buy-name"><span class="car-dot ${e}"></span>${SHORT_NAMES[e]}${ok ? '' : ` <small class="muted">${esc(!avail ? `${vehicleYear(e)}年〜` : 'この編成は引けない')}</small>`}</span>
+            <span class="buy-name"><span class="car-dot ${e}"${dotStyle(e)}></span>${shortName(e)}${ok ? '' : ` <small class="muted">${esc(!avail ? `${vehicleYear(e)}年〜` : 'この編成は引けない')}</small>`}</span>
             <span class="num">${formatYen(vehicleCost(e))}</span>
             <span class="muted small">${vehicleDesc(e)}${spares(e) ? `・留置線に${spares(e)}両` : ''}</span></button>`;
         })
@@ -340,7 +341,7 @@ export function openEngineSwap(g: Game, trainId: number) {
         <h4>どの列車を</h4>
         ${radio('scope', 'one', `この列車だけ（${esc(t.name)}）`)}
         ${radio('scope', 'route', `同じ指令の列車すべて（${sameRoute}本）`)}
-        ${radio('scope', 'type', `${esc(SHORT_NAMES[cur])}の列車すべて（${sameEngine}本）`)}
+        ${radio('scope', 'type', `${esc(shortName(cur))}の列車すべて（${sameEngine}本）`)}
         <h4>新しい機関車</h4>
         <div class="buy-grid">${engines || '<p class="muted small">ほかの機関車がありません</p>'}</div>
         <h4>古い機関車</h4>
@@ -588,10 +589,21 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   specialtycar: '名産品車',
 };
 
+/** 短い名前（自社開発の機関車は付けた名前） */
+function shortName(t: VehicleType): string {
+  return SHORT_NAMES[t] ?? vehicleName(t);
+}
+
+/** 自社開発の機関車は、選んだ色の丸 */
+function dotStyle(t: VehicleType): string {
+  const c = isEngine(t) ? ENGINE_SPECS[t].color : undefined;
+  return c === undefined ? '' : ` style="background:#${c.toString(16).padStart(6, '0')}"`;
+}
+
 function vehicleDesc(t: VehicleType): string {
   if (isEngine(t)) {
     const e = ENGINE_SPECS[t];
-    return `${e.speed}マス/日・${e.maxCars}両まで・${e.allow === 'pax' ? '客車だけ' : e.allow === 'freight' ? '貨車だけ' : 'なんでも'}`;
+    return `${e.color !== undefined ? '自社開発・' : ''}${e.speed}マス/日・${e.maxCars}両まで・${e.allow === 'pax' ? '客車だけ' : e.allow === 'freight' ? '貨車だけ' : 'なんでも'}${e.comfort && e.comfort > 1 ? `・運賃×${e.comfort.toFixed(2)}` : ''}`;
   }
   if (WAGON_SPECS[t].fresh) {
     const w = WAGON_SPECS[t];
@@ -630,8 +642,8 @@ export function openDepot(g: Game, id: number) {
           const chips = t.cars
             .map((c, i) =>
               i === 0
-                ? `<span class="chip ${c.type}">${SHORT_NAMES[c.type]}</span>`
-                : `<button class="chip ${c.type}" data-action="detach" data-train="${t.id}" data-car="${c.id}" title="外して留置線へ">${SHORT_NAMES[c.type]}<b>↓</b></button>`,
+                ? `<span class="chip ${c.type}"${dotStyle(c.type)}>${shortName(c.type)}</span>`
+                : `<button class="chip ${c.type}"${dotStyle(c.type)} data-action="detach" data-train="${t.id}" data-car="${c.id}" title="外して留置線へ">${shortName(c.type)}<b>↓</b></button>`,
             )
             .join('');
           const wagons = t.cars.length - 1;
@@ -643,30 +655,30 @@ export function openDepot(g: Game, id: number) {
         .join('');
 
       // 留置線は種類ごとにまとめる（機関車 → 貨車の順、同じ種類は古い順）
-      const order = [...ENGINE_TYPES, ...WAGON_TYPES] as VehicleType[];
+      const order = [...engineList(w), ...WAGON_TYPES] as VehicleType[];
       const sorted = [...depot.stored].sort((p, q) => order.indexOf(p.type) - order.indexOf(q.type) || p.built - q.built);
       const counts = new Map<VehicleType, number>();
       for (const c of sorted) counts.set(c.type, (counts.get(c.type) ?? 0) + 1);
       let lastType: VehicleType | null = null;
       const stored = sorted
         .map((c) => {
-          const head = c.type !== lastType ? `<li class="group"><span class="car-dot ${c.type}"></span>${SHORT_NAMES[c.type]} ×${counts.get(c.type)}</li>` : '';
+          const head = c.type !== lastType ? `<li class="group"><span class="car-dot ${c.type}"${dotStyle(c.type)}></span>${shortName(c.type)} ×${counts.get(c.type)}</li>` : '';
           lastType = c.type;
           const engine = isEngine(c.type);
           const action = engine
             ? `<button class="small-btn" data-action="maketrain" data-car="${c.id}">列車にする</button>`
             : `<button class="small-btn" data-action="attach" data-car="${c.id}" ${selTrain ? '' : 'disabled title="先に上で列車を選んでください"'}>↑つなぐ</button>`;
-          return `${head}<li class="sub"><span>${SHORT_NAMES[c.type]}<small class="muted"> ${ageText(g, c.built)}</small></span><span class="grow"></span>${action}<button class="small-btn" data-action="sellcar" data-car="${c.id}" title="売却">売る ${formatYen(carValue(w, c))}</button></li>`;
+          return `${head}<li class="sub"><span>${shortName(c.type)}<small class="muted"> ${ageText(g, c.built)}</small></span><span class="grow"></span>${action}<button class="small-btn" data-action="sellcar" data-car="${c.id}" title="売却">売る ${formatYen(carValue(w, c))}</button></li>`;
         })
         .join('');
 
-      const buy = [...ENGINE_TYPES, ...WAGON_TYPES]
+      const buy = [...engineList(w), ...WAGON_TYPES]
         .map((t) => {
           const ok = canBuy(w, t);
           const yr = vehicleYear(t);
           if (!ok && yr !== undefined && yr - dateOf(w.day).y > 5) return ''; // 先すぎる車両はまだ出さない
           return `<button class="buy ${ok ? '' : 'locked'}" data-action="buy" data-k="${t}" ${ok ? '' : 'disabled'} title="${ok ? '' : `${yr}年に登場します（依頼の報酬で一足早く使えることもあります）`}">
-            <span class="buy-name"><span class="car-dot ${t}"></span>${SHORT_NAMES[t]}</span>
+            <span class="buy-name"><span class="car-dot ${t}"${dotStyle(t)}></span>${shortName(t)}</span>
             <span class="muted small">${ok ? '' : `<b>${yr}年に登場</b>・`}${vehicleDesc(t)}</span>
             <span class="num">${formatYen(vehicleCost(t))}</span></button>`;
         })
@@ -1498,6 +1510,7 @@ export function openMenu(g: Game) {
         <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
         <button data-action="company">${ICONS.trophy}<span>会社と実績</span></button>
+        <button data-action="devel">${ICONS.wrench}<span>自社開発</span></button>
         <button data-action="zukan">${ICONS.book}<span>車両図鑑</span></button>
         <button data-action="news">${ICONS.news}<span>お知らせ</span></button>
         <button data-action="help">${ICONS.help}<span>ヘルプ</span></button>
@@ -1517,6 +1530,7 @@ export function openMenu(g: Game) {
       if (a === 'news') openNews(g);
       if (a === 'company') openCompany(g);
       if (a === 'zukan') openZukan(g);
+      if (a === 'devel') openDevel(g);
     },
   });
 }

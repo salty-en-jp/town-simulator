@@ -79,7 +79,10 @@ export type WagonType =
   | 'livestockcar'
   | 'fishcar'
   | 'specialtycar';
-export type EngineType = 'steam' | 'express' | 'heavy' | 'superexpress';
+export type BaseEngineType = 'steam' | 'express' | 'heavy' | 'superexpress';
+/** 自社開発の機関車は dev12 のような名前（v0.8.2。その街のセーブに入っている） */
+export type DevEngineType = `dev${number}`;
+export type EngineType = BaseEngineType | DevEngineType;
 export type VehicleType = EngineType | WagonType;
 
 export interface WagonSpec {
@@ -110,6 +113,9 @@ export interface EngineSpec {
   allow: 'any' | 'pax' | 'freight';
   year?: number;
   desc: string;
+  /** 自社開発の機関車だけ：車体の色と、旅客の運賃の倍率（快適さ） */
+  color?: number;
+  comfort?: number;
 }
 
 // 登場の順番は「田舎に必要なもの」から：原木・木材・穀物・食料品 → 貨物用機関車・旅客 → 重工業 → 超特急
@@ -162,7 +168,20 @@ export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
   },
 };
 
+/** はじめから用意されている機関車（自社開発の機関車は入らない） */
 export const ENGINE_TYPES = Object.keys(ENGINE_SPECS) as EngineType[];
+
+export function isDevEngine(t: string): t is DevEngineType {
+  return /^dev\d+$/.test(t);
+}
+
+/** 自社開発の機関車を、車両の表に入れる・外す（今の街のものだけを入れておく） */
+export function registerDevEngine(t: DevEngineType, spec: EngineSpec) {
+  ENGINE_SPECS[t] = spec;
+}
+export function clearDevEngines() {
+  for (const k of Object.keys(ENGINE_SPECS)) if (isDevEngine(k)) delete ENGINE_SPECS[k as DevEngineType];
+}
 export const WAGON_TYPES = Object.keys(WAGON_SPECS) as WagonType[];
 
 export function isEngine(t: VehicleType): t is EngineType {

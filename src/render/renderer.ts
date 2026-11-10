@@ -3,7 +3,7 @@
 // CSP（eval を禁止）の下でも動くようにする。公開版は eval を許していない
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics } from 'pixi.js';
-import { CARGO_SPECS, INDUSTRY_SPECS, isEngine, WAGON_SPECS } from '../sim/constants';
+import { CARGO_SPECS, ENGINE_SPECS, INDUSTRY_SPECS, isDevEngine, isEngine, WAGON_SPECS, type EngineType } from '../sim/constants';
 import { industryStatus, ownerLabel } from '../sim/industries';
 import { activeBooms } from '../sim/market';
 import { stageName, townStage } from '../sim/towns';
@@ -1364,7 +1364,7 @@ function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car:
     [x - (dx * len) / 2 - (px * wid) / 2, y - (dy * len) / 2 - (py * wid) / 2],
     [x - (dx * len) / 2 + (px * wid) / 2, y - (dy * len) / 2 + (py * wid) / 2],
   ];
-  const color = CAR_COLORS[car.type];
+  const color = CAR_COLORS[car.type] ?? (isEngine(car.type) ? ENGINE_SPECS[car.type].color : undefined) ?? 0x888888;
   const base = 2;
   // 影
   g.poly(groundPoly(corners)).fill({ color: 0x000000, alpha: 0.18 });
@@ -1386,11 +1386,13 @@ function drawCar(g: Graphics, x: number, y: number, dx: number, dy: number, car:
     // 煙突とライン
     const fx = x + dx * 0.14,
       fy = y + dy * 0.14;
-    if (car.type === 'steam') g.ellipse(isoX(fx, fy), isoY(fx, fy) - base - h - 3, 2.2, 3.2).fill(0x1b2129);
+    if (car.type === 'steam' || (isDevEngine(car.type) && ENGINE_SPECS[car.type].power === 'steam')) g.ellipse(isoX(fx, fy), isoY(fx, fy) - base - h - 3, 2.2, 3.2).fill(0x1b2129);
     const s0 = groundPoly([[x - dx * 0.2, y - dy * 0.2]], base + h - 3),
       s1 = groundPoly([[x + dx * 0.2, y + dy * 0.2]], base + h - 3);
     const stripe: Record<string, number> = { steam: 0xc0443a, express: 0xf2c14e, heavy: 0xe8a317, superexpress: 0x2f5f8f };
-    g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: car.type === 'superexpress' ? 2.5 : 1.5, color: stripe[car.type] ?? 0xc0443a });
+    // 自社開発の機関車：電気は白、ディーゼルは黄色、蒸気は赤の帯
+    const devStripe = { electric: 0xf0f0f0, diesel: 0xf2c14e, steam: 0xc0443a }[ENGINE_SPECS[car.type as EngineType]?.power ?? 'steam'];
+    g.moveTo(s0[0], s0[1]).lineTo(s1[0], s1[1]).stroke({ width: car.type === 'superexpress' ? 2.5 : 1.5, color: stripe[car.type] ?? devStripe });
   } else if (pax) {
     g.poly(groundPoly(corners.map(([cx, cy]) => [x + (cx - x) * 0.8, y + (cy - y) * 0.6] as [number, number]), base + h)).fill(
       shade(color, 1.2),

@@ -3,6 +3,7 @@
 import {
   CARGOS,
   ENGINE_SPECS,
+  clearDevEngines,
   FINANCE,
   INDUSTRY_ECON,
   INDUSTRY_SPECS,
@@ -19,6 +20,8 @@ import type { ChallengeState } from './challenge';
 import type { Boom } from './market';
 import type { Request, RequestState } from './requests';
 import { Rng } from './rng';
+
+import type { Design } from './devel';
 
 export const enum Terrain {
   Grass = 0,
@@ -342,6 +345,10 @@ export interface World {
   pace?: Pace;
   /** 電化したマス（1＝架線あり）。v0.8.1 から。ないときは電化なし */
   electric?: Uint8Array;
+  /** 自社開発の機関車（v0.8.2 から） */
+  designs?: Design[];
+  /** 鉄道ファンの評判（0〜100。自社開発の評価で上下する） */
+  devFame?: number;
   /** 地形（v0.7。表示用） */
   landform?: 'mixed' | 'mountains' | 'plains' | 'coast';
 }
@@ -382,6 +389,7 @@ export function emptyFinance(): Record<FinanceCategory, number> {
 }
 
 export function createEmptyWorld(w: number, h: number, seed: number): World {
+  clearDevEngines();
   return {
     w,
     h,
