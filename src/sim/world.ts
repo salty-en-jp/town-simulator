@@ -326,6 +326,21 @@ export interface World {
   stats?: { cargo?: Partial<Record<Cargo, number>>; boomTons?: number; intercityPax?: number; paxIncome?: number };
   /** チャレンジモードで遊んでいるとき（v0.6 から） */
   challenge?: ChallengeState | null;
+  /** 時間の流れ（世の中の動きの速さ）。v0.6.1 から。ないときは「ふつう」 */
+  pace?: Pace;
+}
+
+export type Pace = 'slow' | 'normal' | 'fast';
+
+export const PACES: Record<Pace, { name: string; mul: number; desc: string }> = {
+  slow: { name: 'ゆったり', mul: 0.6, desc: '相場やブーム、町の成長がゆっくり。じっくり計画したい人に' },
+  normal: { name: 'ふつう', mul: 1, desc: 'これまでどおりの速さ' },
+  fast: { name: '目まぐるしい', mul: 1.7, desc: '相場やブーム、町の成長が速い。慣れると、お金の計画を早く回せる' },
+};
+
+/** 世の中の動きの速さの倍率（列車の速さは変わらない） */
+export function paceMul(world: World): number {
+  return PACES[world.pace ?? 'normal'].mul;
 }
 
 /** 記録しておく月数 */

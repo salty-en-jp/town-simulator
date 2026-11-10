@@ -4,6 +4,7 @@
 // 何度でもやり直しやすい今のバランスをこわさないため。
 
 import { startRebuild } from './market';
+import { paceMul } from './world';
 import { DIRS, DX, DY, idx, inBounds, pushEvent, townLabel, tx, ty, type Town, type World } from './world';
 
 export const EVENTS = {
@@ -65,7 +66,7 @@ export function startFire(world: World, town: Town, at?: number): number {
 export function eventsMonthly(world: World) {
   for (const town of world.towns.values()) {
     if (town.population < EVENTS.fireMinPopulation) continue;
-    const p = Math.min(EVENTS.fireMax, town.houses * EVENTS.firePerHouse);
+    const p = Math.min(EVENTS.fireMax, town.houses * EVENTS.firePerHouse) * paceMul(world);
     if (world.rng.chance(p)) startFire(world, town);
   }
 }

@@ -65,6 +65,7 @@ import {
   type Town,
   type Train,
   type World,
+  paceMul,
   townLabel,
 } from './world';
 
@@ -627,7 +628,8 @@ function townsDaily(world: World, ctx: DayContext) {
 
     // 届いた材料で建てる・建て替える（段階が上がるほど間隔をあけて、ゆっくり育つ）
     const stage = townStage(town);
-    if ((world.day + town.id) % TOWN_GROWTH.buildEvery[stage] === 0) {
+    const every = Math.max(1, Math.round(TOWN_GROWTH.buildEvery[stage] / paceMul(world)));
+    if ((world.day + town.id) % every === 0) {
       if (stage === 2) {
         // 都市：建設資材でビルに建て替える。建て替える家がなければ、新しくビルを建てる
         if (has('materials', TOWN.materialsPerUpgrade3)) {
@@ -675,7 +677,7 @@ function townsDaily(world: World, ctx: DayContext) {
     stock.food = Math.max(0, food - eat);
 
     // ふだんの成長（使われている駅が多いほど速い。食料品が足りているとさらに速い）
-    town.growthTimer -= town.fed ? 2 : 1;
+    town.growthTimer -= (town.fed ? 2 : 1) * paceMul(world);
     if (town.growthTimer <= 0) {
       // 大きな町ほど、ふだんの成長はゆっくり（材料を運ぶ意味が大きくなる）
       const base = active === 0 ? 60 : active === 1 ? 20 : active === 2 ? 14 : 9;
@@ -825,7 +827,7 @@ export function vehicleAssets(world: World): number {
 
 /** 輸送率（運び出された割合）が高いほど生産が増えやすい */
 function changeProduction(world: World, ind: Industry) {
-  if (!world.rng.chance(1 / 8)) return;
+  if (!world.rng.chance(paceMul(world) / 8)) return;
   const pct = ind.producedLastMonth > 0 ? ind.transportedLastMonth / ind.producedLastMonth : 0;
   const pUp = pct > 0.8 ? 5 / 6 : pct > 0.6 ? 2 / 3 : 1 / 3;
   const up = world.rng.chance(pUp);

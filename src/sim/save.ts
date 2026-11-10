@@ -65,6 +65,7 @@ interface SavedWorld {
   achievements?: World['achievements'];
   stats?: World['stats'];
   challenge?: World['challenge'];
+  pace?: World['pace'];
 }
 
 export interface SaveFile {
@@ -134,6 +135,7 @@ export function toSaveFile(w: World): SaveFile {
       achievements: w.achievements ?? {},
       stats: w.stats ?? {},
       challenge: w.challenge ?? null,
+      pace: w.pace ?? 'normal',
     },
   };
 }
@@ -227,5 +229,6 @@ export function deserializeWorld(text: string): World {
     achievements: s.achievements ?? {},
     stats: s.stats ?? {},
     challenge: s.challenge ?? null,
+    pace: s.pace ?? 'normal',
   };
 }

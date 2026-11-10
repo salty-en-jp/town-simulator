@@ -10,7 +10,7 @@
 
 import { CARGO_SPECS, CARGOS, INDUSTRY_SPECS, TOWN_GOODS, type Cargo } from './constants';
 import { townAccepts } from './towns';
-import { idx, isPrimary, pushEvent, townLabel, type World } from './world';
+import { idx, isPrimary, paceMul, pushEvent, townLabel, type World } from './world';
 
 export type BoomKind = 'rush' | 'rebuild' | 'shortage' | 'tourism';
 
@@ -128,7 +128,7 @@ export function startRebuild(world: World, townId: number, burned: number) {
   if (!town) return;
   // 都市（建設資材だけを受け入れる町）なら建設資材だけ。そうでなければ木材も
   const cargos = TOWN_GOODS.filter((c) => c !== 'food' && townAccepts(world, townId, c));
-  for (const c of cargos) startBoom(world, 'rebuild', { kind: 'town', id: townId }, c, mul, MARKET.rebuildDays, false);
+  for (const c of cargos) startBoom(world, 'rebuild', { kind: 'town', id: townId }, c, mul, Math.round(MARKET.rebuildDays / paceMul(world)), false);
   pushEvent(world, {
     type: 'news',
     text: `${townLabel(town)}で復興がはじまります。しばらく${cargos.map((c) => CARGO_SPECS[c].name).join('と')}が高く売れます（×${mul.toFixed(1)}）`,
@@ -140,11 +140,13 @@ export function startRebuild(world: World, townId: number, burned: number) {
 /** 毎月：相場を動かし、ブームを始めたり終えたりする */
 export function marketMonthly(world: World) {
   world.market ??= {};
+  // 時間の流れ：目まぐるしいほど、相場がよく動き、ブームがよく来て早く終わる
+  const p = paceMul(world);
   for (const c of CARGOS) {
     if (c === 'passengers') continue;
     const v = world.market[c] ?? 1;
     const before = v;
-    let next = v * (1 + (world.rng.next() * 2 - 1) * MARKET.step);
+    let next = v * (1 + (world.rng.next() * 2 - 1) * MARKET.step * p);
     next += (1 - next) * MARKET.pull;
     next = Math.min(MARKET.max, Math.max(MARKET.min, next));
     world.market[c] = Math.round(next * 1000) / 1000;
@@ -163,27 +165,27 @@ export function marketMonthly(world: World) {
 
   const room = () => world.booms!.length < MARKET.maxBooms;
   const towns = [...world.towns.values()];
-  if (room() && towns.length && world.rng.chance(MARKET.rushChance)) {
+  if (room() && towns.length && world.rng.chance(MARKET.rushChance * p)) {
     const big = towns.filter((t) => t.population >= 300);
     if (big.length) {
       const t = world.rng.pick(big);
       const cargos = TOWN_GOODS.filter((c) => c !== 'food' && townAccepts(world, t.id, c));
-      if (cargos.length) startBoom(world, 'rush', { kind: 'town', id: t.id }, world.rng.pick(cargos), 1.6 + world.rng.next() * 0.4, 150 + Math.floor(world.rng.next() * 60));
+      if (cargos.length) startBoom(world, 'rush', { kind: 'town', id: t.id }, world.rng.pick(cargos), 1.6 + world.rng.next() * 0.4, Math.round((150 + Math.floor(world.rng.next() * 60)) / p));
     }
   }
-  if (room() && world.rng.chance(MARKET.shortageChance)) {
+  if (room() && world.rng.chance(MARKET.shortageChance * p)) {
     const factories = [...world.industries.values()].filter((i) => !isPrimary(i.type) && i.status === 'active');
     if (factories.length) {
       const ind = world.rng.pick(factories);
       const input = world.rng.pick(INDUSTRY_SPECS[ind.type].inputs);
-      startBoom(world, 'shortage', { kind: 'industry', id: ind.id }, input, 1.5 + world.rng.next() * 0.3, 90 + Math.floor(world.rng.next() * 60));
+      startBoom(world, 'shortage', { kind: 'industry', id: ind.id }, input, 1.5 + world.rng.next() * 0.3, Math.round((90 + Math.floor(world.rng.next() * 60)) / p));
     }
   }
-  if (room() && world.rng.chance(MARKET.tourismChance)) {
+  if (room() && world.rng.chance(MARKET.tourismChance * p)) {
     const small = towns.filter((t) => t.population < MARKET.tourismMaxPop);
     if (small.length && towns.length >= 2) {
       const t = world.rng.pick(small);
-      startBoom(world, 'tourism', { kind: 'town', id: t.id }, 'passengers', 2, 180);
+      startBoom(world, 'tourism', { kind: 'town', id: t.id }, 'passengers', 2, Math.round(180 / p));
     }
   }
 }

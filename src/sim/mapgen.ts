@@ -1,4 +1,4 @@
-// マップ生成：平地・川・森、町4つ、産業12か所
+// マップ生成：平地・川・森、町（広さで3〜6つ）、産業（広さで9〜18か所）
 //
 // ・最初の「森 → 製材所 → 町」は、川を渡らずに近くでつくれるように置く（はじめの目標用）
 // ・ほかの産業は、ほどよく離して置く。同じ種類の工場が複数あると「どこへ運ぶか」を選べる
@@ -25,6 +25,17 @@ const OTHER_INDUSTRIES: IndustryType[] = [
   'farm',
   'coalmine',
 ];
+
+/** 大きいマップで、さらに置く産業 */
+const MORE_INDUSTRIES: IndustryType[] = ['ironmine', 'foodplant', 'forest', 'steelmill', 'farm', 'sawmill'];
+
+/** マップの広さ（町と産業の数は広さで決まる） */
+export const MAP_SIZES = {
+  small: { name: '小さい', size: 64, desc: '町3つ。気軽に遊べる' },
+  normal: { name: 'ふつう', size: 96, desc: '町4つ。これまでどおり' },
+  large: { name: '大きい', size: 128, desc: '町6つ。じっくり広げたい人に（少し重くなります）' },
+} as const;
+export type MapSize = keyof typeof MAP_SIZES;
 
 export function generateWorld(seed: number, size = 96): World {
   const world = createEmptyWorld(size, size, seed);
@@ -64,10 +75,13 @@ export function generateWorld(seed: number, size = 96): World {
   const j = (n: number) => rng.int(-n, n);
 
   // 町：川の西に2つ、東に2つ
+  // 町の数はマップの広さで決まる（小さい：3つ、ふつう：4つ、大きい：6つ）
   const townA = addTown(world, takeName(), at(0.19) + j(2), at(0.66) + j(4));
   const townB = addTown(world, takeName(), at(0.78) + j(2), at(0.34) + j(5));
   const townC = addTown(world, takeName(), at(0.8) + j(3), at(0.8) + j(3));
-  const townD = addTown(world, takeName(), at(0.22) + j(3), at(0.2) + j(3));
+  const townD = size > 64 ? addTown(world, takeName(), at(0.22) + j(3), at(0.2) + j(3)) : null;
+  const townE = size >= 128 ? addTown(world, takeName(), at(0.3) + j(3), at(0.9) + j(2)) : null;
+  const townF = size >= 128 ? addTown(world, takeName(), at(0.72) + j(3), at(0.1) + j(2)) : null;
 
   // 最初のチェーン：森と製材所は川の西側、町Aの近く（地元の産業：だれでも運べる）
   placeIndustryAt(world, 'forest', at(0.12) + j(2), at(0.36) + j(2), 'public');
@@ -75,18 +89,24 @@ export function generateWorld(seed: number, size = 96): World {
 
   // ほかの産業は、空いている場所に間隔をあけて置く。
   // 各種類の1つめは地元の産業、2つめからは他社（権利を買うか輸送契約で運べる）
-  for (const type of OTHER_INDUSTRIES) {
+  // 小さいマップは少なめ、大きいマップは多め
+  const others = size <= 64 ? OTHER_INDUSTRIES.slice(0, 7) : size >= 128 ? [...OTHER_INDUSTRIES, ...MORE_INDUSTRIES] : OTHER_INDUSTRIES;
+  for (const type of others) {
     const has = [...world.industries.values()].some((i) => i.type === type);
     placeIndustrySomewhere(world, type, has ? 'other' : 'public');
   }
 
   // 町の最初の家
-  const initial: [Town, number][] = [
-    [townA, 10],
-    [townB, 16],
-    [townC, 12],
-    [townD, 8],
-  ];
+  const initial = (
+    [
+      [townA, 10],
+      [townB, 16],
+      [townC, 12],
+      [townD, 8],
+      [townE, 9],
+      [townF, 11],
+    ] as [Town | null, number][]
+  ).filter((x): x is [Town, number] => x[0] !== null);
   for (const [town, n] of initial) {
     const hb = housesByTown(world);
     const houses = hb.get(town.id)!;

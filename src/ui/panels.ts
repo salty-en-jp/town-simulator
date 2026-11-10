@@ -76,6 +76,8 @@ import {
   carCapacity,
   canLoadFrom,
   consistError,
+  PACES,
+  type Pace,
   dateOf,
   vehicleYear,
   carCargo,
@@ -1360,6 +1362,10 @@ export function openHelp(g: Game, tab?: HelpTab) {
         if (body) body.scrollTop = 0;
         return;
       }
+      if (a.startsWith('pace-') && g.world) {
+        g.world.pace = a.slice(5) as Pace;
+        g.toast(`時間の流れを「${PACES[g.world.pace].name}」にしました`, 'info');
+      }
       if (a === 'ui-auto') g.setUiPref('auto');
       if (a === 'ui-pc') g.setUiPref('pc');
       if (a === 'ui-touch') g.setUiPref('touch');
@@ -1376,7 +1382,16 @@ function helpKeysHtml(g: Game): string {
           <button data-action="ui-auto" class="${g.uiPref === 'auto' ? 'on' : ''}"><span>自動</span></button>
           <button data-action="ui-pc" class="${g.uiPref === 'pc' ? 'on' : ''}"><span>PC</span></button>
           <button data-action="ui-touch" class="${g.uiPref === 'touch' ? 'on' : ''}"><span>スマホ</span></button>
-        </div>`;
+        </div>
+        ${
+          g.world && !g.world.challenge
+            ? `<h4>時間の流れ <small class="muted">この街の設定・いつでも変えられます</small></h4>
+        <div class="btnrow">
+          ${(Object.keys(PACES) as Pace[]).map((k) => `<button data-action="pace-${k}" class="${(g.world.pace ?? 'normal') === k ? 'on' : ''}"><span>${PACES[k].name}</span></button>`).join('')}
+        </div>
+        <p class="muted small">${PACES[g.world.pace ?? 'normal'].desc}。列車の速さは変わりません。</p>`
+            : ''
+        }`;
 }
 
 const KEYS_HTML = `

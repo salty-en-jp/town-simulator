@@ -12,6 +12,8 @@ import * as sim from './sim/simulate';
 import type { World } from './sim/world';
 import { VERSION } from './version';
 import type { ChallengeDef } from './sim/challenge';
+import { MAP_SIZES, type MapSize } from './sim/mapgen';
+import { PACES, type Pace } from './sim/world';
 import { renderChallengeMenu } from './ui/challengeUi';
 import { daysSinceBackup, isSafeStorage, listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence, storageStatus } from './storage';
 
@@ -39,11 +41,63 @@ async function main() {
     setTimeout(() => title.remove(), 500);
   };
   let busy = false;
-  const startNew = async () => {
+  const startNew = async (opts: { size?: number; pace?: Pace } = {}) => {
     if (busy) return;
     busy = true;
     await leaveTitle();
-    game.newGame(seed);
+    game.newGame(seed, opts);
+  };
+
+  // 新しいゲームの設定（マップの広さ・時間の流れ）。前に選んだものを覚えておく
+  const loadPrefs = (): { size: MapSize; pace: Pace } => {
+    try {
+      const v = JSON.parse(localStorage.getItem('tsunagu.newGame') ?? '{}');
+      return { size: v.size in MAP_SIZES ? v.size : 'normal', pace: v.pace in PACES ? v.pace : 'normal' };
+    } catch {
+      return { size: 'normal', pace: 'normal' };
+    }
+  };
+  const showNewGame = () => {
+    const pref = loadPrefs();
+    const opt = (group: string, key: string, name: string, desc: string, on: boolean) =>
+      `<button class="ng-opt ${on ? 'on' : ''}" data-ng="${group}" data-k="${key}"><b>${name}</b><small>${desc}</small></button>`;
+    const render = () => {
+      actions.innerHTML = `
+        <div class="ng-menu">
+          <p class="ch-head">新しいゲーム</p>
+          <p class="ng-label">マップの広さ <small>町の数は広さで決まります</small></p>
+          <div class="ng-opts">${(Object.keys(MAP_SIZES) as MapSize[]).map((k) => opt('size', k, MAP_SIZES[k].name, MAP_SIZES[k].desc, pref.size === k)).join('')}</div>
+          <p class="ng-label">時間の流れ <small>列車の速さは同じ。相場・ブーム・町の成長などの速さが変わります（あとから変えられます）</small></p>
+          <div class="ng-opts">${(Object.keys(PACES) as Pace[]).map((k) => opt('pace', k, PACES[k].name, PACES[k].desc, pref.pace === k)).join('')}</div>
+          <button class="start-btn" data-ng="start">はじめる</button>
+          <button class="sub-btn" data-ng="back">もどる</button>
+        </div>`;
+    };
+    render();
+    title.classList.add('ch-mode');
+    actions.onclick = (e) => {
+      const b = (e.target as HTMLElement).closest('[data-ng]') as HTMLElement | null;
+      if (!b) return;
+      const k = b.dataset.ng;
+      if (k === 'size') pref.size = b.dataset.k as MapSize;
+      if (k === 'pace') pref.pace = b.dataset.k as Pace;
+      if (k === 'size' || k === 'pace') {
+        render();
+        return;
+      }
+      actions.onclick = null;
+      if (k === 'back') {
+        title.classList.remove('ch-mode');
+        renderMain();
+        return;
+      }
+      try {
+        localStorage.setItem('tsunagu.newGame', JSON.stringify(pref));
+      } catch {
+        /* 覚えられなくてもよい */
+      }
+      void startNew({ size: MAP_SIZES[pref.size].size, pace: pref.pace });
+    };
   };
   const startWith = async (w: World) => {
     if (busy) return;
@@ -84,13 +138,13 @@ async function main() {
         }
       });
       document.getElementById('new-btn')!.addEventListener('click', () => {
-        if (confirm('新しいゲームをはじめますか？\n今の街（オートセーブ）は、次のオートセーブで上書きされます。残したいときは、先に「続きから」でスロットにセーブしてください。')) startNew();
+        if (confirm('新しいゲームをはじめますか？\n今の街（オートセーブ）は、次のオートセーブで上書きされます。残したいときは、先に「続きから」でスロットにセーブしてください。')) showNewGame();
       });
     } else {
       actions.innerHTML = `
         <button id="start-btn" class="start-btn">はじめる</button>
         <div class="title-sub">${challengeBtn}<button id="file-btn" class="sub-btn">ファイルから読み込む</button></div>`;
-      document.getElementById('start-btn')!.addEventListener('click', startNew);
+      document.getElementById('start-btn')!.addEventListener('click', showNewGame);
     }
     document.getElementById('file-btn')!.addEventListener('click', async () => {
       try {
@@ -135,7 +189,8 @@ async function main() {
     note.textContent = lines.join('　／　');
     if (lines.length) actions.after(note);
   });
-  if (params.has('autostart')) startNew();
+  if (params.has('autostart')) void startNew();
+  else if (params.has('new')) showNewGame();
 
   // 自動テスト・デバッグ用の入口。公開版には入れない
   // （開発サーバー、または VITE_TEST_HOOKS=1 でビルドしたときだけ）
