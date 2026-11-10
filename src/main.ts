@@ -7,6 +7,7 @@ import { Renderer } from './render/renderer';
 import * as cmds from './sim/commands';
 import { formatYen } from './sim/commands';
 import * as panels from './ui/panels';
+import { esc } from './ui/panels';
 import * as devel from './sim/devel';
 import * as events from './sim/events';
 import * as sim from './sim/simulate';
@@ -14,7 +15,7 @@ import type { World } from './sim/world';
 import { VERSION } from './version';
 import type { ChallengeDef } from './sim/challenge';
 import { LANDFORMS, MAP_SIZES, type Landform, type MapSize } from './sim/mapgen';
-import { PACES, type Pace } from './sim/world';
+import { DEFAULT_COMPANY_NAME, PACES, type Pace } from './sim/world';
 import { renderChallengeMenu } from './ui/challengeUi';
 import { daysSinceBackup, isSafeStorage, listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence, storageStatus } from './storage';
 
@@ -42,7 +43,7 @@ async function main() {
     setTimeout(() => title.remove(), 500);
   };
   let busy = false;
-  const startNew = async (opts: { size?: number; pace?: Pace; landform?: Landform } = {}) => {
+  const startNew = async (opts: { size?: number; pace?: Pace; landform?: Landform; companyName?: string } = {}) => {
     if (busy) return;
     busy = true;
     await leaveTitle();
@@ -50,12 +51,17 @@ async function main() {
   };
 
   // 新しいゲームの設定（マップの広さ・時間の流れ）。前に選んだものを覚えておく
-  const loadPrefs = (): { size: MapSize; pace: Pace; landform: Landform } => {
+  const loadPrefs = (): { size: MapSize; pace: Pace; landform: Landform; company: string } => {
     try {
       const v = JSON.parse(localStorage.getItem('tsunagu.newGame') ?? '{}');
-      return { size: v.size in MAP_SIZES ? v.size : 'normal', pace: v.pace in PACES ? v.pace : 'normal', landform: v.landform in LANDFORMS ? v.landform : 'mixed' };
+      return {
+        size: v.size in MAP_SIZES ? v.size : 'normal',
+        pace: v.pace in PACES ? v.pace : 'normal',
+        landform: v.landform in LANDFORMS ? v.landform : 'mixed',
+        company: typeof v.company === 'string' ? v.company.slice(0, 20) : '',
+      };
     } catch {
-      return { size: 'normal', pace: 'normal', landform: 'mixed' };
+      return { size: 'normal', pace: 'normal', landform: 'mixed', company: '' };
     }
   };
   const showNewGame = () => {
@@ -66,6 +72,8 @@ async function main() {
       actions.innerHTML = `
         <div class="ng-menu">
           <p class="ch-head">新しいゲーム</p>
+          <p class="ng-label">会社の名前 <small>あとからでも「会社と実績」で変えられます</small></p>
+          <input class="ng-name" maxlength="20" placeholder="${esc(DEFAULT_COMPANY_NAME)}" value="${esc(pref.company)}" aria-label="会社の名前">
           <p class="ng-label">マップの広さ <small>町の数は広さで決まります</small></p>
           <div class="ng-opts">${(Object.keys(MAP_SIZES) as MapSize[]).map((k) => opt('size', k, MAP_SIZES[k].name, MAP_SIZES[k].desc, pref.size === k)).join('')}</div>
           <p class="ng-label">地形 <small>山地（岩場）は線路が高く、家が建ちません。土地によって多い産業が変わります</small></p>
@@ -81,6 +89,9 @@ async function main() {
     actions.onclick = (e) => {
       const b = (e.target as HTMLElement).closest('[data-ng]') as HTMLElement | null;
       if (!b) return;
+      // 書きかけの会社の名前を覚えておく（ほかの項目を押すと描き直すため）
+      const nameEl = actions.querySelector('.ng-name') as HTMLInputElement | null;
+      if (nameEl) pref.company = nameEl.value.replace(/\s+/g, ' ').trim().slice(0, 20);
       const k = b.dataset.ng;
       if (k === 'size') pref.size = b.dataset.k as MapSize;
       if (k === 'pace') pref.pace = b.dataset.k as Pace;
@@ -100,7 +111,7 @@ async function main() {
       } catch {
         /* 覚えられなくてもよい */
       }
-      void startNew({ size: MAP_SIZES[pref.size].size, pace: pref.pace, landform: pref.landform });
+      void startNew({ size: MAP_SIZES[pref.size].size, pace: pref.pace, landform: pref.landform, companyName: pref.company || undefined });
     };
   };
   const startWith = async (w: World) => {

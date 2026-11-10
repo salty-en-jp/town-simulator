@@ -3799,3 +3799,25 @@ details.relnote.old summary small {
   font-weight: bold;
   font-size: 15px;
 }
+
+.dev-sale {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #f6efe0;
+}
+
+.dev-sale .dev-row {
+  margin: 3px 0;
+}
+
+.ng-name {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 16px;
+  background: #fffdf7;
+}

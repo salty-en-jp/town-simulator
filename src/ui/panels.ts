@@ -1119,6 +1119,7 @@ const FIN_LABELS: Record<FinanceCategory, string> = {
   income: '運賃収入',
   dividends: '自社の産業の利益',
   rewards: '依頼の報酬',
+  devel: '自社開発（開発費・販売）',
   interest: '借入金の利息',
 };
 

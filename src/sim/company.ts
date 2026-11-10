@@ -114,6 +114,9 @@ export const ACHIEVEMENTS: Achievement[] = [
     hint: '年代で登場した新型車両を使う',
     check: (w) => allCars(w).some((c) => (isEngine(c.type) ? ENGINE_SPECS[c.type].year : WAGON_SPECS[c.type].year) !== undefined),
   },
+  { id: 'devel', name: 'わが社の機関車', hint: '自社開発の機関車を完成させる', check: (w) => (w.designs ?? []).some((d) => d.done !== undefined) },
+  { id: 'sale', name: '車両メーカー', hint: '自社開発の機関車を、ほかの鉄道会社に売る', check: (w) => (w.designs ?? []).some((d) => (d.sale?.sold ?? 0) > 0) },
+  { id: 'award', name: '鉄道車両大賞', hint: '鉄道車両大賞をとる', check: (w) => (w.awards ?? []).some((a) => a.mine) },
   { id: 'super', name: '夢の超特急', hint: 'ツバサ形超特急を走らせる', check: (w) => [...w.trains.values()].some((t) => t.cars[0]?.type === 'superexpress' && t.state !== 'in_depot') },
 ];
 

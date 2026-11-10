@@ -22,6 +22,7 @@ import {
   type EngineType,
 } from './constants';
 import { ELECTRIFY_YEAR, dateOf, pushEvent, spend, type World } from './world';
+import { salesOnDesignDone, type SaleState } from './sales';
 
 export type TestChoice = 'safe' | 'bold' | 'daring';
 export type DevStat = 'speed' | 'might' | 'economy' | 'comfort';
@@ -56,6 +57,10 @@ export interface Design {
   done?: number;
   /** 評価（★1〜5） */
   rating?: number;
+  /** 販売のようす（v0.8.3） */
+  sale?: SaleState;
+  /** 鉄道車両大賞をとった年 */
+  award?: number;
 }
 
 export const DEV = {
@@ -225,7 +230,7 @@ export function startDesign(world: World, plan: DevPlan): Design | string {
   const err = devStartError(world, plan);
   if (err) return err;
   const b = DEV.budgets[plan.budget];
-  spend(world, 'vehicles', b.cost);
+  spend(world, 'devel', b.cost);
   const d: Design = {
     id: world.nextId++,
     name: plan.name.trim().slice(0, 16),
@@ -314,9 +319,10 @@ function finishDesign(world: World, d: Design) {
   const stars = '★'.repeat(d.rating) + '☆'.repeat(5 - d.rating);
   pushEvent(world, {
     type: 'news',
-    text: `${d.name}が完成しました！ 評価 ${stars}・相性${compatMark(d.power, d.use)}${d.defect ? '・初期不良あり' : ''}（車庫で買えます）`,
+    text: `${d.name}が完成しました！ 評価 ${stars}・相性${compatMark(d.power, d.use)}${d.defect ? '・初期不良あり' : ''}（車庫で買えます・ほかの鉄道会社にも売れます）`,
     tone: 'good',
   });
+  salesOnDesignDone(world, d);
 }
 
 export function fixCost(d: Design): number {
@@ -329,7 +335,7 @@ export function fixDefect(world: World, id: number): string | null {
   if (!d || !d.defect || d.done === undefined) return '改修するところがありません';
   const cost = fixCost(d);
   if (world.money < cost) return 'お金が足りません';
-  spend(world, 'vehicles', cost);
+  spend(world, 'devel', cost);
   d.defect = false;
   const before = d.rating ?? 1;
   d.rating = rate(d);

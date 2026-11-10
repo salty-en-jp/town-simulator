@@ -25,7 +25,8 @@ import {
   type TestChoice,
 } from '../sim/devel';
 import { formatYen } from '../sim/commands';
-import { ELECTRIFY_YEAR } from '../sim/world';
+import { dateOf, ELECTRIFY_YEAR } from '../sim/world';
+import { eraLabel, monthlyDemand, orderText, powerEra, runningCount, saleOf, SALES, unitProfit } from '../sim/sales';
 import type { Game } from '../game';
 import { esc, gauge } from './panels';
 import { comboRecord } from './zukan';
@@ -138,6 +139,50 @@ function form(g: Game): string {
     ${err ? `<p class="small muted">${esc(err)}</p>` : ''}`;
 }
 
+/** 販売：値段・止める・売れたようす */
+function saleBlock(g: Game, d: Design): string {
+  const w = g.world;
+  const s = saleOf(d);
+  const left = Math.max(0, SALES.years - (w.day - d.done!) / 365);
+  if (s.ended) return `<div class="small muted">販売は終わりました（${s.sold}両・利益${formatYen(s.profit)}）</div>`;
+  const prices = SALES.markupNames
+    .map((n, i) => `<button class="seg-btn ${s.markup === i ? 'on' : ''}" data-action="markup" data-id="${d.id}" data-v="${i}">${n}</button>`)
+    .join('');
+  const demand = monthlyDemand(w, d);
+  const run = runningCount(w, d);
+  return `<div class="dev-sale">
+    <div class="dev-row"><span>販売</span>
+      <button class="seg-btn ${s.on ? 'on' : ''}" data-action="sale" data-id="${d.id}">${s.on ? '売っています' : '止めています'}</button>
+      <small class="muted">あと${left.toFixed(1)}年</small></div>
+    <div class="dev-row"><span>値段</span><div class="seg">${prices}</div></div>
+    <div class="small">1両の利益 ${formatYen(unitProfit(d))}・注文のめやす 月${demand.toFixed(1)}両・先月 ${s.lastMonth}両</div>
+    <div class="small">これまで <b>${s.sold}両</b>・利益 <b>${formatYen(s.profit)}</b>${run ? `・自社で${run}本走らせて宣伝中` : '・<span class="muted">自社の路線で走らせると宣伝になります</span>'}</div>
+  </div>`;
+}
+
+function market(g: Game): string {
+  const w = g.world;
+  const y = dateOf(w.day).y;
+  const era = DEV_POWERS.map((p) => `${DEV_POWER_NAMES[p]}：<b>${devPowerOk(w, p) ? eraLabel(powerEra(p, y)) : `${ELECTRIFY_YEAR}年から`}</b>`).join('・');
+  const trend = w.devTrend && w.devTrend.year === y ? `今年の流行：<b>${DEV_USE_NAMES[w.devTrend.use]}用</b>` : '今年の流行：（1月に決まります）';
+  const orders = (w.devOrders ?? [])
+    .map((o) => {
+      const days = o.deadline - w.day;
+      return `<li><b>${esc(o.from)}</b>：${orderText(o)} <small class="muted">（あと${Math.ceil(days / 30)}か月）</small></li>`;
+    })
+    .join('');
+  const awards = (w.awards ?? [])
+    .slice(-4)
+    .reverse()
+    .map((a) => `<li>${a.year}年：${a.mine ? `<b class="pos">わが社の${esc(a.name)}</b>` : `${esc(a.maker)}の${esc(a.name)}`}</li>`)
+    .join('');
+  return `<h4>鉄道車両の市場</h4>
+    <p class="small">${trend}<br>動力の人気：${era}</p>
+    <p class="small"><b>他社からの注文</b>（かなう機関車を完成させると、まとめて売れます）</p>
+    <ul class="dev-results small">${orders || '<li class="muted">いまはありません（毎年1月に来ることがあります）</li>'}</ul>
+    ${awards ? `<p class="small"><b>鉄道車両大賞</b>（毎年1月。前の年に完成した機関車から）</p><ul class="dev-results small">${awards}</ul>` : ''}`;
+}
+
 function doneList(g: Game): string {
   const list = (g.world.designs ?? []).filter((d) => d.done !== undefined);
   if (!list.length) return '';
@@ -147,14 +192,15 @@ function doneList(g: Game): string {
     .map(
       (d) => `<li>
         <div><span class="car-dot" style="background:${hex(d.color)}"></span><b>${esc(d.name)}</b>
-          <span class="dev-stars">${stars(d.rating ?? 1)}</span>
+          <span class="dev-stars">${stars(d.rating ?? 1)}</span>${d.award ? `<span class="zk-badge used">${d.award}年 大賞</span>` : ''}
           <small class="muted">${DEV_POWER_NAMES[d.power]}・${DEV_USE_NAMES[d.use]}・相性${compatMark(d.power, d.use)}</small></div>
         <div class="small">${specLine(d)}</div>
         ${
           d.defect
             ? `<div class="small"><span class="neg">初期不良（維持費が高い）</span> <button class="small-btn" data-action="fix" data-id="${d.id}">改修 ${formatYen(fixCost(d))}</button></div>`
             : ''
-        }</li>`,
+        }
+        ${saleBlock(g, d)}</li>`,
     )
     .join('')}</ul>`;
 }
@@ -171,7 +217,8 @@ export function openDevel(g: Game) {
       return `
         <p class="dev-fame">鉄道ファンの評判 <b>${fame}</b> <small class="muted">（${fameLabel(fame)}）</small></p>
         ${d ? current(g, d) : form(g)}
-        ${doneList(g)}`;
+        ${doneList(g)}
+        ${market(g)}`;
     },
     onChange: (el) => {
       if (el.dataset.key === 'dev-name') {
@@ -209,6 +256,13 @@ export function openDevel(g: Game) {
       } else if (a === 'cancel') {
         const d = currentDesign(w);
         if (d && confirm(`${d.name}の開発をやめますか？（開発費は戻りません）`)) cancelDesign(w, d.id);
+      } else if (a === 'sale' || a === 'markup') {
+        const d = w.designs?.find((x) => x.id === Number(el.dataset.id));
+        if (d) {
+          const s = saleOf(d);
+          if (a === 'sale') s.on = !s.on;
+          else s.markup = Number(v);
+        }
       } else if (a === 'fix') {
         const err = fixDefect(w, Number(el.dataset.id));
         if (err) g.toast(err, 'bad');

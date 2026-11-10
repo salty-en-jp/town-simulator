@@ -22,6 +22,8 @@ import type { Request, RequestState } from './requests';
 import { Rng } from './rng';
 
 import type { Design } from './devel';
+import type { DevUse } from './constants';
+import type { Award, DevOrder } from './sales';
 
 export const enum Terrain {
   Grass = 0,
@@ -271,6 +273,7 @@ export type FinanceCategory =
   | 'income'
   | 'dividends'
   | 'rewards'
+  | 'devel'
   | 'interest';
 export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
   'construction',
@@ -281,6 +284,7 @@ export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
   'income',
   'dividends',
   'rewards',
+  'devel',
   'interest',
 ];
 
@@ -351,6 +355,10 @@ export interface World {
   designs?: Design[];
   /** 鉄道ファンの評判（0〜100。自社開発の評価で上下する） */
   devFame?: number;
+  /** 販売（v0.8.3 から）：今年人気の用途・他社からの注文・鉄道車両大賞の記録 */
+  devTrend?: { use: DevUse; year: number };
+  devOrders?: DevOrder[];
+  awards?: Award[];
   /** 地形（v0.7。表示用） */
   landform?: 'mixed' | 'mountains' | 'plains' | 'coast';
 }
@@ -386,6 +394,7 @@ export function emptyFinance(): Record<FinanceCategory, number> {
     income: 0,
     dividends: 0,
     rewards: 0,
+    devel: 0,
     interest: 0,
   };
 }

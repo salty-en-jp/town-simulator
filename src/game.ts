@@ -187,9 +187,10 @@ export class Game implements InputTarget {
     window.addEventListener('beforeunload', () => this.autosave());
   }
 
-  newGame(seed: number, opts: { size?: number; pace?: Pace; landform?: Landform } = {}) {
+  newGame(seed: number, opts: { size?: number; pace?: Pace; landform?: Landform; companyName?: string } = {}) {
     const w = generateWorld(seed, opts.size ?? 96, opts.landform ?? 'mixed');
     w.pace = opts.pace ?? 'normal';
+    if (opts.companyName) w.companyName = opts.companyName;
     this.startWorld(w, false);
   }
 
