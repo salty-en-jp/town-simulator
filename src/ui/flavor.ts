@@ -10,7 +10,7 @@ export function parseFlavor(md: string): Record<string, string[]> {
   let buf: string[] = [];
   const flush = () => {
     // 車両の英字と、自社開発（dev-…）・部品（part-…）の見出しを読む
-    if (cur && (all.has(cur) || /^(dev|part)-[a-z0-9-]+$/.test(cur))) {
+    if (cur && (all.has(cur) || /^(dev|part|names)-[a-z0-9-]+$/.test(cur))) {
       // 改行したところで段落を分ける（空行はあってもなくてもよい）
       const paras = buf.map((l) => l.trim()).filter(Boolean);
       if (paras.length) out[cur] = paras;
@@ -36,4 +36,15 @@ export function parseFlavor(md: string): Record<string, string[]> {
 export function pickLine(lines: string[] | undefined, n: number): string | undefined {
   if (!lines?.length) return undefined;
   return lines[Math.abs(Math.floor(n)) % lines.length];
+}
+
+/** 見出しの日本語（「## steam ツナグ形蒸気機関車」の「ツナグ形蒸気機関車」）を、車両の名前として読む */
+export function parseNames(md: string): Record<string, string> {
+  const all = new Set<string>([...ENGINE_TYPES, ...WAGON_TYPES]);
+  const out: Record<string, string> = {};
+  for (const line of md.split('\n')) {
+    const m = line.match(/^##\s+(\S+)\s+(.+?)\s*$/);
+    if (m && all.has(m[1])) out[m[1]] = m[2].slice(0, 20);
+  }
+  return out;
 }

@@ -13,6 +13,11 @@ import * as events from './sim/events';
 import * as sim from './sim/simulate';
 import type { World } from './sim/world';
 import { VERSION } from './version';
+import flavorMd from './data/zukan.md?raw';
+import { applyNames } from './ui/names';
+
+// 車両や会社の名前を、図鑑の文章ファイルから入れかえる（ゲームをはじめる前に）
+applyNames(flavorMd);
 import type { ChallengeDef } from './sim/challenge';
 import { LANDFORMS, MAP_SIZES, type Landform, type MapSize } from './sim/mapgen';
 import { DEFAULT_COMPANY_NAME, PACES, type Pace } from './sim/world';

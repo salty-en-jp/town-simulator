@@ -71,3 +71,32 @@ describe('イカズチ形電気機関車', () => {
     expect(needsWire({ cars: [{ type: 'electric' }] } as never)).toBe(true);
   });
 });
+
+describe('名前の入れかえ', () => {
+  it('見出しの日本語が車両の名前になり、names-… で会社などの名前が変わる', async () => {
+    const { parseNames } = await import('../src/ui/flavor');
+    const { applyNames, shortEngineName } = await import('../src/ui/names');
+    const { ENGINE_SPECS, WAGON_SPECS } = await import('../src/sim/constants');
+    const { SALES_NAMES } = await import('../src/sim/sales');
+    expect(parseNames('## steam ツナグ形蒸気機関車\n## dev-star1 ★1\n## coach 客車')).toEqual({ steam: 'ツナグ形蒸気機関車', coach: '客車' });
+    expect(shortEngineName('アカツキ形電気機関車')).toBe('アカツキ形');
+    expect(shortEngineName('急行用')).toBe('急行用');
+    const before = { e: ENGINE_SPECS.electric.name, c: WAGON_SPECS.coach.name, maker: SALES_NAMES.rivalMaker, cust: SALES_NAMES.customers };
+    applyNames('## electric アカツキ形電気機関車\n## coach 二等客車\n## names-rival-maker\nテスト重工\n## names-customers\nA鉄道\nB鉄道');
+    expect(ENGINE_SPECS.electric.name).toBe('アカツキ形電気機関車');
+    expect(WAGON_SPECS.coach.name).toBe('二等客車');
+    expect(SALES_NAMES.rivalMaker).toBe('テスト重工');
+    expect(SALES_NAMES.customers).toEqual(['A鉄道', 'B鉄道']);
+    // もとに戻す（ほかのテストのため）
+    ENGINE_SPECS.electric.name = before.e;
+    WAGON_SPECS.coach.name = before.c;
+    SALES_NAMES.rivalMaker = before.maker;
+    SALES_NAMES.customers = before.cust;
+  });
+
+  it('いまの zukan.md の名前で、全部の車両の名前が読める', async () => {
+    const { parseNames } = await import('../src/ui/flavor');
+    const names = parseNames(zukanMd);
+    for (const t of [...ENGINE_TYPES, ...WAGON_TYPES]) expect(names[t]).toBeTruthy();
+  });
+});
