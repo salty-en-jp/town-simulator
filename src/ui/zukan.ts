@@ -15,12 +15,14 @@ import {
   DEV_USES,
   ENGINE_SPECS,
   ENGINE_TYPES,
+  isDevEngine,
   isEngine,
   WAGON_SPECS,
   WAGON_TYPES,
   type VehicleType,
 } from '../sim/constants';
 import { canBuy, vehicleYear, type World } from '../sim/world';
+import { compatMark } from '../sim/devel';
 import { CAR_COLORS } from '../render/renderer';
 import type { Game } from '../game';
 import { esc } from './panels';
@@ -34,6 +36,8 @@ const FLAVOR = parseFlavor(flavorMd);
 interface ZukanRecord {
   used: string[];
   seen: string[];
+  /** 自社開発でわかった相性（"electric:commuter" → ◎○△） */
+  combos?: Record<string, string>;
 }
 
 const LS_KEY = 'tsunagu.zukan';
@@ -41,10 +45,16 @@ const LS_KEY = 'tsunagu.zukan';
 export function zukanRecord(): ZukanRecord {
   try {
     const v = JSON.parse(localStorage.getItem(LS_KEY) ?? '{}');
-    return { used: Array.isArray(v.used) ? v.used : [], seen: Array.isArray(v.seen) ? v.seen : [] };
+    const combos: Record<string, string> = {};
+    if (v.combos && typeof v.combos === 'object') for (const [k, m] of Object.entries(v.combos)) if (typeof m === 'string') combos[k] = m;
+    return { used: Array.isArray(v.used) ? v.used : [], seen: Array.isArray(v.seen) ? v.seen : [], combos };
   } catch {
-    return { used: [], seen: [] };
+    return { used: [], seen: [], combos: {} };
   }
+}
+
+export function comboRecord(): Record<string, string> {
+  return zukanRecord().combos ?? {};
 }
 
 /** 今の街で使っている車両・買える車両を記録する。新しく使った車両があれば、その名前を返す */
@@ -55,6 +65,8 @@ export function noteVehicles(world: World): VehicleType[] {
   const fresh: VehicleType[] = [];
   const cars = [...[...world.trains.values()].flatMap((t) => t.cars), ...[...world.depots.values()].flatMap((d) => d.stored)];
   for (const c of cars) {
+    // 自社開発の機関車はその街だけのもの。図鑑の「使った車両」には数えない
+    if (isDevEngine(c.type)) continue;
     if (!used.has(c.type)) {
       used.add(c.type);
       fresh.push(c.type);
@@ -62,9 +74,19 @@ export function noteVehicles(world: World): VehicleType[] {
     seen.add(c.type);
   }
   for (const t of [...ENGINE_TYPES, ...WAGON_TYPES] as VehicleType[]) if (canBuy(world, t)) seen.add(t);
-  if (fresh.length || seen.size !== rec.seen.length) {
+  // できあがった自社開発の機関車から、動力と用途の相性を記録する
+  const combos = { ...(rec.combos ?? {}) };
+  let newCombo = false;
+  for (const d of world.designs ?? []) {
+    const k = `${d.power}:${d.use}`;
+    if (d.done !== undefined && !combos[k]) {
+      combos[k] = compatMark(d.power, d.use);
+      newCombo = true;
+    }
+  }
+  if (fresh.length || newCombo || seen.size !== rec.seen.length) {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ used: [...used], seen: [...seen] }));
+      localStorage.setItem(LS_KEY, JSON.stringify({ used: [...used], seen: [...seen], combos }));
     } catch {
       /* 記録できなくても遊べる */
     }
@@ -83,14 +105,14 @@ const shadeHex = (n: number, f: number) => {
 };
 
 export function vehicleSvg(type: VehicleType, silhouette = false): string {
-  const base = CAR_COLORS[type] ?? 0x888888;
+  const base = CAR_COLORS[type] ?? (isEngine(type) ? ENGINE_SPECS[type].color : undefined) ?? 0x888888;
   const body = silhouette ? '#3a3a3a' : hex(base);
   const dark = silhouette ? '#2a2a2a' : shadeHex(base, 0.7);
   const wheel = silhouette ? '#222' : '#2a2620';
   const parts: string[] = [];
   const wheels = (xs: number[]) => xs.map((x) => `<circle cx="${x}" cy="34" r="5" fill="${wheel}"/>`).join('');
   if (isEngine(type)) {
-    if (type === 'steam') {
+    if (type === 'steam' || (isDevEngine(type) && ENGINE_SPECS[type].power === 'steam')) {
       parts.push(`<rect x="8" y="14" width="44" height="16" rx="3" fill="${body}"/>`);
       parts.push(`<rect x="52" y="6" width="18" height="24" rx="2" fill="${dark}"/>`);
       parts.push(`<rect x="16" y="2" width="6" height="12" fill="${dark}"/>`);
@@ -192,9 +214,12 @@ export function openZukan(g: Game) {
         .join('');
       let body: string;
       if (tab === 'combo') {
-        body = `<p class="small">自社開発（これから追加）では、<b>動力</b>と<b>用途</b>を組み合わせて車両をつくります。相性のよい組み合わせは「傑作」になります。相性は、つくってみるとこの表に記録されます。</p>
+        const combos = rec.combos ?? {};
+        const found = Object.keys(combos).length;
+        body = `<p class="small">自社開発では、<b>動力</b>と<b>用途</b>を組み合わせて機関車をつくります。相性のよい組み合わせは、同じ予算でも能力が高くなります。相性は、つくってみるとこの表に記録されます（この端末で遊んだすべての街）。</p>
           <table class="tbl zk-combo"><tr><th></th>${DEV_USES.map((u) => `<th>${DEV_USE_NAMES[u]}</th>`).join('')}</tr>
-          ${DEV_POWERS.map((p) => `<tr><th>${DEV_POWER_NAMES[p]}</th>${DEV_USES.map(() => '<td class="muted">？</td>').join('')}</tr>`).join('')}</table>`;
+          ${DEV_POWERS.map((p) => `<tr><th>${DEV_POWER_NAMES[p]}</th>${DEV_USES.map((u) => (combos[`${p}:${u}`] ? `<td class="zk-mark">${combos[`${p}:${u}`]}</td>` : '<td class="muted">？</td>')).join('')}</tr>`).join('')}</table>
+          <p class="small muted">わかった組み合わせ ${found} / ${DEV_POWERS.length * DEV_USES.length}　◎ 抜群・○ ふつう・△ いまひとつ</p>`;
       } else {
         const list = (tab === 'engines' ? ENGINE_TYPES : WAGON_TYPES) as VehicleType[];
         body = `<ul class="zk-list">${list.map((t) => card(g.world, t, used, seen)).join('')}</ul>`;

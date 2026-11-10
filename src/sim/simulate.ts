@@ -1,5 +1,6 @@
 // 時間を進める：列車の移動・積み降ろし、毎日の生産と町の成長、毎月のお金
 
+import { comfortMul, develDaily } from './devel';
 import {
   CARGOS,
   COSTS,
@@ -319,7 +320,9 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
       (stats.cargo ??= {})[cargo] = (stats.cargo[cargo] ?? 0) + take;
       if (boomMul(world, target, cargo) > 1) stats.boomTons = (stats.boomTons ?? 0) + take;
       if (inter >= 1.5) stats.intercityPax = (stats.intercityPax ?? 0) + take;
-      const income = cargoIncome(cargo, take, manhattan(world, p.fromTile, sign), p.days, demand * inter);
+      // 快適な自社開発の機関車は、旅客の運賃が上がる
+      const comfort = cargo === 'passengers' ? comfortMul(trainEngine(t)) : 1;
+      const income = cargoIncome(cargo, take, manhattan(world, p.fromTile, sign), p.days, demand * inter * comfort);
       if (cargo === 'passengers') stats.paxIncome = (stats.paxIncome ?? 0) + income;
       earn(world, 'income', income);
       world.requestState.incomeTotal += income;
@@ -776,6 +779,7 @@ function daily(world: World) {
   housesDaily(world, ctx);
   townsDaily(world, ctx);
   specialtyDaily(world);
+  develDaily(world);
   stationsDaily(world);
   industriesOwnershipDaily(world);
   updateRequests(world);

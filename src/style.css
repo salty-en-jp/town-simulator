@@ -3632,3 +3632,170 @@ details.relnote.old summary small {
     width: 70px;
   }
 }
+
+/* ───────────── 自社開発（v0.8.2） ───────────── */
+
+.dev-fame {
+  margin: 0 0 6px;
+}
+
+.dev-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+  font-size: 13px;
+}
+
+.dev-name input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 16px; /* iPhone で拡大されないように */
+  background: #fffdf7;
+}
+
+.dev-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.dev-row > span {
+  flex: 0 0 2.6em;
+  color: #6b5a3e;
+}
+
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.seg-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf7;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.seg-btn small {
+  margin-left: 3px;
+  font-size: 11px;
+  color: #8a7a5a;
+}
+
+.seg-btn.on {
+  border-color: #c99a2e;
+  background: #fbe9b8;
+  font-weight: bold;
+}
+
+.seg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.dev-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dev-color {
+  width: 26px;
+  height: 26px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+
+.dev-color.on {
+  box-shadow: 0 0 0 3px #c99a2e;
+}
+
+.dev-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+
+.dev-progress .gauge,
+.dev-pts .gauge {
+  flex: 1;
+}
+
+.dev-pts {
+  display: grid;
+  grid-template-columns: 4em 1fr;
+  gap: 4px 8px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.dev-pts dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.dev-pts .num {
+  min-width: 2.5em;
+  text-align: right;
+}
+
+.dev-test {
+  margin: 8px 0;
+  padding: 8px;
+  border: 2px solid #e0b040;
+  border-radius: 8px;
+  background: #fff6dc;
+}
+
+.dev-test h4 {
+  margin-top: 0;
+}
+
+.dev-results {
+  margin: 4px 0;
+  padding-left: 1.2em;
+}
+
+.dev-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dev-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dev-list .car-dot {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.dev-stars {
+  margin: 0 4px;
+  color: #d39a1a;
+  letter-spacing: -1px;
+}
+
+.zk-mark {
+  font-weight: bold;
+  font-size: 15px;
+}

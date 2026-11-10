@@ -62,6 +62,8 @@ import { VERSION } from './version';
 import { challengeProgress, checkChallengeEnd, createChallengeWorld, type ChallengeDef } from './sim/challenge';
 import { challengeCardHtml, openChallengeWindow } from './ui/challengeUi';
 import { noteVehicles } from './ui/zukan';
+import { openDevel } from './ui/develUi';
+import { currentDesign } from './sim/devel';
 import {
   daysSinceBackup,
   deleteSave,
@@ -107,6 +109,7 @@ export class Game implements InputTarget {
   wm: WindowManager;
   tool: Tool = 'none';
   removeMode = false;
+  private devPrompted = '';
   orderTrain = -1;
   cloneDepot = -1;
   cloneShare = true;
@@ -1551,6 +1554,13 @@ export class Game implements InputTarget {
     // 図鑑：はじめて使った車両を記録する（5秒に1回）
     if (now - this.lastZukan > 5000) {
       this.lastZukan = now;
+      // 自社開発の試験：方針を選ぶ画面を出す（1回の試験につき1回だけ）
+      const dv = currentDesign(this.world);
+      const key = dv?.waiting ? `${dv.id}:${dv.tests.length}` : '';
+      if (key && key !== this.devPrompted) {
+        this.devPrompted = key;
+        if (!this.wm.isOpen('devel')) openDevel(this);
+      }
       for (const t of noteVehicles(this.world)) this.news(`車両図鑑に「${vehicleName(t)}」が加わりました`, 'good', -1);
     }
     requestAnimationFrame((t) => this.loop(t));
