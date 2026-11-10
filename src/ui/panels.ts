@@ -1,6 +1,7 @@
 // 各ウィンドウの中身（HTML）とボタンの動作
 
 import { VERSION } from '../version';
+import { openZukan } from './zukan';
 import { manualHtml, releaseNotesHtml } from './manual';
 import {
   addOrder,
@@ -685,7 +686,7 @@ export function openDepot(g: Game, id: number) {
         }
         <h4>留置線 <small class="muted">${depot.stored.length}両・置いている間は維持費なし</small></h4>
         <ul class="list stored">${stored || '<li class="muted small">なし（外した車両や買った貨車がここに置かれます）</li>'}</ul>
-        <h4>車両を買う</h4>
+        <h4>車両を買う <button class="link small" data-action="zukan">車両図鑑</button></h4>
         <div class="buy-grid">${buy}</div>
         <p class="muted small">${selTrain ? `貨車は<b>${esc(selTrain.name)}</b>に直接つながります。` : '貨車は留置線に置かれます。'}機関車を買うと新しい列車になります。</p>
         <div class="btnrow">
@@ -699,6 +700,7 @@ export function openDepot(g: Game, id: number) {
         }`;
     },
     onAction: (a, el, ev) => {
+      if (a === 'zukan') return openZukan(g);
       const w = g.world;
       const sel = g.depotSel.get(id) ?? -1;
       const car = Number(el.dataset.car);
@@ -1496,6 +1498,7 @@ export function openMenu(g: Game) {
         <button data-action="save">${ICONS.save}<span>セーブ／ロード</span></button>
         <button data-action="towns">${ICONS.depot}<span>町一覧</span></button>
         <button data-action="company">${ICONS.trophy}<span>会社と実績</span></button>
+        <button data-action="zukan">${ICONS.book}<span>車両図鑑</span></button>
         <button data-action="news">${ICONS.news}<span>お知らせ</span></button>
         <button data-action="help">${ICONS.help}<span>ヘルプ</span></button>
       </div>`,
@@ -1513,6 +1516,7 @@ export function openMenu(g: Game) {
       if (a === 'help') openHelp(g);
       if (a === 'news') openNews(g);
       if (a === 'company') openCompany(g);
+      if (a === 'zukan') openZukan(g);
     },
   });
 }

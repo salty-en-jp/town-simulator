@@ -3517,3 +3517,115 @@ details.relnote.old summary small {
 .chip.specialtycar {
   background: #c85a8a;
 }
+
+/* ───────────── v0.8.0：車両図鑑 ───────────── */
+
+.zk-progress {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.zk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zk-card {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.zk-card.used {
+  border-color: #f0d48a;
+  background: #fffaf0;
+}
+
+.zk-card.locked {
+  background: #f1ece2;
+  color: var(--ink-soft);
+}
+
+.zk-art {
+  flex: none;
+  width: 92px;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 4px;
+}
+
+.veh-svg {
+  width: 92px;
+  height: auto;
+}
+
+.zk-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.zk-body > b {
+  font-family: var(--font-game);
+  font-weight: 400;
+  font-size: 15px;
+}
+
+.zk-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  background: #e6dcc3;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.zk-badge.used {
+  background: #f2c14e;
+  color: #3a2a08;
+}
+
+.zk-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 10px;
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.zk-stats dt {
+  color: var(--ink-soft);
+}
+
+.zk-stats dd {
+  margin: 0;
+}
+
+.zk-flavor {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.zk-combo td,
+.zk-combo th {
+  text-align: center;
+}
+
+@media (max-width: 420px) {
+  .zk-art {
+    width: 70px;
+  }
+  .veh-svg {
+    width: 70px;
+  }
+}

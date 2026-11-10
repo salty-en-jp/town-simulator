@@ -349,3 +349,11 @@ export const TOWN = {
 
 export const HOUSE_POP = [0, 8, 30, 80] as const;
 export const HOUSE_PAX_PER_DAY = [0, 0.4, 1.5, 4] as const;
+
+/** 自社開発の組み合わせ（v0.8.2 で使う。図鑑の相性表にも並ぶ） */
+export const DEV_POWERS = ['steam', 'diesel', 'electric'] as const;
+export const DEV_USES = ['commuter', 'express', 'freight', 'mountain', 'tourist'] as const;
+export type DevPower = (typeof DEV_POWERS)[number];
+export type DevUse = (typeof DEV_USES)[number];
+export const DEV_POWER_NAMES: Record<DevPower, string> = { steam: '蒸気', diesel: 'ディーゼル', electric: '電気' };
+export const DEV_USE_NAMES: Record<DevUse, string> = { commuter: '通勤', express: '特急', freight: '貨物', mountain: '山岳', tourist: '観光' };

@@ -24,6 +24,7 @@ import {
   INDUSTRY_ECON,
   INDUSTRY_SPECS,
   PRIMARY_TYPES,
+  vehicleName,
   STATION,
   TICKS_PER_DAY,
   type Cargo,
@@ -59,6 +60,7 @@ import { WindowManager } from './ui/windows';
 import { VERSION } from './version';
 import { challengeProgress, checkChallengeEnd, createChallengeWorld, type ChallengeDef } from './sim/challenge';
 import { challengeCardHtml, openChallengeWindow } from './ui/challengeUi';
+import { noteVehicles } from './ui/zukan';
 import {
   daysSinceBackup,
   deleteSave,
@@ -327,6 +329,7 @@ export class Game implements InputTarget {
   }
 
   private lastStars = 0;
+  private lastZukan = 0;
 
   /** チャレンジ：★が増えたらお知らせ、期限が来たら結果を出す */
   private updateChallenge() {
@@ -1522,6 +1525,11 @@ export class Game implements InputTarget {
       this.updateGuide();
       this.updateRoute();
       if (this.tool === 'order') this.updatePickbar();
+    }
+    // 図鑑：はじめて使った車両を記録する（5秒に1回）
+    if (now - this.lastZukan > 5000) {
+      this.lastZukan = now;
+      for (const t of noteVehicles(this.world)) this.news(`車両図鑑に「${vehicleName(t)}」が加わりました`, 'good', -1);
     }
     requestAnimationFrame((t) => this.loop(t));
   }
