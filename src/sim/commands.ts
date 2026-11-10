@@ -1003,6 +1003,16 @@ export function rename(world: World, kind: NamedKind, id: number, name: string):
   return { ok: true, cost: 0 };
 }
 
+/** 会社の名前を変える */
+export function renameCompany(world: World, name: string): CmdResult {
+  const n = name.replace(/\s+/g, ' ').trim();
+  if (!n) return fail('名前を入れてください');
+  if ([...n].length > MAX_NAME) return fail(`名前は${MAX_NAME}文字までです`);
+  world.companyName = n;
+  world.version++;
+  return { ok: true, cost: 0 };
+}
+
 /** 指令を上（-1）か下（+1）に動かす。共有している列車の「今の指令」もいっしょに動く */
 export function moveOrder(world: World, trainId: number, index: number, to: number): CmdResult {
   const t = world.trains.get(trainId);

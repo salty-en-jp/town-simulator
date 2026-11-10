@@ -345,6 +345,8 @@ export interface World {
   pace?: Pace;
   /** 電化したマス（1＝架線あり）。v0.8.1 から。ないときは電化なし */
   electric?: Uint8Array;
+  /** 会社の名前（v0.8.2 から。ないときは DEFAULT_COMPANY_NAME） */
+  companyName?: string;
   /** 自社開発の機関車（v0.8.2 から） */
   designs?: Design[];
   /** 鉄道ファンの評判（0〜100。自社開発の評価で上下する） */
@@ -661,6 +663,13 @@ export function industryValue(ind: Industry): number {
 /** 町の表示名：ふつうは「桜川町」、名前を変えた町は書いたとおり */
 export function townLabel(t: { name: string; custom?: boolean }): string {
   return t.custom ? t.name : `${t.name}町`;
+}
+
+/** 会社の名前のはじめの値 */
+export const DEFAULT_COMPANY_NAME = 'ツナグ鉄道';
+
+export function companyName(world: World): string {
+  return world.companyName || DEFAULT_COMPANY_NAME;
 }
 
 /** 電気の機関車か（電化した線路だけを走る） */

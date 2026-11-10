@@ -23,6 +23,7 @@ import {
   cancelEngineSwap,
   moveOrder,
   rename,
+  renameCompany,
   scheduleEngineSwap,
   setOrderDest,
   setOrderLoad,
@@ -101,6 +102,7 @@ import {
   type Train,
   type UnloadMode,
   townLabel,
+  companyName,
 } from '../sim/world';
 import type { Game } from '../game';
 import { lineChart, monthsAgo, shortYen, sparkline } from './chart';
@@ -1062,6 +1064,14 @@ export function openCompany(g: Game) {
     id: 'company',
     title: '会社と実績',
     width: 400,
+    rename: {
+      get: () => companyName(g.world),
+      set: (name) => {
+        const ok = g.result(renameCompany(g.world, name));
+        if (ok) g.updateHud();
+        return ok;
+      },
+    },
     render: () => {
       const w = g.world;
       const r = rankIndex(w);
@@ -1079,6 +1089,7 @@ export function openCompany(g: Game) {
       }).join('');
       return `
         <div class="rank-card">
+          <p class="company-name"><b>${esc(companyName(w))}</b> <small class="muted">（タイトルの鉛筆で名前を変えられます）</small></p>
           <p class="muted small">会社のランク</p>
           <p class="rank-name">${RANKS[r].name}</p>
           <ol class="rank-ladder">${ladder}</ol>

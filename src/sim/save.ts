@@ -71,6 +71,7 @@ interface SavedWorld {
   landform?: World['landform'];
   /** 電化したマス（base64。v0.8.1） */
   electric?: string;
+  companyName?: string;
   designs?: Design[];
   devFame?: number;
 }
@@ -145,6 +146,7 @@ export function toSaveFile(w: World): SaveFile {
       pace: w.pace ?? 'normal',
       landform: w.landform ?? 'mixed',
       electric: w.electric && w.electric.some((v) => v) ? bytesToB64(w.electric) : undefined,
+      companyName: w.companyName || undefined,
       designs: w.designs?.length ? w.designs : undefined,
       devFame: w.devFame || undefined,
     },
@@ -247,6 +249,7 @@ export function deserializeWorld(text: string): World {
     pace: s.pace ?? 'normal',
     landform: s.landform ?? 'mixed',
     electric,
+    companyName: s.companyName,
     designs: s.designs ?? [],
     devFame: s.devFame ?? 0,
   };

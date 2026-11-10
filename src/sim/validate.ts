@@ -120,6 +120,7 @@ export function checkSavedWorld(v: unknown): void {
   str(s.terrain, 'terrain', n * 2 + 16);
   str(s.track, 'track', n * 2 + 16);
   designs(s);
+  optional(s.companyName, () => str(s.companyName, 'companyName'));
 
   arr(s.occ, 'occ', n).forEach((e, i) => {
     const p = `occ[${i}]`;

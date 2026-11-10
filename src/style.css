@@ -350,7 +350,7 @@ input {
 }
 
 .sb-news:empty::before {
-  content: '— ツナグ鉄道 —';
+  content: '— ' attr(data-company) ' —';
 }
 
 .sb-news.show {

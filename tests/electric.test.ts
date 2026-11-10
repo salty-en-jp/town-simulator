@@ -90,3 +90,17 @@ describe('電化', () => {
     expect(plain.world?.electric ?? plain.electric).toBeUndefined();
   });
 });
+
+describe('会社の名前', () => {
+  it('変えられて、セーブにも残る。空の名前はだめ', async () => {
+    const { renameCompany } = await import('../src/sim/commands');
+    const { companyName, DEFAULT_COMPANY_NAME } = await import('../src/sim/world');
+    const w = lineWorld();
+    expect(companyName(w)).toBe(DEFAULT_COMPANY_NAME);
+    expect(renameCompany(w, '  ').ok).toBe(false);
+    expect(renameCompany(w, 'みなと急行').ok).toBe(true);
+    const text = serializeWorld(w);
+    expect(() => checkSavedWorld(toSaveFile(w).world)).not.toThrow();
+    expect(companyName(deserializeWorld(text))).toBe('みなと急行');
+  });
+});
