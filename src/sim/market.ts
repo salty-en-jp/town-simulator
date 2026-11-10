@@ -8,7 +8,7 @@
 //   - 観光ブーム：小さな町へ行く旅客の運賃が上がり、その町の旅客も増える
 // 方針：プレイヤーの持ち物に損害は出さない。手をかけた人がもっと得をする形にする
 
-import { CARGO_SPECS, CARGOS, INDUSTRY_SPECS, type Cargo } from './constants';
+import { CARGO_SPECS, CARGOS, INDUSTRY_SPECS, PARTNER, type Cargo } from './constants';
 import { townAccepts } from './towns';
 import { idx, isPrimary, paceMul, pushEvent, townLabel, type World } from './world';
 
@@ -155,6 +155,17 @@ export function marketMonthly(world: World) {
     if (before > 0.85 && next <= 0.85) pushEvent(world, { type: 'news', text: `${CARGO_SPECS[c].name}の相場が下がっています（×${next.toFixed(2)}）`, tone: 'info' });
   }
 
+  // 海外の相場（港の輸出）：国内とは別に、大きめに上下する
+  if ([...world.industries.values()].some((i) => i.type === 'port')) {
+    const before = world.foreignMarket ?? 1;
+    let f = before * (1 + (world.rng.next() * 2 - 1) * 0.1 * p);
+    f += (1 - f) * 0.08;
+    f = Math.round(Math.min(PARTNER.foreignMax, Math.max(PARTNER.foreignMin, f)) * 1000) / 1000;
+    world.foreignMarket = f;
+    if (before < 1.25 && f >= 1.25) pushEvent(world, { type: 'news', text: `海外の相場が上がっています。港への輸出が高く売れます（×${f.toFixed(2)}）`, tone: 'good' });
+    if (before > 0.85 && f <= 0.85) pushEvent(world, { type: 'news', text: `海外の相場が下がっています（×${f.toFixed(2)}）`, tone: 'info' });
+  }
+
   // 終わったブーム
   for (const b of world.booms ?? []) {
     if (b.until <= world.day && b.until > world.day - 31) {
@@ -174,7 +185,7 @@ export function marketMonthly(world: World) {
     }
   }
   if (room() && world.rng.chance(MARKET.shortageChance * p)) {
-    const factories = [...world.industries.values()].filter((i) => !isPrimary(i.type) && i.status === 'active');
+    const factories = [...world.industries.values()].filter((i) => !isPrimary(i.type) && !INDUSTRY_SPECS[i.type].partner && i.status === 'active');
     if (factories.length) {
       const ind = world.rng.pick(factories);
       const input = world.rng.pick(INDUSTRY_SPECS[ind.type].inputs);

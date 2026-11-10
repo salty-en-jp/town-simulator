@@ -2,7 +2,7 @@
 // ・車両：見出しの日本語（「## steam ツナグ形蒸気機関車」）がゲームの中の名前になる
 // ・会社など：「## names-…」の見出しの下の行
 
-import { ENGINE_SPECS, isEngine, WAGON_SPECS, type VehicleType } from '../sim/constants';
+import { ENGINE_SPECS, isEngine, PARTNER_NAMES, WAGON_SPECS, type VehicleType } from '../sim/constants';
 import { SALES_NAMES } from '../sim/sales';
 import { parseFlavor, parseNames } from './flavor';
 import { setShortName } from './panels';
@@ -30,4 +30,6 @@ export function applyNames(md: string) {
   SALES_NAMES.rivalModels = many('names-rival-models') ?? SALES_NAMES.rivalModels;
   SALES_NAMES.tourism = one('names-tourism') ?? SALES_NAMES.tourism;
   SALES_NAMES.rivalMaker = one('names-rival-maker') ?? SALES_NAMES.rivalMaker;
+  PARTNER_NAMES.port = one('names-port-company') ?? PARTNER_NAMES.port;
+  PARTNER_NAMES.airport = one('names-airport-company') ?? PARTNER_NAMES.airport;
 }

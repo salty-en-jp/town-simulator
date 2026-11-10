@@ -61,7 +61,7 @@ describe('自社開発と部品の説明文', () => {
   });
 });
 
-describe('イカズチ形電気機関車', () => {
+describe('ブリッツ形電気機関車', () => {
   it('1978年に登場し、電化した線路だけを走る', async () => {
     const { createEmptyWorld, canBuy, needsWire } = await import('../src/sim/world');
     const w = createEmptyWorld(20, 20, 1);
