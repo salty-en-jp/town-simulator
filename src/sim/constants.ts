@@ -181,7 +181,7 @@ export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
   },
   express: { name: 'ハヤテ形機関車', cost: 20_000_000, speed: 5.5, runningCostPerYear: 2_200_000, maxCars: 10, allow: 'any', year: 1972, desc: '速い。なんでも引ける', power: 'steam' },
   electric: {
-    name: 'イカズチ形電気機関車',
+    name: 'ブリッツ形電気機関車',
     cost: 26_000_000,
     speed: 6.5,
     runningCostPerYear: 1_400_000,
@@ -192,7 +192,7 @@ export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
     power: 'electric',
   },
   superexpress: {
-    name: 'ツバサ形超特急',
+    name: 'フェアリィ形ディーゼル超特急',
     cost: 38_000_000,
     speed: 8,
     runningCostPerYear: 4_000_000,
