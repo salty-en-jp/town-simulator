@@ -47,9 +47,9 @@ describe('販売', () => {
     develop(w, d);
     const s = saleOf(d);
     s.markup = 0;
-    const cheap = [monthlyDemand(w, d), unitProfit(d)];
+    const cheap = [monthlyDemand(w, d), unitProfit(w, d)];
     s.markup = 3;
-    const dear = [monthlyDemand(w, d), unitProfit(d)];
+    const dear = [monthlyDemand(w, d), unitProfit(w, d)];
     expect(dear[0]).toBeLessThan(cheap[0]);
     expect(dear[1]).toBeGreaterThan(cheap[1]);
     w.day = d.done! + 365 * SALES.years + 1;

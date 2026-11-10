@@ -359,6 +359,9 @@ export interface World {
   devTrend?: { use: DevUse; year: number };
   devOrders?: DevOrder[];
   awards?: Award[];
+  /** 技術点と研究した部品（v0.8.4 から） */
+  tech?: number;
+  parts?: string[];
   /** 地形（v0.7。表示用） */
   landform?: 'mixed' | 'mountains' | 'plains' | 'coast';
 }

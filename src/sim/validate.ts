@@ -8,6 +8,7 @@
 // （解体した駅を指令が指したままになるのは、ふつうの遊び方でも起きるため）
 
 import { METRICS, RULE_TEXT } from './challenge';
+import { PARTS } from './tech';
 import { CARGOS, DEV_POWERS, DEV_USES, ENGINE_SPECS, INDUSTRY_SPECS, isDevEngine, WAGON_SPECS } from './constants';
 
 export class SaveCheckError extends Error {}
@@ -430,6 +431,8 @@ function designs(s: Obj) {
     });
   });
   optional(s.devFame, () => num(s.devFame, 'devFame', 0, 100));
+  optional(s.tech, () => num(s.tech, 'tech', 0, 1e6));
+  optional(s.parts, () => arr(s.parts, 'parts', 100).forEach((x, i) => oneOf(x, PARTS.map((p) => p.id), `parts[${i}]`)));
   optional(s.devTrend, () => {
     const t = obj(s.devTrend, 'devTrend');
     oneOf(t.use, DEV_USES, 'devTrend.use');

@@ -10,6 +10,7 @@
 import { DEV_POWER_NAMES, DEV_USE_NAMES, DEV_USES, type DevPower, type DevUse } from './constants';
 import { compat, designSpec, devKey, type Design } from './devel';
 import { dateOf, earn, pushEvent, type World } from './world';
+import { partMakeCost } from './tech';
 
 export interface SaleState {
   on: boolean;
@@ -97,9 +98,9 @@ export function runningCount(world: World, d: Design): number {
 }
 
 /** 1両売れたときの利益 */
-export function unitProfit(d: Design): number {
+export function unitProfit(world: World, d: Design): number {
   const s = saleOf(d);
-  return Math.round(designSpec(d).cost * (SALES.markups[s.markup] - SALES.makeCost));
+  return Math.round(designSpec(d).cost * (SALES.markups[s.markup] - SALES.makeCost + partMakeCost(world)));
 }
 
 /** 1か月に来る注文のめやす（両） */
@@ -144,7 +145,7 @@ export function salesMonthly(world: World) {
     const units = Math.floor(s.acc);
     if (units <= 0) continue;
     s.acc -= units;
-    const profit = units * unitProfit(d);
+    const profit = units * unitProfit(world, d);
     const first = s.sold === 0;
     s.sold += units;
     s.profit += profit;
