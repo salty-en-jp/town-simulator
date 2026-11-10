@@ -3821,3 +3821,28 @@ details.relnote.old summary small {
   font-size: 16px;
   background: #fffdf7;
 }
+
+.dev-parts {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.dev-part {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 13px;
+}
+
+.dev-part.have b {
+  color: #2f7a4a;
+}
+
+.dev-part .small-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}

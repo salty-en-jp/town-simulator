@@ -23,6 +23,7 @@ import {
 } from './constants';
 import { ELECTRIFY_YEAR, dateOf, pushEvent, spend, type World } from './world';
 import { salesOnDesignDone, type SaleState } from './sales';
+import { partChance, partDays, partStatMul, TECH } from './tech';
 
 export type TestChoice = 'safe' | 'bold' | 'daring';
 export type DevStat = 'speed' | 'might' | 'economy' | 'comfort';
@@ -239,7 +240,7 @@ export function startDesign(world: World, plan: DevPlan): Design | string {
     budget: plan.budget,
     color: plan.color ?? DEV.colors[(world.designs?.length ?? 0) % DEV.colors.length],
     start: world.day,
-    days: b.days,
+    days: Math.max(30, Math.round(b.days * (1 - partDays(world)))),
     progress: 0,
     pts: { speed: 0, might: 0, economy: 0, comfort: 0 },
     tests: [],
@@ -258,7 +259,7 @@ export function develDaily(world: World) {
   const w = weights(d.power, d.use);
   const perDay = (b.pool * compat(d.power, d.use)) / d.days;
   DEV_STATS.forEach((k, i) => {
-    d.pts[k] += perDay * w[i] * (0.6 + world.rng.next() * 0.8);
+    d.pts[k] += perDay * w[i] * partStatMul(world, d.power, k) * (0.6 + world.rng.next() * 0.8);
   });
   d.progress++;
   const ti = d.tests.length;
@@ -274,8 +275,8 @@ export function develDaily(world: World) {
 }
 
 /** 試験の成功率（技術点などで上がる予定。いまは方針だけで決まる） */
-export function testChance(_world: World, choice: TestChoice): number {
-  return DEV.choices[choice].chance;
+export function testChance(world: World, choice: TestChoice): number {
+  return Math.min(0.98, DEV.choices[choice].chance + partChance(world));
 }
 
 /** 試験の方針を選ぶ。結果を返す */
@@ -314,6 +315,7 @@ function finishDesign(world: World, d: Design) {
   d.waiting = false;
   d.rating = rate(d);
   world.devFame = Math.max(0, Math.min(100, (world.devFame ?? 0) + FAME_BY_RATING[d.rating - 1]));
+  world.tech = (world.tech ?? 0) + TECH.onDesign;
   syncDesigns(world);
   world.version++;
   const stars = '★'.repeat(d.rating) + '☆'.repeat(5 - d.rating);

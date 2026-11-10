@@ -26,6 +26,7 @@ import {
 } from '../sim/devel';
 import { formatYen } from '../sim/commands';
 import { dateOf, ELECTRIFY_YEAR } from '../sim/world';
+import { hasPart, PARTS, research, researchError, techPerMonth } from '../sim/tech';
 import { eraLabel, monthlyDemand, orderText, powerEra, runningCount, saleOf, SALES, unitProfit } from '../sim/sales';
 import type { Game } from '../game';
 import { esc, gauge } from './panels';
@@ -155,9 +156,35 @@ function saleBlock(g: Game, d: Design): string {
       <button class="seg-btn ${s.on ? 'on' : ''}" data-action="sale" data-id="${d.id}">${s.on ? '売っています' : '止めています'}</button>
       <small class="muted">あと${left.toFixed(1)}年</small></div>
     <div class="dev-row"><span>値段</span><div class="seg">${prices}</div></div>
-    <div class="small">1両の利益 ${formatYen(unitProfit(d))}・注文のめやす 月${demand.toFixed(1)}両・先月 ${s.lastMonth}両</div>
+    <div class="small">1両の利益 ${formatYen(unitProfit(w, d))}・注文のめやす 月${demand.toFixed(1)}両・先月 ${s.lastMonth}両</div>
     <div class="small">これまで <b>${s.sold}両</b>・利益 <b>${formatYen(s.profit)}</b>${run ? `・自社で${run}本走らせて宣伝中` : '・<span class="muted">自社の路線で走らせると宣伝になります</span>'}</div>
   </div>`;
+}
+
+/** 技術点と部品の研究 */
+function techBlock(g: Game): string {
+  const w = g.world;
+  const y = dateOf(w.day).y;
+  const rows = PARTS.filter((p) => !p.year || p.year - y <= 6)
+    .map((p) => {
+      const have = hasPart(w, p.id);
+      const err = have ? null : researchError(w, p.id);
+      const locked = !!p.year && y < p.year;
+      return `<li class="dev-part ${have ? 'have' : ''}">
+        <div><b>${have ? '✓ ' : ''}${esc(p.name)}</b> <small class="muted">${p.power ? DEV_POWER_NAMES[p.power] + 'だけ・' : ''}${esc(p.desc)}</small></div>
+        ${
+          have
+            ? ''
+            : `<button class="small-btn" data-action="research" data-id="${p.id}" ${err ? `disabled title="${esc(err)}"` : ''}>${
+                locked ? `${p.year}年から` : `研究 技術点${p.tech}・${formatYen(p.money)}`
+              }</button>`
+        }</li>`;
+    })
+    .join('');
+  return `<h4>技術と部品</h4>
+    <p class="small">技術点 <b>${Math.floor(w.tech ?? 0)}</b> <small class="muted">（運行で毎月 +${techPerMonth(w).toFixed(1)}。自社開発の機関車の列車は2倍。完成でも増えます）</small></p>
+    <p class="small muted">部品を研究すると、それからの開発がずっと強くなります。</p>
+    <ul class="dev-parts">${rows}</ul>`;
 }
 
 function market(g: Game): string {
@@ -218,6 +245,7 @@ export function openDevel(g: Game) {
         <p class="dev-fame">鉄道ファンの評判 <b>${fame}</b> <small class="muted">（${fameLabel(fame)}）</small></p>
         ${d ? current(g, d) : form(g)}
         ${doneList(g)}
+        ${techBlock(g)}
         ${market(g)}`;
     },
     onChange: (el) => {
@@ -263,6 +291,11 @@ export function openDevel(g: Game) {
           if (a === 'sale') s.on = !s.on;
           else s.markup = Number(v);
         }
+      } else if (a === 'research') {
+        const err = research(w, el.dataset.id ?? '');
+        if (err) g.toast(err, 'bad');
+        else g.toast('研究が終わりました', 'good');
+        g.updateHud();
       } else if (a === 'fix') {
         const err = fixDefect(w, Number(el.dataset.id));
         if (err) g.toast(err, 'bad');

@@ -77,6 +77,8 @@ interface SavedWorld {
   devTrend?: { use: DevUse; year: number };
   devOrders?: DevOrder[];
   awards?: Award[];
+  tech?: number;
+  parts?: string[];
   designs?: Design[];
   devFame?: number;
 }
@@ -155,6 +157,8 @@ export function toSaveFile(w: World): SaveFile {
       devTrend: w.devTrend,
       devOrders: w.devOrders?.length ? w.devOrders : undefined,
       awards: w.awards?.length ? w.awards : undefined,
+      tech: w.tech || undefined,
+      parts: w.parts?.length ? w.parts : undefined,
       designs: w.designs?.length ? w.designs : undefined,
       devFame: w.devFame || undefined,
     },
@@ -261,6 +265,8 @@ export function deserializeWorld(text: string): World {
     devTrend: s.devTrend,
     devOrders: s.devOrders ?? [],
     awards: s.awards ?? [],
+    tech: s.tech ?? 0,
+    parts: s.parts ?? [],
     designs: s.designs ?? [],
     devFame: s.devFame ?? 0,
   };

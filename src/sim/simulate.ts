@@ -2,6 +2,7 @@
 
 import { comfortMul, develDaily } from './devel';
 import { salesMonthly, salesYearly } from './sales';
+import { techMonthly } from './tech';
 import {
   CARGOS,
   COSTS,
@@ -817,6 +818,7 @@ function monthly(world: World) {
   eventsMonthly(world);
   marketMonthly(world);
   salesMonthly(world);
+  techMonthly(world);
   specialtyMonthly(world);
   companyMonthly(world);
   recordCompany(world);
