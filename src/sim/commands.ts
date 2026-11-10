@@ -245,7 +245,8 @@ function buildTrackPath(world: World, path: number[], dry: boolean): CmdResult {
     const has = (world.track[p] & d) !== 0 && (world.track[q] & OPPOSITE[d]) !== 0;
     if (has) continue;
     const water = world.terrain[p] === Terrain.Water || world.terrain[q] === Terrain.Water;
-    cost += COSTS.trackPerConnection * (water ? COSTS.trackWaterMultiplier : 1);
+    const rock = world.terrain[p] === Terrain.Rock || world.terrain[q] === Terrain.Rock;
+    cost += COSTS.trackPerConnection * (water ? COSTS.trackWaterMultiplier : rock ? COSTS.trackRockMultiplier : 1);
     adds.push([p, d]);
     for (const t of [p, q]) if (world.terrain[t] === Terrain.Trees) trees.add(t);
   }

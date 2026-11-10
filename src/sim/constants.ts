@@ -13,8 +13,10 @@ export type Cargo =
   | 'ore'
   | 'coal'
   | 'steel'
-  | 'materials';
-export const CARGOS: readonly Cargo[] = ['passengers', 'logs', 'lumber', 'grain', 'food', 'ore', 'coal', 'steel', 'materials'];
+  | 'materials'
+  | 'livestock'
+  | 'fish';
+export const CARGOS: readonly Cargo[] = ['passengers', 'logs', 'lumber', 'grain', 'livestock', 'fish', 'food', 'ore', 'coal', 'steel', 'materials'];
 /** 町が受け入れる貨物（旅客以外） */
 export const TOWN_GOODS: readonly Cargo[] = ['lumber', 'food', 'materials'];
 
@@ -40,6 +42,8 @@ export const CARGO_SPECS: Record<Cargo, CargoSpec> = {
   coal: { name: '石炭', unit: 't', rate: 340, days1: 40, days2: 80, color: 0x2b2b2e },
   steel: { name: '鋼材', unit: 't', rate: 620, days1: 30, days2: 60, color: 0x8d9aa8 },
   materials: { name: '建設資材', unit: 't', rate: 820, days1: 20, days2: 40, color: 0xd88a3c },
+  livestock: { name: '家畜', unit: '頭', rate: 520, days1: 10, days2: 30, color: 0xb88a5a },
+  fish: { name: '魚', unit: 't', rate: 600, days1: 5, days2: 15, color: 0x6fa8c8 },
 };
 
 export type WagonType =
@@ -60,7 +64,9 @@ export type WagonType =
   | 'bigorecar'
   | 'bigcoalcar'
   | 'bigsteelcar'
-  | 'bigmaterialcar';
+  | 'bigmaterialcar'
+  | 'livestockcar'
+  | 'fishcar';
 export type EngineType = 'steam' | 'express' | 'heavy' | 'superexpress';
 export type VehicleType = EngineType | WagonType;
 
@@ -112,6 +118,8 @@ export const WAGON_SPECS: Record<WagonType, WagonSpec> = {
   bigcoalcar: { name: '大型石炭車', cargo: 'coal', capacity: 50, cost: 2_400_000, year: 1974, big: true },
   bigsteelcar: { name: '大型鋼材車', cargo: 'steel', capacity: 45, cost: 2_600_000, year: 1977, big: true },
   bigmaterialcar: { name: '大型資材車', cargo: 'materials', capacity: 40, cost: 2_800_000, year: 1977, big: true },
+  livestockcar: { name: '家畜車', cargo: 'livestock', capacity: 20, cost: 1_600_000 },
+  fishcar: { name: '魚の冷蔵車', cargo: 'fish', capacity: 25, cost: 2_000_000, fresh: 0.6 },
 };
 
 export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
@@ -166,6 +174,8 @@ export const MAX_WAGONS = 8;
 export const COSTS = {
   trackPerConnection: 200_000,
   trackWaterMultiplier: 5,
+  /** 山地の岩場に線路を引くときの倍率 */
+  trackRockMultiplier: 2.5,
   clearTrees: 20_000,
   removeTrackPerConnection: 20_000,
   stationPerTile: 3_000_000,
@@ -208,13 +218,17 @@ export type IndustryType =
   | 'sawmill'
   | 'foodplant'
   | 'steelmill'
-  | 'materialsplant';
+  | 'materialsplant'
+  | 'ranch'
+  | 'fishery';
 
 export interface IndustrySpec {
   /** 名前の後ろ（「桜川」＋「製材所」） */
   suffix: string;
-  /** 受け入れる貨物。2つ以上あるときは、全部そろって初めてフル生産 */
+  /** 受け入れる貨物。2つ以上あるときは、全部そろって初めてフル生産（anyInput なら、どれか1つで動く） */
   inputs: Cargo[];
+  /** 材料はどれか1つでよい（食品工場：穀物・家畜・魚） */
+  anyInput?: boolean;
   output: Cargo;
   /** 一次産業：1か月の生産量。加工：1か月に加工できる最大量 */
   rate: number;
@@ -229,7 +243,18 @@ export const INDUSTRY_SPECS: Record<IndustryType, IndustrySpec> = {
   ironmine: { suffix: '鉄鉱山', inputs: [], output: 'ore', rate: 90, w: 2, h: 2, desc: '鉄鉱石を掘り出す鉱山です。' },
   coalmine: { suffix: '炭鉱', inputs: [], output: 'coal', rate: 90, w: 2, h: 2, desc: '石炭を掘り出す炭鉱です。' },
   sawmill: { suffix: '製材所', inputs: ['logs'], output: 'lumber', rate: 120, w: 3, h: 2, desc: '原木を木材に加工します。' },
-  foodplant: { suffix: '食品工場', inputs: ['grain'], output: 'food', rate: 120, w: 3, h: 2, desc: '穀物を食料品に加工します。食料品を町に届けると、町が早く育ちます。' },
+  foodplant: {
+    suffix: '食品工場',
+    inputs: ['grain', 'livestock', 'fish'],
+    anyInput: true,
+    output: 'food',
+    rate: 120,
+    w: 3,
+    h: 2,
+    desc: '穀物・家畜・魚のどれからでも食料品をつくります。食料品を町に届けると、町が早く育ちます。',
+  },
+  ranch: { suffix: '牧場', inputs: [], output: 'livestock', rate: 60, w: 3, h: 3, desc: '家畜を育てる牧場です。山すその田舎に多くあります。' },
+  fishery: { suffix: '漁港', inputs: [], output: 'fish', rate: 70, w: 2, h: 2, desc: '魚がとれる漁港です。海のそばにあります。魚は傷みやすいので、早く運びましょう。' },
   steelmill: {
     suffix: '製鉄所',
     inputs: ['ore', 'coal'],
@@ -251,7 +276,7 @@ export const INDUSTRY_SPECS: Record<IndustryType, IndustrySpec> = {
 };
 
 export const INDUSTRY_TYPES = Object.keys(INDUSTRY_SPECS) as IndustryType[];
-export const PRIMARY_TYPES: IndustryType[] = ['forest', 'farm', 'ironmine', 'coalmine'];
+export const PRIMARY_TYPES: IndustryType[] = ['forest', 'farm', 'ironmine', 'coalmine', 'ranch', 'fishery'];
 export const FACTORY_TYPES: IndustryType[] = ['sawmill', 'foodplant', 'steelmill', 'materialsplant'];
 
 /** 産業の持ち主・権利・契約・探鉱・建設 */
@@ -266,7 +291,7 @@ export const INDUSTRY_ECON = {
   /** 工場の建設にかかる日数 */
   buildDays: 60,
   /** 探鉱の費用と、調査にかかる日数 */
-  surveyCost: { forest: 8_000_000, farm: 10_000_000, ironmine: 15_000_000, coalmine: 15_000_000 } as Record<string, number>,
+  surveyCost: { forest: 8_000_000, farm: 10_000_000, ironmine: 15_000_000, coalmine: 15_000_000, ranch: 9_000_000, fishery: 12_000_000 } as Record<string, number>,
   surveyDays: 60,
   /** 自社の産業の配当：運び出した製品 1t あたり ＝ 貨物の基本運賃 × この倍率 */
   dividendRateMul: 6,

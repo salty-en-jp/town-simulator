@@ -73,13 +73,15 @@ export function canPlaceIndustry(world: World, type: IndustryType, x: number, y:
     for (let xx = x - 1; xx <= x + w; xx++) {
       const t = idx(world, xx, yy);
       const inside = xx >= x && xx < x + w && yy >= y && yy < y + h;
-      if (world.terrain[t] === Terrain.Water) return '水の近くには置けません';
+      // 漁港だけは水辺に置ける（建物の下は陸地）
+      if (world.terrain[t] === Terrain.Water && (type !== 'fishery' || inside)) return type === 'fishery' ? '水の上には置けません' : '水の近くには置けません';
       if (inside && world.occ[t]) return '建物があります';
       if (inside && world.track[t]) return '線路があります';
       if (!inside && world.occ[t]?.k === 'industry') return 'ほかの産業と近すぎます';
     }
   }
   if (world.surveys.some((s) => Math.abs(s.x - x) < 4 && Math.abs(s.y - y) < 4)) return '調査中の場所と重なります';
+  if (type === 'fishery' && waterAround(world, x, y, w, h) < 8) return '漁港は、広い水辺（海）のそばに置いてください';
   if (!spacing) return null;
   const cx = x + w / 2,
     cy = y + h / 2;
@@ -160,12 +162,54 @@ export function placeIndustryAt(world: World, type: IndustryType, x: number, y: 
 
 /** 空いている場所に、間隔をあけて置く */
 export function placeIndustrySomewhere(world: World, type: IndustryType, owner: IndustryOwner): Industry | null {
-  for (let tries = 0; tries < 400; tries++) {
+  // はじめは「その産業に向いた土地」だけを探し、見つからなければどこでも
+  const hasRock = world.terrain.includes(Terrain.Rock);
+  for (let tries = 0; tries < 600; tries++) {
     const x = world.rng.int(2, world.w - 6),
       y = world.rng.int(2, world.h - 6);
+    if (tries < 400 && !suitsLand(world, type, x, y, hasRock)) continue;
     if (!canPlaceIndustry(world, type, x, y, true)) return placeIndustryAt(world, type, x, y, owner);
   }
   return null;
+}
+
+/** 産業のまわりの水のマス数（漁港用） */
+export function waterAround(world: World, x: number, y: number, w: number, h: number, r = 2): number {
+  let n = 0;
+  for (let yy = y - r; yy < y + h + r; yy++)
+    for (let xx = x - r; xx < x + w + r; xx++) if (xx >= 0 && yy >= 0 && xx < world.w && yy < world.h && world.terrain[idx(world, xx, yy)] === Terrain.Water) n++;
+  return n;
+}
+
+/** まわりの岩場の割合（0..1） */
+export function rockRatio(world: World, cx: number, cy: number, r: number): number {
+  let n = 0,
+    all = 0;
+  for (let y = cy - r; y <= cy + r; y++)
+    for (let x = cx - r; x <= cx + r; x++) {
+      if (x < 0 || y < 0 || x >= world.w || y >= world.h) continue;
+      all++;
+      if (world.terrain[idx(world, x, y)] === Terrain.Rock) n++;
+    }
+  return all ? n / all : 0;
+}
+
+/** その産業に向いた土地か（鉱山は山地、農場は平野、牧場は山すそ、漁港は海辺） */
+function suitsLand(world: World, type: IndustryType, x: number, y: number, hasRock: boolean): boolean {
+  const rr = rockRatio(world, x + 1, y + 1, 4);
+  switch (type) {
+    case 'ironmine':
+    case 'coalmine':
+      return !hasRock || rr > 0.3;
+    case 'farm':
+      return rr < 0.05;
+    case 'ranch':
+      return !hasRock || (rr > 0.05 && rr < 0.5);
+    case 'forest':
+      return rr < 0.4;
+    default:
+      return rr < 0.2;
+  }
 }
 
 // ───────────────────────── 権利・契約・増産 ─────────────────────────
@@ -273,10 +317,16 @@ export function surveyChance(world: World, type: IndustryType, x: number, y: num
       c = 0.25 + tr * 0.9;
       break;
     case 'farm':
-      c = 0.7 - tr * 0.6;
+      c = 0.7 - tr * 0.6 - rockRatio(world, x + 1, y + 1, 4);
+      break;
+    case 'ranch':
+      c = 0.55 + Math.min(0.25, rockRatio(world, x + 1, y + 1, 5));
+      break;
+    case 'fishery':
+      c = 0.3 + Math.min(0.5, waterAround(world, x, y, 2, 2, 3) / 40);
       break;
     default: {
-      c = type === 'ironmine' ? 0.4 : 0.45;
+      c = (type === 'ironmine' ? 0.4 : 0.45) + rockRatio(world, x + 1, y + 1, 4) * 0.4;
       const same = [...world.industries.values()].some((i) => i.type === type && Math.abs(i.x - x) + Math.abs(i.y - y) < 16);
       if (same) c -= 0.2;
     }
@@ -423,7 +473,7 @@ export function industryStatus(world: World, ind: Industry): { code: IndustrySta
     if (!have.length && !recent) {
       return { code: 'idle', text: `材料（${spec.inputs.map((c) => CARGO_SPECS[c].name).join('・')}）が届いていません`, tone: 'warn' };
     }
-    if (have.length < spec.inputs.length && spec.inputs.length > 1) {
+    if (have.length < spec.inputs.length && spec.inputs.length > 1 && !spec.anyInput) {
       const lack = spec.inputs.filter((c) => !have.includes(c)).map((c) => CARGO_SPECS[c].name);
       return { code: 'lacking', text: `${lack.join('・')}が足りないので止まっています`, tone: 'bad' };
     }

@@ -503,6 +503,17 @@ function industriesDaily(world: World, ctx: DayContext) {
       const p = Math.min(perDay, room);
       ind.outStock += p;
       ind.producedThisMonth += p;
+    } else if (spec.anyInput) {
+      // どれか1つの材料でよい工場（食品工場）：ある材料を合わせて使う。多い材料から先に使う
+      const total = spec.inputs.reduce((n, c) => n + (ind.inputs[c] ?? 0), 0);
+      let conv = Math.max(0, Math.min(total, perDay, room));
+      ind.outStock += conv;
+      ind.producedThisMonth += conv;
+      for (const c of [...spec.inputs].sort((a, b) => (ind.inputs[b] ?? 0) - (ind.inputs[a] ?? 0))) {
+        const use = Math.min(ind.inputs[c] ?? 0, conv);
+        ind.inputs[c] = (ind.inputs[c] ?? 0) - use;
+        conv -= use;
+      }
     } else {
       // 材料が2つ以上いる工場は、いちばん少ない材料の分しか作れない（全部そろってフル生産）
       const have = Math.min(...spec.inputs.map((c) => ind.inputs[c] ?? 0));
@@ -542,7 +553,8 @@ function townCatchesStation(world: World, town: Town, houses: number[], r: Rect)
 }
 
 function buildableForHouse(world: World, t: number): boolean {
-  return world.occ[t] === null && world.track[t] === 0 && world.terrain[t] !== Terrain.Water;
+  // 水の上と、山地の岩場には家が建たない
+  return world.occ[t] === null && world.track[t] === 0 && world.terrain[t] !== Terrain.Water && world.terrain[t] !== Terrain.Rock;
 }
 
 /** 町に家を1軒建てる。駅の集客範囲の中を優先する */

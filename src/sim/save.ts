@@ -8,6 +8,7 @@ import { Rng } from './rng';
 import type { Request, RequestState } from './requests';
 import {
   emptyFinance,
+  newGoods,
   type Depot,
   type FinanceCategory,
   type Industry,
@@ -66,6 +67,7 @@ interface SavedWorld {
   stats?: World['stats'];
   challenge?: World['challenge'];
   pace?: World['pace'];
+  landform?: World['landform'];
 }
 
 export interface SaveFile {
@@ -136,6 +138,7 @@ export function toSaveFile(w: World): SaveFile {
       stats: w.stats ?? {},
       challenge: w.challenge ?? null,
       pace: w.pace ?? 'normal',
+      landform: w.landform ?? 'mixed',
     },
   };
 }
@@ -194,7 +197,8 @@ export function deserializeWorld(text: string): World {
     terrain,
     track,
     occ,
-    stations: new Map(s.stations.map((x) => [x.id, x])),
+    // 新しく増えた貨物（家畜・魚など）の欄を、前の版のセーブにも足す
+    stations: new Map(s.stations.map((x) => [x.id, { ...x, goods: { ...newGoods(), ...x.goods } }])),
     depots: new Map(s.depots.map((x) => [x.id, { ...x, stored: x.stored ?? [] }])),
     industries: new Map(s.industries.map((x) => [x.id, x])),
     towns: new Map(s.towns.map((x) => [x.id, x])),
@@ -230,5 +234,6 @@ export function deserializeWorld(text: string): World {
     stats: s.stats ?? {},
     challenge: s.challenge ?? null,
     pace: s.pace ?? 'normal',
+    landform: s.landform ?? 'mixed',
   };
 }

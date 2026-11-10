@@ -23,6 +23,8 @@ export const enum Terrain {
   Grass = 0,
   Water = 1,
   Trees = 2,
+  /** 山地の岩場（v0.7）：線路の建設費が高く、家は建たない */
+  Rock = 3,
 }
 
 /** 線路の接続方向（マップの格子座標で） */
@@ -328,6 +330,8 @@ export interface World {
   challenge?: ChallengeState | null;
   /** 時間の流れ（世の中の動きの速さ）。v0.6.1 から。ないときは「ふつう」 */
   pace?: Pace;
+  /** 地形（v0.7。表示用） */
+  landform?: 'mixed' | 'mountains' | 'plains' | 'coast';
 }
 
 export type Pace = 'slow' | 'normal' | 'fast';

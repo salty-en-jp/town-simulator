@@ -350,6 +350,7 @@ export function checkSavedWorld(v: unknown): void {
   });
 
   optional(s.pace, () => oneOf(s.pace, ['slow', 'normal', 'fast'], 'pace'));
+  optional(s.landform, () => oneOf(s.landform, ['mixed', 'mountains', 'plains', 'coast'], 'landform'));
   optional(s.challenge, () => {
     const c = obj(s.challenge, 'challenge');
     oneOf(c.kind, ['stage', 'daily', 'random'], 'challenge.kind');

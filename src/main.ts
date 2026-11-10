@@ -12,7 +12,7 @@ import * as sim from './sim/simulate';
 import type { World } from './sim/world';
 import { VERSION } from './version';
 import type { ChallengeDef } from './sim/challenge';
-import { MAP_SIZES, type MapSize } from './sim/mapgen';
+import { LANDFORMS, MAP_SIZES, type Landform, type MapSize } from './sim/mapgen';
 import { PACES, type Pace } from './sim/world';
 import { renderChallengeMenu } from './ui/challengeUi';
 import { daysSinceBackup, isSafeStorage, listSaves, loadFrom, metaLabel, pickSaveFile, requestPersistence, storageStatus } from './storage';
@@ -41,7 +41,7 @@ async function main() {
     setTimeout(() => title.remove(), 500);
   };
   let busy = false;
-  const startNew = async (opts: { size?: number; pace?: Pace } = {}) => {
+  const startNew = async (opts: { size?: number; pace?: Pace; landform?: Landform } = {}) => {
     if (busy) return;
     busy = true;
     await leaveTitle();
@@ -49,12 +49,12 @@ async function main() {
   };
 
   // 新しいゲームの設定（マップの広さ・時間の流れ）。前に選んだものを覚えておく
-  const loadPrefs = (): { size: MapSize; pace: Pace } => {
+  const loadPrefs = (): { size: MapSize; pace: Pace; landform: Landform } => {
     try {
       const v = JSON.parse(localStorage.getItem('tsunagu.newGame') ?? '{}');
-      return { size: v.size in MAP_SIZES ? v.size : 'normal', pace: v.pace in PACES ? v.pace : 'normal' };
+      return { size: v.size in MAP_SIZES ? v.size : 'normal', pace: v.pace in PACES ? v.pace : 'normal', landform: v.landform in LANDFORMS ? v.landform : 'mixed' };
     } catch {
-      return { size: 'normal', pace: 'normal' };
+      return { size: 'normal', pace: 'normal', landform: 'mixed' };
     }
   };
   const showNewGame = () => {
@@ -67,6 +67,8 @@ async function main() {
           <p class="ch-head">新しいゲーム</p>
           <p class="ng-label">マップの広さ <small>町の数は広さで決まります</small></p>
           <div class="ng-opts">${(Object.keys(MAP_SIZES) as MapSize[]).map((k) => opt('size', k, MAP_SIZES[k].name, MAP_SIZES[k].desc, pref.size === k)).join('')}</div>
+          <p class="ng-label">地形 <small>山地（岩場）は線路が高く、家が建ちません。土地によって多い産業が変わります</small></p>
+          <div class="ng-opts four">${(Object.keys(LANDFORMS) as Landform[]).map((k) => opt('landform', k, LANDFORMS[k].name, LANDFORMS[k].desc, pref.landform === k)).join('')}</div>
           <p class="ng-label">時間の流れ <small>列車の速さは同じ。相場・ブーム・町の成長などの速さが変わります（あとから変えられます）</small></p>
           <div class="ng-opts">${(Object.keys(PACES) as Pace[]).map((k) => opt('pace', k, PACES[k].name, PACES[k].desc, pref.pace === k)).join('')}</div>
           <button class="start-btn" data-ng="start">はじめる</button>
@@ -81,7 +83,8 @@ async function main() {
       const k = b.dataset.ng;
       if (k === 'size') pref.size = b.dataset.k as MapSize;
       if (k === 'pace') pref.pace = b.dataset.k as Pace;
-      if (k === 'size' || k === 'pace') {
+      if (k === 'landform') pref.landform = b.dataset.k as Landform;
+      if (k === 'size' || k === 'pace' || k === 'landform') {
         render();
         return;
       }
@@ -96,7 +99,7 @@ async function main() {
       } catch {
         /* 覚えられなくてもよい */
       }
-      void startNew({ size: MAP_SIZES[pref.size].size, pace: pref.pace });
+      void startNew({ size: MAP_SIZES[pref.size].size, pace: pref.pace, landform: pref.landform });
     };
   };
   const startWith = async (w: World) => {
