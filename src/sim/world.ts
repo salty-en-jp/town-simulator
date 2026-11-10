@@ -11,6 +11,7 @@ import {
   WAGON_SPECS,
   type Cargo,
   type EngineType,
+  type SpecialtyKind,
   type IndustryType,
   type VehicleType,
 } from './constants';
@@ -120,6 +121,9 @@ export interface Industry {
   expansions: number;
   /** 毎月の記録（右詰め：最後が先月）。生産・運び出し・受け入れ */
   hist: { p: number[]; t: number[]; r: number[] };
+  /** 名産の工房：名産の種類と、どの町の名産か（v0.7.1） */
+  specialty?: SpecialtyKind;
+  town?: number;
 }
 
 export type IndustryOwner = 'player' | 'public' | 'other';
@@ -169,6 +173,12 @@ export interface Town {
   stage?: 0 | 1 | 2;
   /** 都市になる前のお知らせを出したか */
   cityWarned?: boolean;
+  /** 名産の評判（運び出すほど上がり、毎月少しずつ下がる。観光客が増える。v0.7.1） */
+  fame?: number;
+  /** 評判のお知らせを出したところ */
+  fameNotified?: number;
+  /** まわりに名産の工房を置く場所がなかった */
+  noWorkshop?: boolean;
 }
 
 export type LoadMode = 'if_available' | 'full_any' | 'full_all' | 'none';

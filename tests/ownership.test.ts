@@ -100,14 +100,16 @@ describe('探鉱', () => {
     expect(ok.ok && ng.ok).toBe(true);
     w.surveys[0].roll = 0; // 必ず成功
     w.surveys[1].roll = 0.999; // 必ず失敗
-    const n0 = w.industries.size;
+    // 数えるのは自社の産業だけ（自然に見つかる他社の産業や、町ごとの名産の工房は数えない）
+    const count = () => [...w.industries.values()].filter((i) => i.owner === 'player').length;
+    const n0 = count();
     days(w, INDUSTRY_ECON.surveyDays - 5);
-    expect(w.industries.size).toBe(n0);
+    expect(count()).toBe(n0);
     days(w, 10);
-    expect(w.industries.size).toBe(n0 + 1);
+    expect(count()).toBe(n0 + 1);
     const mine = [...w.industries.values()].find((i) => i.type === 'coalmine')!;
     expect(mine.owner).toBe('player');
-    expect([...w.industries.values()].some((i) => i.type === 'ironmine')).toBe(false);
+    expect([...w.industries.values()].some((i) => i.type === 'ironmine' && i.owner === 'player')).toBe(false);
     expect(w.surveys.length).toBe(0);
   });
 
@@ -144,7 +146,9 @@ describe('マップと自然発見', () => {
   it('はじめから使えるのは各種類1つずつ、2つめからは他社', () => {
     const w = generateWorld(11);
     const byType = new Map<string, string[]>();
-    for (const i of w.industries.values()) byType.set(i.type, [...(byType.get(i.type) ?? []), i.owner]);
+    // 名産の工房は町ごとに1つずつで、どれも地元の産業
+    for (const i of w.industries.values()) if (i.type !== 'workshop') byType.set(i.type, [...(byType.get(i.type) ?? []), i.owner]);
+    expect([...w.industries.values()].filter((i) => i.type === 'workshop').every((i) => i.owner === 'public')).toBe(true);
     for (const owners of byType.values()) {
       expect(owners[0]).toBe('public');
       expect(owners.slice(1).every((o) => o === 'other')).toBe(true);

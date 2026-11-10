@@ -182,6 +182,7 @@ const DELIVER_TEXT: Partial<Record<Cargo, { goal: number; why: string; money: nu
   lumber: { goal: 60, why: '新しい家を建てたいそうです。', money: 6_000_000 },
   food: { goal: 50, why: '町の人が食べる食料品が足りないそうです。', money: 7_000_000 },
   materials: { goal: 40, why: '高いビルを建てたいそうです。', money: 9_000_000 },
+  specialty: { goal: 30, why: 'よその町の名産品を味わいたいそうです。', money: 8_000_000 },
 };
 
 function makeRequest(world: World): Request | null {

@@ -192,6 +192,8 @@ export function checkSavedWorld(v: unknown): void {
       num(ind[k], `${p}.${k}`);
     oneOf(ind.owner, ['player', 'public', 'other'], `${p}.owner`);
     oneOf(ind.status, ['active', 'building'], `${p}.status`);
+    optional(ind.specialty, () => oneOf(ind.specialty, ['pottery', 'fruit', 'tea', 'driedfish'], `${p}.specialty`));
+    optional(ind.town, () => id(ind.town, `${p}.town`));
     const hist = obj(ind.hist, `${p}.hist`);
     numArr(hist.p, `${p}.hist.p`);
     numArr(hist.t, `${p}.hist.t`);
@@ -222,6 +224,9 @@ export function checkSavedWorld(v: unknown): void {
     optional(t.popHist, () => numArr(t.popHist, `${p}.popHist`));
     optional(t.stage, () => int(t.stage, `${p}.stage`, 0, 2));
     optional(t.cityWarned, () => bool(t.cityWarned, `${p}.cityWarned`));
+    optional(t.fame, () => num(t.fame, `${p}.fame`, 0));
+    optional(t.fameNotified, () => num(t.fameNotified, `${p}.fameNotified`, 0));
+    optional(t.noWorkshop, () => bool(t.noWorkshop, `${p}.noWorkshop`));
   });
 
   arr(s.trains, 'trains').forEach((x, i) => {

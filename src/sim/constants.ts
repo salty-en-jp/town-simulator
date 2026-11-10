@@ -15,10 +15,11 @@ export type Cargo =
   | 'steel'
   | 'materials'
   | 'livestock'
-  | 'fish';
-export const CARGOS: readonly Cargo[] = ['passengers', 'logs', 'lumber', 'grain', 'livestock', 'fish', 'food', 'ore', 'coal', 'steel', 'materials'];
+  | 'fish'
+  | 'specialty';
+export const CARGOS: readonly Cargo[] = ['passengers', 'logs', 'lumber', 'grain', 'livestock', 'fish', 'food', 'ore', 'coal', 'steel', 'materials', 'specialty'];
 /** 町が受け入れる貨物（旅客以外） */
-export const TOWN_GOODS: readonly Cargo[] = ['lumber', 'food', 'materials'];
+export const TOWN_GOODS: readonly Cargo[] = ['lumber', 'food', 'materials', 'specialty'];
 
 export interface CargoSpec {
   name: string;
@@ -44,6 +45,16 @@ export const CARGO_SPECS: Record<Cargo, CargoSpec> = {
   materials: { name: '建設資材', unit: 't', rate: 820, days1: 20, days2: 40, color: 0xd88a3c },
   livestock: { name: '家畜', unit: '頭', rate: 520, days1: 10, days2: 30, color: 0xb88a5a },
   fish: { name: '魚', unit: 't', rate: 600, days1: 5, days2: 15, color: 0x6fa8c8 },
+  specialty: { name: '名産品', unit: '箱', rate: 560, days1: 25, days2: 50, color: 0xc85a8a },
+};
+
+/** 名産の種類（町のまわりの土地で決まる。v0.7.1） */
+export type SpecialtyKind = 'pottery' | 'fruit' | 'tea' | 'driedfish';
+export const SPECIALTIES: Record<SpecialtyKind, { name: string; place: string; land: string }> = {
+  pottery: { name: '焼き物', place: '窯元', land: '山地のそば' },
+  fruit: { name: '果物', place: '果樹園', land: '平野' },
+  tea: { name: 'お茶', place: '茶畑', land: '木の多い所' },
+  driedfish: { name: '干物', place: '干物屋', land: '海辺' },
 };
 
 export type WagonType =
@@ -66,7 +77,8 @@ export type WagonType =
   | 'bigsteelcar'
   | 'bigmaterialcar'
   | 'livestockcar'
-  | 'fishcar';
+  | 'fishcar'
+  | 'specialtycar';
 export type EngineType = 'steam' | 'express' | 'heavy' | 'superexpress';
 export type VehicleType = EngineType | WagonType;
 
@@ -120,6 +132,7 @@ export const WAGON_SPECS: Record<WagonType, WagonSpec> = {
   bigmaterialcar: { name: '大型資材車', cargo: 'materials', capacity: 40, cost: 2_800_000, year: 1977, big: true },
   livestockcar: { name: '家畜車', cargo: 'livestock', capacity: 20, cost: 1_600_000 },
   fishcar: { name: '魚の冷蔵車', cargo: 'fish', capacity: 25, cost: 2_000_000, fresh: 0.6 },
+  specialtycar: { name: '名産品車', cargo: 'specialty', capacity: 20, cost: 1_800_000 },
 };
 
 export const ENGINE_SPECS: Record<EngineType, EngineSpec> = {
@@ -220,7 +233,8 @@ export type IndustryType =
   | 'steelmill'
   | 'materialsplant'
   | 'ranch'
-  | 'fishery';
+  | 'fishery'
+  | 'workshop';
 
 export interface IndustrySpec {
   /** 名前の後ろ（「桜川」＋「製材所」） */
@@ -254,6 +268,15 @@ export const INDUSTRY_SPECS: Record<IndustryType, IndustrySpec> = {
     desc: '穀物・家畜・魚のどれからでも食料品をつくります。食料品を町に届けると、町が早く育ちます。',
   },
   ranch: { suffix: '牧場', inputs: [], output: 'livestock', rate: 60, w: 3, h: 3, desc: '家畜を育てる牧場です。山すその田舎に多くあります。' },
+  workshop: {
+    suffix: '名産の工房',
+    inputs: [],
+    output: 'specialty',
+    rate: 40,
+    w: 2,
+    h: 2,
+    desc: 'その町の名産品をつくります。遠くの大きな町ほど高く買ってくれます（生まれた町では売れません）。たくさん運び出すと町が有名になり、観光客が増えます。',
+  },
   fishery: { suffix: '漁港', inputs: [], output: 'fish', rate: 70, w: 2, h: 2, desc: '魚がとれる漁港です。海のそばにあります。魚は傷みやすいので、早く運びましょう。' },
   steelmill: {
     suffix: '製鉄所',

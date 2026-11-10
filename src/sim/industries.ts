@@ -295,7 +295,7 @@ export function expandIndustry(world: World, id: number, opts: { dry?: boolean }
 // ───────────────────────── 探鉱・工場の建設 ─────────────────────────
 
 /** 周りの木の割合（0..1） */
-function treeRatio(world: World, x: number, y: number, r: number): number {
+export function treeRatio(world: World, x: number, y: number, r: number): number {
   let n = 0,
     trees = 0;
   for (let yy = y - r; yy <= y + r; yy++) {

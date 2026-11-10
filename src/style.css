@@ -3506,3 +3506,14 @@ details.relnote.old summary small {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ───────────── v0.7.1：名産品 ───────────── */
+
+.cargo-dot.specialty {
+  background: #c85a8a;
+}
+
+.car-dot.specialtycar,
+.chip.specialtycar {
+  background: #c85a8a;
+}

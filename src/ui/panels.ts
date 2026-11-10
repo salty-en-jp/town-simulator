@@ -32,6 +32,7 @@ import {
 } from '../sim/commands';
 import {
   CARGO_SPECS,
+  SPECIALTIES,
   CARGOS,
   ENGINE_SPECS,
   ENGINE_TYPES,
@@ -70,6 +71,7 @@ import { achievedLabel, ACHIEVEMENTS, companyValue, connectedPopulation, rankInd
 import { activeBooms, BOOM_LABEL, boomPlace, boomTile, marketIndex, type Boom } from '../sim/market';
 import { daysLeft, rewardText } from '../sim/requests';
 import { intercityMul, STAGES, stageName, townAccepts, townStage } from '../sim/towns';
+import { famePaxMul, workshopOf } from '../sim/specialty';
 import { acceptorDemand, acceptorName, acceptors, acceptorStock, stationAccepts } from '../sim/simulate';
 import {
   canBuy,
@@ -582,6 +584,7 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   bigmaterialcar: '大型資材車',
   livestockcar: '家畜車',
   fishcar: '魚の冷蔵車',
+  specialtycar: '名産品車',
 };
 
 function vehicleDesc(t: VehicleType): string {
@@ -964,6 +967,17 @@ function boomBox(g: Game, target: Boom['target']): string {
     .join('');
 }
 
+/** 町のウィンドウ：名産と評判 */
+function specialtyRow(g: Game, t: Town): string {
+  const ws = workshopOf(g.world, t.id);
+  if (!ws?.specialty) return '';
+  const fame = t.fame ?? 0;
+  const stars = fame >= 900 ? '★★★' : fame >= 300 ? '★★☆' : fame >= 50 ? '★☆☆' : '☆☆☆';
+  const mul = famePaxMul(t);
+  return `<dt>名産</dt><dd><b>${SPECIALTIES[ws.specialty].name}</b>（<button class="link" data-action="goto-ws" data-id="${ws.id}">${esc(ws.name)}</button>）</dd>
+          <dt>名産の評判</dt><dd><span class="ch-stars got">${stars}</span>${mul > 1.005 ? ` 観光客 ×${mul.toFixed(2)}` : ' <span class="muted small">運び出すと上がる</span>'}</dd>`;
+}
+
 export function openTown(g: Game, id: number) {
   g.wm.open({
     id: `town-${id}`,
@@ -979,6 +993,15 @@ export function openTown(g: Game, id: number) {
       return `${g.world.towns.has(id) ? townLabel(g.world.towns.get(id)!) : ''}`;
     },
     width: 320,
+    onAction: (a, el) => {
+      if (a === 'goto-ws') {
+        const ind = g.world.industries.get(Number(el.dataset.id));
+        if (ind) {
+          g.renderer.centerOnTile(ind.x + 1, ind.y + 1);
+          openIndustry(g, ind.id);
+        }
+      }
+    },
     render: () => {
       const t = g.world.towns.get(id);
       if (!t) return '';
@@ -1004,6 +1027,7 @@ export function openTown(g: Game, id: number) {
           <dt>食料品</dt><dd>${t.fed ? '<span class="pos">足りている（早く育つ）</span>' : '<span class="muted">足りない</span>'}</dd>
           <dt>届いた旅客（先月）</dt><dd>${n0(t.recv.passengers?.lm ?? 0)}人</dd>
           <dt>都市間の旅客</dt><dd>同じ大きさの町と結ぶと運賃 <b>×${intercityMul(t, { ...t, id: -1 }).toFixed(2)}</b></dd>
+          ${specialtyRow(g, t)}
         </dl>
         <table class="tbl"><tr><th></th><th class="num">先月届いた</th><th class="num">在庫</th><th class="num">買取</th></tr>${goods}</table>
         <p class="muted small">食料品が足りていると町が早く育ちます。駅がよく使われているほど成長が速くなります。大きな町ほど、ふだんの成長はゆっくりになります。</p>
@@ -1589,6 +1613,7 @@ export function openMarket(g: Game) {
         <p class="small">基本運賃 <b>${formatYen(spec.rate * 10)}</b>/t（10マスあたり）・${spec.days1}日までは満額${spec.days1 <= 8 ? '<span class="warn">（傷みやすい）</span>' : ''}</p>
         <p class="small">いまの相場 <b class="num ${marketIndex(w, sel) >= 1 ? 'pos' : 'neg'}">×${marketIndex(w, sel).toFixed(2)}</b> <span class="muted">（毎月ゆっくり上下します。下の係数に入っています）</span></p>
         <h4>買い取ってくれる所 <small class="muted">係数が高いほど高く買う</small></h4>
+        ${sel === 'specialty' ? '<p class="muted small">名産品は町（1,000人〜）と都市が買います。大きな町ほど高く、<b>生まれた町では売れません</b>。</p>' : ''}
         <ul class="list market">${rows
           .map(
             (r) => `<li class="clickable" data-action="goto" data-tile="${r.tile}">

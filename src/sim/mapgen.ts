@@ -6,6 +6,7 @@
 import type { IndustryType } from './constants';
 import { placeIndustryAt, placeIndustrySomewhere } from './industries';
 import { growHouse, housesByTown, refreshStats } from './simulate';
+import { placeWorkshop } from './specialty';
 import { createEmptyWorld, idx, inBounds, newId, Terrain, type Town, type World } from './world';
 
 export { addIndustry } from './industries';
@@ -177,6 +178,8 @@ export function generateWorld(seed: number, size = 96, landform: Landform = 'mix
     }
   }
   refreshStats(world);
+  // どの町にも、そばに名産の工房を1つ（種類はまわりの土地で決まる）
+  for (const t of world.towns.values()) placeWorkshop(world, t);
   world.version++;
   return world;
 }
