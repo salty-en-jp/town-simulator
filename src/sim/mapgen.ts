@@ -37,7 +37,17 @@ export const MAP_SIZES = {
 } as const;
 export type MapSize = keyof typeof MAP_SIZES;
 
-export function generateWorld(seed: number, size = 96): World {
+/** 地形（v0.7）：選んだ土地の割合が多くなる */
+export const LANDFORMS = {
+  mixed: { name: 'いろいろ', desc: '山も平野も海辺も少しずつ', rocks: 4, sea: 0.08, extra: [] as IndustryType[] },
+  mountains: { name: '山がち', desc: '鉱山と森が多い。線路は高くつく', rocks: 10, sea: 0, extra: ['ironmine', 'coalmine', 'ranch'] as IndustryType[] },
+  plains: { name: '平野', desc: '農場が多く、家を建てる土地が広い。線路が安い', rocks: 1, sea: 0, extra: ['farm', 'farm'] as IndustryType[] },
+  coast: { name: '海沿い', desc: '南が海。漁港の魚で食品工場を回せる', rocks: 3, sea: 0.2, extra: ['fishery'] as IndustryType[] },
+} as const;
+export type Landform = keyof typeof LANDFORMS;
+
+export function generateWorld(seed: number, size = 96, landform: Landform = 'mixed'): World {
+  const land = LANDFORMS[landform];
   const world = createEmptyWorld(size, size, seed);
   const rng = world.rng;
   const s = size / 64;
@@ -74,14 +84,57 @@ export function generateWorld(seed: number, size = 96): World {
   const takeName = () => names.splice(rng.int(0, names.length - 1), 1)[0];
   const j = (n: number) => rng.int(-n, n);
 
+  // ── 海（南の海岸。海沿いは広く、いろいろは南東の湾だけ） ──
+  const seaTop = new Array<number>(size).fill(size);
+  if (land.sea > 0) {
+    let y = at(1 - land.sea);
+    for (let x = 0; x < size; x++) {
+      y = Math.max(at(1 - land.sea) - 3, Math.min(at(1 - land.sea) + 3, y + rng.int(-1, 1)));
+      // いろいろ：東側だけが湾になる
+      if (landform === 'mixed' && x < at(0.6)) continue;
+      seaTop[x] = y;
+      for (let yy = y; yy < size; yy++) world.terrain[idx(world, x, yy)] = Terrain.Water;
+    }
+  }
+  /** 町を海に置かないように、海岸より少し上へ */
+  const landY = (x: number, y: number) => Math.min(y, seaTop[Math.max(0, Math.min(size - 1, x))] - 6);
+
+  // ── 山地（岩場の固まり）。町と最初の森・製材所のまわりは避ける ──
+  const keep = [
+    [0.19, 0.66],
+    [0.78, 0.34],
+    [0.8, 0.8],
+    [0.22, 0.2],
+    [0.3, 0.9],
+    [0.72, 0.1],
+    [0.12, 0.36],
+    [0.3, 0.48],
+  ].map(([x, y]) => [at(x), at(y)]);
+  for (let k = 0; k < Math.round(land.rocks * s * s); k++) {
+    const cx = rng.int(0, size - 1),
+      cy = rng.int(0, size - 1),
+      r = rng.int(3, 7);
+    if (keep.some(([kx, ky]) => Math.hypot(kx - cx, ky - cy) < r + 8)) continue;
+    for (let y = cy - r; y <= cy + r; y++) {
+      for (let x = cx - r; x <= cx + r; x++) {
+        if (!inBounds(world, x, y)) continue;
+        const t = idx(world, x, y);
+        if (world.terrain[t] === Terrain.Water) continue;
+        const d = Math.hypot(x - cx, y - cy) / r;
+        if (d <= 1 && rng.chance(1.05 - d * 0.5)) world.terrain[t] = Terrain.Rock;
+      }
+    }
+  }
+
   // 町：川の西に2つ、東に2つ
   // 町の数はマップの広さで決まる（小さい：3つ、ふつう：4つ、大きい：6つ）
-  const townA = addTown(world, takeName(), at(0.19) + j(2), at(0.66) + j(4));
-  const townB = addTown(world, takeName(), at(0.78) + j(2), at(0.34) + j(5));
-  const townC = addTown(world, takeName(), at(0.8) + j(3), at(0.8) + j(3));
-  const townD = size > 64 ? addTown(world, takeName(), at(0.22) + j(3), at(0.2) + j(3)) : null;
-  const townE = size >= 128 ? addTown(world, takeName(), at(0.3) + j(3), at(0.9) + j(2)) : null;
-  const townF = size >= 128 ? addTown(world, takeName(), at(0.72) + j(3), at(0.1) + j(2)) : null;
+  const town = (x: number, y: number) => addTown(world, takeName(), x, landY(x, y));
+  const townA = town(at(0.19) + j(2), at(0.66) + j(4));
+  const townB = town(at(0.78) + j(2), at(0.34) + j(5));
+  const townC = town(at(0.8) + j(3), at(0.8) + j(3));
+  const townD = size > 64 ? town(at(0.22) + j(3), at(0.2) + j(3)) : null;
+  const townE = size >= 128 ? town(at(0.3) + j(3), at(0.9) + j(2)) : null;
+  const townF = size >= 128 ? town(at(0.72) + j(3), at(0.1) + j(2)) : null;
 
   // 最初のチェーン：森と製材所は川の西側、町Aの近く（地元の産業：だれでも運べる）
   placeIndustryAt(world, 'forest', at(0.12) + j(2), at(0.36) + j(2), 'public');
@@ -90,11 +143,14 @@ export function generateWorld(seed: number, size = 96): World {
   // ほかの産業は、空いている場所に間隔をあけて置く。
   // 各種類の1つめは地元の産業、2つめからは他社（権利を買うか輸送契約で運べる）
   // 小さいマップは少なめ、大きいマップは多め
-  const others = size <= 64 ? OTHER_INDUSTRIES.slice(0, 7) : size >= 128 ? [...OTHER_INDUSTRIES, ...MORE_INDUSTRIES] : OTHER_INDUSTRIES;
+  const base = size <= 64 ? OTHER_INDUSTRIES.slice(0, 7) : size >= 128 ? [...OTHER_INDUSTRIES, ...MORE_INDUSTRIES] : OTHER_INDUSTRIES;
+  // 牧場はどの地形にも1つ。海があれば漁港。地形ごとの得意な産業を足す
+  const others: IndustryType[] = [...base, 'ranch', ...(land.sea > 0 ? (['fishery'] as IndustryType[]) : []), ...land.extra];
   for (const type of others) {
     const has = [...world.industries.values()].some((i) => i.type === type);
     placeIndustrySomewhere(world, type, has ? 'other' : 'public');
   }
+  world.landform = landform;
 
   // 町の最初の家
   const initial = (

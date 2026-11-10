@@ -270,6 +270,7 @@ export function thumbnail(w: World, size = 96): string {
     for (let i = 0; i < w.w * w.h; i++) {
       let col = [140, 191, 104];
       if (w.terrain[i] === Terrain.Water) col = [79, 147, 201];
+      else if (w.terrain[i] === Terrain.Rock) col = [150, 136, 112];
       else if (w.terrain[i] === Terrain.Trees) col = [72, 128, 64];
       const o = w.occ[i];
       if (w.track[i]) col = [90, 80, 70];

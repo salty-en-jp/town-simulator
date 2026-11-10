@@ -3476,3 +3476,33 @@ details.relnote.old summary small {
     grid-template-columns: 1fr;
   }
 }
+
+/* ───────────── v0.7.0：家畜・魚 ───────────── */
+
+.cargo-dot.livestock {
+  background: #b88a5a;
+}
+
+.cargo-dot.fish {
+  background: #6fa8c8;
+}
+
+.car-dot.livestockcar,
+.chip.livestockcar {
+  background: #9a6a3a;
+}
+
+.car-dot.fishcar,
+.chip.fishcar {
+  background: #9cc6dc;
+}
+
+.ng-opts.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 640px) {
+  .ng-opts.four {
+    grid-template-columns: 1fr 1fr;
+  }
+}

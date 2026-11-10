@@ -84,10 +84,21 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: 'all_industries',
     name: '産業博士',
-    hint: 'すべての種類の産業から運び出すか、届ける',
-    check: (w) => Object.keys(INDUSTRY_SPECS).every((type) => inds(w).some((i) => i.type === type && i.transportedTotal + i.receivedTotal > 0)),
+    hint: 'このマップにあるすべての種類の産業から運び出すか、届ける',
+    // このマップにある種類だけ（海のないマップに漁港はない）
+    check: (w) => [...new Set(inds(w).map((i) => i.type))].every((type) => inds(w).some((i) => i.type === type && i.transportedTotal + i.receivedTotal > 0)),
   },
-  { id: 'all_cargo', name: 'なんでも運ぶ', hint: 'すべての種類の貨物を運ぶ', check: (w) => CARGOS.every((c) => c === 'passengers' ? towns(w).some((t) => (t.recv.passengers?.total ?? 0) > 0) : (w.stats?.cargo?.[c] ?? 0) > 0) },
+  {
+    id: 'all_cargo',
+    name: 'なんでも運ぶ',
+    hint: 'このマップでとれる、すべての種類の貨物を運ぶ',
+    check: (w) => {
+      const made = new Set<Cargo>(inds(w).map((i) => INDUSTRY_SPECS[i.type].output));
+      return CARGOS.filter((c) => c === 'passengers' || made.has(c)).every((c) =>
+        c === 'passengers' ? towns(w).some((t) => (t.recv.passengers?.total ?? 0) > 0) : (w.stats?.cargo?.[c] ?? 0) > 0,
+      );
+    },
+  },
   { id: 'owner', name: 'オーナー', hint: '自社の産業を持つ（権利を買う・探鉱・工場の建設）', check: (w) => inds(w).some((i) => i.owner === 'player') },
   { id: 'owner5', name: '産業グループ', hint: '自社の産業を5つ持つ', check: (w) => inds(w).filter((i) => i.owner === 'player').length >= 5 },
   { id: 'contract', name: '契約成立', hint: '他社の産業と輸送契約を結ぶ', check: (w) => inds(w).some((i) => i.contractFrom > 0 || i.contractUntil > 0) },

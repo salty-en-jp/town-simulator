@@ -52,6 +52,9 @@ const C = {
   grassA: 0x8cbf68,
   grassB: 0x86b862,
   water: 0x4f93c9,
+  rockA: 0x9a8a72,
+  rockB: 0x8f7f68,
+  stone: 0x6f6252,
   waterHi: 0x7db6e0,
   shore: 0x6fa95a,
   treeA: 0x3f7d3a,
@@ -86,7 +89,7 @@ const BAND = 6;
 /** 地形の見た目が変わったかを見る値（水のマス） */
 function terrainSignature(w: World): number {
   let h = 2166136261;
-  for (let i = 0; i < w.terrain.length; i++) if (w.terrain[i] === Terrain.Water) h = Math.imul(h ^ i, 16777619);
+  for (let i = 0; i < w.terrain.length; i++) if (w.terrain[i] === Terrain.Water || w.terrain[i] === Terrain.Rock) h = Math.imul(h ^ (i * 4 + w.terrain[i]), 16777619);
   return (h ^ w.w ^ (w.h << 12)) >>> 0;
 }
 
@@ -273,6 +276,7 @@ export class Renderer {
           [x - 0.5, y + 0.5],
         ]);
         if (t === Terrain.Water) add(hash01(x, y, 3) < 0.5 ? C.water : shade(C.water, 1.04), poly);
+        else if (t === Terrain.Rock) add(hash01(x, y, 5) < 0.5 ? C.rockA : C.rockB, poly);
         else add(hash01(x, y) < 0.5 ? C.grassA : C.grassB, poly);
       }
     }
@@ -280,6 +284,17 @@ export class Renderer {
       for (const p of polys) g.poly(p);
       g.fill(color);
     }
+    // 岩場の石
+    for (let y = 0; y < w.h; y++) {
+      for (let x = 0; x < w.w; x++) {
+        if (w.terrain[idx(w, x, y)] !== Terrain.Rock || hash01(x, y, 21) > 0.55) continue;
+        const ox = hash01(x, y, 22) * 0.6 - 0.3,
+          oy = hash01(x, y, 23) * 0.6 - 0.3;
+        const r = 2 + hash01(x, y, 24) * 3;
+        g.ellipse(isoX(x + ox, y + oy), isoY(x + ox, y + oy) - r * 0.4, r * 1.3, r * 0.8);
+      }
+    }
+    g.fill(C.stone);
     // 水面のきらめき
     for (let y = 0; y < w.h; y++) {
       for (let x = 0; x < w.w; x++) {
@@ -1021,6 +1036,10 @@ function drawIndustry(g: Graphics, ind: Industry, look = industryLook(ind)) {
       return drawSteelMill(g, x, y, w, h, look.active);
     case 'materialsplant':
       return drawMaterialsPlant(g, x, y, w, h, pile(look.outStock));
+    case 'ranch':
+      return drawRanch(g, x, y, w, h);
+    case 'fishery':
+      return drawFishery(g, x, y, w, h);
   }
 }
 
@@ -1101,6 +1120,46 @@ function drawFarm(g: Graphics, x0: number, y0: number, w: number, h: number) {
   box(g, bx - 0.35, by - 0.3, bx + 0.25, by + 0.3, 13, 0xb5433a);
   hipRoof(g, bx - 0.38, by - 0.33, bx + 0.28, by + 0.33, 13, 9, 0x6b3a2c);
   cylinder(g, x0 + 0.3, y0 + h - 1, 0.14, 26, 0xd6d8d2);
+}
+
+/** 牧場：柵の中の草地と、牛と、赤い牛舎 */
+function drawRanch(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  lot(g, x0, y0, w, h, 0x9fcf72);
+  // 柵
+  const c = [
+    [x0 - 0.45, y0 - 0.45],
+    [x0 + w - 0.55, y0 - 0.45],
+    [x0 + w - 0.55, y0 + h - 0.55],
+    [x0 - 0.45, y0 + h - 0.55],
+  ] as [number, number][];
+  for (let k = 0; k < 4; k++) {
+    const a = groundPoly([c[k]], 4),
+      b = groundPoly([c[(k + 1) % 4]], 4);
+    g.moveTo(a[0], a[1]).lineTo(b[0], b[1]);
+  }
+  g.stroke({ width: 1.5, color: 0xf3ecd8 });
+  // 牛（白と黒のまだら）
+  for (let k = 0; k < 4; k++) {
+    const cx = x0 + 0.2 + hash01(x0, y0 + k, 31) * (w - 1.6),
+      cy = y0 + 0.4 + hash01(x0 + k, y0, 32) * (h - 1.4);
+    box(g, cx - 0.12, cy - 0.07, cx + 0.12, cy + 0.07, 5, k % 2 ? 0xf6f2ea : 0x3a3430);
+  }
+  // 牛舎
+  const bx = x0 + w - 1,
+    by = y0 + h - 1;
+  box(g, bx - 0.35, by - 0.28, bx + 0.3, by + 0.3, 12, 0xb5433a);
+  hipRoof(g, bx - 0.38, by - 0.31, bx + 0.33, by + 0.33, 12, 7, 0x5a3a2c);
+}
+
+/** 漁港：桟橋と漁船と、魚をしまう倉庫 */
+function drawFishery(g: Graphics, x0: number, y0: number, w: number, h: number) {
+  lot(g, x0, y0, w, h, 0xb9b0a0);
+  box(g, x0 - 0.35, y0 - 0.3, x0 + 0.45, y0 + 0.35, 11, 0xd9dde2);
+  hipRoof(g, x0 - 0.38, y0 - 0.33, x0 + 0.48, y0 + 0.38, 11, 6, 0x4f74a3);
+  // 箱と、旗の立った小屋
+  box(g, x0 + w - 1.3, y0 + h - 1.3, x0 + w - 1.0, y0 + h - 1.0, 4, 0x6fa8c8);
+  box(g, x0 + w - 0.9, y0 + h - 1.3, x0 + w - 0.6, y0 + h - 1.0, 4, 0x6fa8c8);
+  box(g, x0 + 0.6, y0 + h - 0.9, x0 + 0.9, y0 + h - 0.6, 4, 0x8a6a4a);
 }
 
 function drawMine(g: Graphics, x0: number, y0: number, w: number, h: number, color: number, fill: number) {
@@ -1207,6 +1266,8 @@ const CAR_COLORS: Record<string, number> = {
   bigcoalcar: 0x2e2e32,
   bigsteelcar: 0x48525e,
   bigmaterialcar: 0x985220,
+  livestockcar: 0x9a6a3a,
+  fishcar: 0x9cc6dc,
   logcar: 0x7a4f2c,
   lumbercar: 0x9a7a52,
   biglogcar: 0x6a4020,

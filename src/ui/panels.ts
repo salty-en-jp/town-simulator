@@ -580,6 +580,8 @@ const SHORT_NAMES: Record<VehicleType, string> = {
   bigcoalcar: '大型石炭車',
   bigsteelcar: '大型鋼材車',
   bigmaterialcar: '大型資材車',
+  livestockcar: '家畜車',
+  fishcar: '魚の冷蔵車',
 };
 
 function vehicleDesc(t: VehicleType): string {
@@ -1624,6 +1626,15 @@ function boomList(g: Game): string {
 // ───────────────────────── 産業をつくる ─────────────────────────
 
 /** 探鉱（一次産業）と工場の建設（二次産業）の種類を選ぶ */
+const SURVEY_HINT: Partial<Record<string, string>> = {
+  forest: '木の多い所が有利',
+  farm: '開けた平野が有利（岩場は不利）',
+  ironmine: '山地（岩場）・同じ鉱山が遠い所が有利',
+  coalmine: '山地（岩場）・同じ鉱山が遠い所が有利',
+  ranch: '山すそ（岩場の近く）が有利',
+  fishery: '広い水辺（海）のそばだけ',
+};
+
 export function openBuildIndustry(g: Game) {
   g.wm.open({
     id: 'build-industry',
@@ -1645,7 +1656,7 @@ export function openBuildIndustry(g: Game) {
         .join('');
       return `
         <h4>探鉱・開発 <small class="muted">一次産業。成功すると自社の産業になります</small></h4>
-        <div class="buy-grid">${PRIMARY_TYPES.map((t) => item(t, INDUSTRY_ECON.surveyCost[t], `${CARGO_SPECS[INDUSTRY_SPECS[t].output].name}・${t === 'forest' ? '木の多い所が有利' : t === 'farm' ? '開けた所が有利' : '同じ鉱山が遠い所が有利'}`)).join('')}</div>
+        <div class="buy-grid">${PRIMARY_TYPES.map((t) => item(t, INDUSTRY_ECON.surveyCost[t], `${CARGO_SPECS[INDUSTRY_SPECS[t].output].name}・${SURVEY_HINT[t] ?? ''}`)).join('')}</div>
         <p class="muted small">${INDUSTRY_ECON.surveyDays}日の調査のあと、成功か失敗かがわかります。失敗すると費用はもどりません。成功率は場所を選ぶと表示されます。</p>
         ${surveys ? `<ul class="list">${surveys}</ul>` : ''}
         <h4>工場を建てる <small class="muted">${INDUSTRY_ECON.buildDays}日で完成・自社の工場</small></h4>

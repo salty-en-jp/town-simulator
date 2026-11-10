@@ -30,7 +30,7 @@ import {
   type IndustryType,
 } from './sim/constants';
 import { buildFactory, startSurvey } from './sim/industries';
-import { generateWorld } from './sim/mapgen';
+import { generateWorld, type Landform } from './sim/mapgen';
 import { acceptanceForRect, step, suppliesForRect } from './sim/simulate';
 import { findPath, rectTiles, straightLine } from './sim/track';
 import { canLoadFrom, dateOf, tx, ty, type Axis, type Pace, type Rect, type World } from './sim/world';
@@ -180,8 +180,8 @@ export class Game implements InputTarget {
     window.addEventListener('beforeunload', () => this.autosave());
   }
 
-  newGame(seed: number, opts: { size?: number; pace?: Pace } = {}) {
-    const w = generateWorld(seed, opts.size ?? 96);
+  newGame(seed: number, opts: { size?: number; pace?: Pace; landform?: Landform } = {}) {
+    const w = generateWorld(seed, opts.size ?? 96, opts.landform ?? 'mixed');
     w.pace = opts.pace ?? 'normal';
     this.startWorld(w, false);
   }
