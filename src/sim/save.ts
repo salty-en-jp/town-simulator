@@ -6,6 +6,7 @@
 
 import { syncDesigns, type Design } from './devel';
 import type { Award, DevOrder } from './sales';
+import type { Route } from './routes';
 import type { DevUse } from './constants';
 import { Rng } from './rng';
 import type { Request, RequestState } from './requests';
@@ -83,6 +84,7 @@ interface SavedWorld {
   foreignMarket?: number;
   noPort?: boolean;
   noAirport?: boolean;
+  routes?: Route[];
   designs?: Design[];
   devFame?: number;
 }
@@ -166,6 +168,7 @@ export function toSaveFile(w: World): SaveFile {
       foreignMarket: w.foreignMarket,
       noPort: w.noPort || undefined,
       noAirport: w.noAirport || undefined,
+      routes: w.routes?.length ? w.routes : undefined,
       parts: w.parts?.length ? w.parts : undefined,
       designs: w.designs?.length ? w.designs : undefined,
       devFame: w.devFame || undefined,
@@ -278,6 +281,7 @@ export function deserializeWorld(text: string): World {
     foreignMarket: s.foreignMarket,
     noPort: s.noPort,
     noAirport: s.noAirport,
+    routes: s.routes ?? [],
     parts: s.parts ?? [],
     designs: s.designs ?? [],
     devFame: s.devFame ?? 0,
