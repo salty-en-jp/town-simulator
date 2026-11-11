@@ -4,6 +4,7 @@
 
 import { ENGINE_SPECS, isEngine, PARTNER_NAMES, WAGON_SPECS, type VehicleType } from '../sim/constants';
 import { SALES_NAMES } from '../sim/sales';
+import { ROUTE_NAMES } from '../sim/routes';
 import { parseFlavor, parseNames } from './flavor';
 import { setShortName } from './panels';
 
@@ -32,4 +33,13 @@ export function applyNames(md: string) {
   SALES_NAMES.rivalMaker = one('names-rival-maker') ?? SALES_NAMES.rivalMaker;
   PARTNER_NAMES.port = one('names-port-company') ?? PARTNER_NAMES.port;
   PARTNER_NAMES.airport = one('names-airport-company') ?? PARTNER_NAMES.airport;
+  // 航路の行き先（数は変えず、名前だけ。足りない行は今のまま）
+  for (const [k, kind] of [
+    ['names-sea-routes', 'sea'],
+    ['names-air-routes', 'air'],
+  ] as const) {
+    many(k)?.forEach((n, i) => {
+      if (ROUTE_NAMES[kind][i]) ROUTE_NAMES[kind][i].name = n;
+    });
+  }
 }

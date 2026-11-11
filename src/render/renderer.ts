@@ -6,6 +6,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import { CARGO_SPECS, ENGINE_SPECS, INDUSTRY_SPECS, isDevEngine, isEngine, WAGON_SPECS, type EngineType } from '../sim/constants';
 import { industryStatus, ownerLabel } from '../sim/industries';
 import { activeBooms } from '../sim/market';
+import { shipPhase } from '../sim/routes';
 import { stageName, townStage } from '../sim/towns';
 import {
   carLoad,
@@ -590,6 +591,50 @@ export class Renderer {
         dx /= len;
         dy /= len;
         drawCar(g, a.x, a.y, dx, dy, t.cars[k], t.id === this.overlay.selectedTrain);
+      }
+    }
+    this.drawRoutes(g);
+  }
+
+  /** 自社の航路：船は港から海の方（南の端）へ、飛行機は空港からマップの外へ行き来する */
+  private drawRoutes(g: Graphics) {
+    const w = this.world;
+    for (const r of w.routes ?? []) {
+      const ind = w.industries.get(r.from);
+      if (!ind) continue;
+      const sx = ind.x + ind.w / 2 - 0.5,
+        sy = ind.y + ind.h / 2 - 0.5;
+      // 行き先ごとに向きを変える（船：南・南東・南西／飛行機：東・北・西）
+      const ends =
+        r.kind === 'sea'
+          ? [
+              [sx, w.h - 1],
+              [Math.min(w.w - 1, sx + 12), w.h - 1],
+              [Math.max(0, sx - 12), w.h - 1],
+            ]
+          : [
+              [w.w - 1, sy],
+              [sx, 0],
+              [0, sy],
+            ];
+      const [ex, ey] = ends[r.dest % 3];
+      for (let i = 0; i < r.ships; i++) {
+        const f = shipPhase(w, r, i);
+        // 港から少し沖へ出てから進む
+        const x = sx + (ex - sx) * f,
+          y = sy + 1.5 + (ey - sy - 1.5) * f;
+        if (r.kind === 'sea') {
+          box(g, x - 0.28, y - 0.12, x + 0.28, y + 0.12, 4, 0x2f4f6f);
+          box(g, x - 0.08, y - 0.08, x + 0.12, y + 0.08, 5, 0xf2f2ee, 4);
+        } else {
+          const lift = Math.sin(Math.min(1, f * 4) * Math.PI * 0.5) * 60;
+          const px = isoX(sx + (ex - sx) * f, sy + (ey - sy) * f),
+            py = isoY(sx + (ex - sx) * f, sy + (ey - sy) * f);
+          g.ellipse(px, py, 7, 3).fill({ color: 0x000000, alpha: 0.15 });
+          const hy = py - lift - 6;
+          g.poly([px - 10, hy, px + 10, hy - 2, px + 10, hy + 2]).fill(0xf4f4f4);
+          g.poly([px - 2, hy - 7, px + 3, hy, px - 2, hy + 7]).fill(0xd8dde2);
+        }
       }
     }
   }

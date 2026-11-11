@@ -5,6 +5,7 @@ import { openZukan } from './zukan';
 import { openDevel } from './develUi';
 import { engineList } from '../sim/devel';
 import { partnerName } from '../sim/partners';
+import { addShip, buyPartner, buyPartnerError, capacityOf, openRoute, openRouteError, partnerKind, removeShip, ROUTE_NAMES, ROUTES, routesOf } from '../sim/routes';
 import { manualHtml, releaseNotesHtml } from './manual';
 import {
   addOrder,
@@ -934,10 +935,19 @@ export function openIndustry(g: Game, id: number) {
           { format: (v) => `${Math.round(v)}t`, xLeft: monthsAgo(Math.max(ind.hist.p.length, 1)), xRight: '先月' },
         )}`;
     },
-    onAction: (a) => {
+    onAction: (a, el) => {
       if (a === 'buy') g.result(buyRights(g.world, id));
       if (a === 'contract') g.result(signContract(g.world, id));
       if (a === 'expand') g.result(expandIndustry(g.world, id));
+      const routeMsg = (err: string | null, ok: string) => (err ? g.toast(err, 'bad') : g.toast(ok, 'good'));
+      if (a === 'buy-partner') routeMsg(buyPartner(g.world, id), '買い取りました');
+      if (a === 'open-route') {
+        const r = openRoute(g.world, id, Number(el.dataset.v));
+        routeMsg(typeof r === 'string' ? r : null, '開きました');
+      }
+      if (a === 'add-ship') routeMsg(addShip(g.world, Number(el.dataset.id)), '足しました');
+      if (a === 'remove-ship') routeMsg(removeShip(g.world, Number(el.dataset.id)), '減らしました');
+      g.updateHud();
       g.wm.refreshAll();
     },
   });
@@ -954,13 +964,54 @@ const STATUS_SHORT: Record<string, string> = {
   building: '建設中',
 };
 
+/** 港・空港：取引先のときは買い取り、自社なら航路 */
+function partnerSection(g: Game, ind: Industry, company: string): string {
+  const w = g.world;
+  const kind = partnerKind(ind)!;
+  const ship = ROUTES.ship[kind];
+  const word = kind === 'sea' ? '航路' : '空路';
+  if (ind.owner !== 'player') {
+    const price = ROUTES.buyPrice[INDUSTRY_SPECS[ind.type].partner!];
+    const err = buyPartnerError(w, ind);
+    return `<div class="owner-box"><span class="owner-badge public">取引先</span><span class="small">運営：<b>${esc(company)}</b>。だれでも運べます。<b>買い取る</b>と、自社の${word}を開いて${ship.name}を飛ばせます。</span></div>
+      <div class="btnrow"><button data-action="buy-partner" ${err ? `disabled title="${esc(err)}"` : ''}><span>買い取る ${formatYen(price)}</span></button></div>`;
+  }
+  const mine = routesOf(w, ind.id);
+  const cap = capacityOf(w, ind.id);
+  const unit = kind === 'sea' ? 't' : '人';
+  const list = mine
+    .map((r) => {
+      const d = ROUTE_NAMES[kind][r.dest];
+      return `<li class="route-row">
+        <div><b>${esc(d.name)}</b>行き <small class="muted">運賃 ${formatYen(d.fare)}/${unit}</small></div>
+        <div class="small">${ship.name} ${r.ships}${ship.unit}・月に${r.ships * ship.capacity}${unit}まで・先月 ${n0(r.lastCarried)}${unit}・運賃 ${formatYen(r.lastIncome)}</div>
+        <div class="btnrow">
+          <button class="small-btn" data-action="add-ship" data-id="${r.id}" ${r.ships >= ROUTES.maxShips || w.money < ship.price ? 'disabled' : ''}>${ship.name}を足す ${formatYen(ship.price)}</button>
+          <button class="small-btn" data-action="remove-ship" data-id="${r.id}">${r.ships > 1 ? `${ship.name}を1${ship.unit}売る` : `${word}を閉じる`}（${formatYen(ship.price / 2)}）</button>
+        </div></li>`;
+    })
+    .join('');
+  const open = ROUTE_NAMES[kind]
+    .map((d, i) => {
+      const err = openRouteError(w, ind, i);
+      if (mine.some((r) => r.dest === i)) return '';
+      return `<button class="buy" data-action="open-route" data-v="${i}" ${err ? `disabled title="${esc(err)}"` : ''}>
+        <span class="buy-name"><b>${esc(d.name)}</b></span><span class="num">${formatYen(ship.price)}</span>
+        <span class="muted small">運賃 ${formatYen(d.fare)}/${unit}</span></button>`;
+    })
+    .join('');
+  return `<div class="owner-box"><span class="owner-badge own">自社</span><span class="small">もとの運営：${esc(company)}。${ship.name}1${ship.unit}の維持費 ${formatYen(ship.runningPerYear)}/年</span></div>
+    <h4>自社の${word}</h4>
+    <p class="small">鉄道でここへ運んだ${kind === 'sea' ? '貨物' : '旅客'}のうち、${word}で運べる分（月に <b>${n0(cap)}${unit}</b> まで）は、${kind === 'sea' ? '輸出' : '空の旅'}の代金に加えて${word}の運賃も入ります。${ship.name}が多いほど${kind === 'sea' ? '輸入する石油' : '到着する旅客'}も増えます。</p>
+    ${list ? `<ul class="route-list">${list}</ul>` : '<p class="small muted">まだ' + word + 'がありません。</p>'}
+    ${open ? `<h4>${word}を開く <small class="muted">${ship.name}を1${ship.unit}買って入れます</small></h4><div class="buy-grid">${open}</div>` : ''}`;
+}
+
 /** 持ち主と、権利の購入・輸送契約・増産 */
 function ownerSection(g: Game, ind: Industry): string {
   const w = g.world;
   const partner = partnerName(ind);
-  if (partner) {
-    return `<div class="owner-box"><span class="owner-badge public">取引先</span><span class="small">運営：<b>${esc(partner)}</b>。だれでも運べます（権利の購入や契約はできません）。</span></div>`;
-  }
+  if (partner) return partnerSection(g, ind, partner);
   const label = ownerLabel(w, ind);
   const badge = `<span class="owner-badge ${label === '自社' ? 'own' : label === '他社' ? 'other' : label === '契約中' ? 'contract' : label === '建設中' ? 'building' : 'public'}">${label}</span>`;
   if (ind.status === 'building') {
@@ -1146,6 +1197,7 @@ const FIN_LABELS: Record<FinanceCategory, string> = {
   dividends: '自社の産業の利益',
   rewards: '依頼の報酬',
   devel: '自社開発（開発費・販売）',
+  routes: '港・空港と航路',
   interest: '借入金の利息',
 };
 

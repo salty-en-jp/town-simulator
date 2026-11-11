@@ -4,6 +4,7 @@ import { comfortMul, develDaily, hasMaker, MAKER } from './devel';
 import { salesMonthly, salesYearly } from './sales';
 import { techMonthly } from './tech';
 import { partnersMonthly } from './partners';
+import { extraOutput, loadRoutes, routesMonthly } from './routes';
 import {
   CARGOS,
   COSTS,
@@ -337,6 +338,14 @@ function deliver(world: World, t: Train, st: Station, cargo: Cargo, maxAmount: n
       t.incomeThisStop += income;
       t.profitThisYear += income;
       t.profitThisMonth += income;
+      // 自社の港・空港：航路で運べる分は、海運・空輸の運賃も入る
+      if (ind && ind.owner === 'player' && INDUSTRY_SPECS[ind.type].partner) {
+        const fare = loadRoutes(world, ind, take);
+        if (fare > 0) {
+          earn(world, 'routes', fare);
+          t.incomeThisStop += fare;
+        }
+      }
     }
     car.packets = car.packets.filter((p) => p.amount > 0.0001);
     if (delivered >= limit) break;
@@ -520,7 +529,8 @@ function industriesDaily(world: World, ctx: DayContext) {
     if (spec.sink) {
       // 取引先（港・空港）：受け入れた貨物はそのまま輸出・出発。生産は毎月決まった量
       for (const c of spec.inputs) ind.inputs[c] = 0;
-      const p = Math.min(perDay, room);
+      // 自社の航路の船・飛行機が多いほど、石油（輸入）・旅客（到着）が増える
+      const p = Math.min(perDay + extraOutput(world, ind.id) / 30, room);
       ind.outStock += p;
       ind.producedThisMonth += p;
     } else if (spec.inputs.length === 0) {
@@ -838,6 +848,7 @@ function monthly(world: World) {
   techMonthly(world);
   specialtyMonthly(world);
   partnersMonthly(world);
+  routesMonthly(world);
   companyMonthly(world);
   recordCompany(world);
   for (const town of world.towns.values()) {

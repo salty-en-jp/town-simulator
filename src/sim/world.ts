@@ -24,6 +24,7 @@ import { Rng } from './rng';
 import type { Design } from './devel';
 import type { DevUse } from './constants';
 import type { Award, DevOrder } from './sales';
+import type { Route } from './routes';
 
 export const enum Terrain {
   Grass = 0,
@@ -274,6 +275,7 @@ export type FinanceCategory =
   | 'dividends'
   | 'rewards'
   | 'devel'
+  | 'routes'
   | 'interest';
 export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
   'construction',
@@ -285,6 +287,7 @@ export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
   'dividends',
   'rewards',
   'devel',
+  'routes',
   'interest',
 ];
 
@@ -361,6 +364,8 @@ export interface World {
   awards?: Award[];
   /** 海外の相場（港の輸出の買い取り。v0.9 から。ないときは 1） */
   foreignMarket?: number;
+  /** 自社の航路（v0.9.2 から） */
+  routes?: Route[];
   /** 港・空港を置ける場所がなかった（毎月さがさない） */
   noPort?: boolean;
   noAirport?: boolean;
@@ -405,6 +410,7 @@ export function emptyFinance(): Record<FinanceCategory, number> {
     dividends: 0,
     rewards: 0,
     devel: 0,
+    routes: 0,
     interest: 0,
   };
 }

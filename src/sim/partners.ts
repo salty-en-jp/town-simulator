@@ -9,7 +9,7 @@
 import { AIRPORT_YEAR, INDUSTRY_SPECS, PARTNER_NAMES, type IndustryType } from './constants';
 import { canPlaceIndustry, placeIndustryAt, placeIndustrySomewhere } from './industries';
 import { townStage } from './towns';
-import { dateOf, idx, pushEvent, townLabel, type Industry, type Town, type World } from './world';
+import { dateOf, idx, pushEvent, Terrain, townLabel, type Industry, type Town, type World } from './world';
 
 const has = (world: World, type: IndustryType) => [...world.industries.values()].some((i) => i.type === type);
 
@@ -36,11 +36,36 @@ function placeNear(world: World, type: IndustryType, town: Town): Industry | nul
   return null;
 }
 
+/** 南の海の岸に港を置く（川や池のそばではなく、海の向こうへ出られるところ） */
+function placePort(world: World): Industry | null {
+  const spec = INDUSTRY_SPECS.port;
+  // 列ごとに、下の端から続く水の上端（海岸線）を調べる
+  const shore: { x: number; y: number }[] = [];
+  for (let x = 2; x < world.w - spec.w - 2; x++) {
+    let y = world.h - 1;
+    while (y > 0 && world.terrain[idx(world, x + 1, y)] === Terrain.Water) y--;
+    if (world.h - 1 - y >= 4) shore.push({ x, y: y - spec.h + 1 });
+  }
+  for (const spacing of [true, false]) {
+    const order = [...shore];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = world.rng.int(0, i);
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    for (const c of order) {
+      for (const dy of [0, -1, 1, -2]) {
+        if (!canPlaceIndustry(world, 'port', c.x, c.y + dy, spacing)) return placeIndustryAt(world, 'port', c.x, c.y + dy, 'public');
+      }
+    }
+  }
+  return null;
+}
+
 /** 港（と化学工場）を置く。マップをつくるときと、前の版のセーブ */
 export function ensurePort(world: World, news: boolean) {
   if (world.noPort || !hasSea(world)) return;
   if (!has(world, 'port')) {
-    const port = placeIndustrySomewhere(world, 'port', 'public');
+    const port = placePort(world);
     if (!port) {
       world.noPort = true;
       return;

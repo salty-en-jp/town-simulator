@@ -117,6 +117,8 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'devel', name: 'わが社の機関車', hint: '自社開発の機関車を完成させる', check: (w) => (w.designs ?? []).some((d) => d.done !== undefined) },
   { id: 'sale', name: '車両メーカー', hint: '自社開発の機関車を、ほかの鉄道会社に売る', check: (w) => (w.designs ?? []).some((d) => (d.sale?.sold ?? 0) > 0) },
   { id: 'parts5', name: '技術の会社', hint: '部品を5つ研究する', check: (w) => (w.parts?.length ?? 0) >= 5 },
+  { id: 'sea_route', name: '海の向こうへ', hint: '港を買い取って、航路を開く', check: (w) => (w.routes ?? []).some((r) => r.kind === 'sea') },
+  { id: 'air_route', name: '空の便', hint: '空港を買い取って、空路を開く', check: (w) => (w.routes ?? []).some((r) => r.kind === 'air') },
   { id: 'award', name: '鉄道車両大賞', hint: '鉄道車両大賞をとる', check: (w) => (w.awards ?? []).some((a) => a.mine) },
   { id: 'super', name: '夢の超特急', hint: 'フェアリィ形ディーゼル超特急を走らせる', check: (w) => [...w.trains.values()].some((t) => t.cars[0]?.type === 'superexpress' && t.state !== 'in_depot') },
 ];

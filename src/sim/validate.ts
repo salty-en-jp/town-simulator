@@ -436,6 +436,18 @@ function designs(s: Obj) {
   optional(s.foreignMarket, () => num(s.foreignMarket, 'foreignMarket', 0, 10));
   optional(s.noPort, () => bool(s.noPort, 'noPort'));
   optional(s.noAirport, () => bool(s.noAirport, 'noAirport'));
+  optional(s.routes, () =>
+    arr(s.routes, 'routes', 50).forEach((v, i) => {
+      const p = `routes[${i}]`;
+      const r = obj(v, p);
+      int(r.id, `${p}.id`, 0);
+      int(r.from, `${p}.from`, 0);
+      oneOf(r.kind, ['sea', 'air'], `${p}.kind`);
+      int(r.dest, `${p}.dest`, 0, 20);
+      int(r.ships, `${p}.ships`, 1, 20);
+      for (const k of ['carried', 'lastCarried', 'lastIncome', 'income', 'opened']) num(r[k], `${p}.${k}`);
+    }),
+  );
   optional(s.parts, () => arr(s.parts, 'parts', 100).forEach((x, i) => oneOf(x, PARTS.map((p) => p.id), `parts[${i}]`)));
   optional(s.devTrend, () => {
     const t = obj(s.devTrend, 'devTrend');

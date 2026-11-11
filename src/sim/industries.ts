@@ -458,7 +458,7 @@ export function industriesOwnershipMonthly(world: World) {
 
 export function ownerLabel(world: World, ind: Industry): string {
   if (ind.status === 'building') return '建設中';
-  if (INDUSTRY_SPECS[ind.type].partner) return '取引先';
+  if (INDUSTRY_SPECS[ind.type].partner) return ind.owner === 'player' ? '自社' : '取引先';
   if (ind.owner === 'player') return '自社';
   if (ind.owner === 'public') return '地元';
   return canLoadFrom(world, ind) ? '契約中' : '他社';
