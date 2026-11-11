@@ -14,6 +14,14 @@ export interface ReleaseNote {
 /** 新しい順 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.9.4',
+    date: '2026年11月',
+    items: [
+      '名前を変えるとき、日本語入力の<b>変換を確定する Enter で名前まで決まってしまう</b>のを直しました（PC）',
+      '名前の入力欄の横に<b>「決定」ボタン</b>を付けました',
+    ],
+  },
+  {
     version: '0.9.3',
     date: '2026年11月',
     items: [

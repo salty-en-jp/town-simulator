@@ -2361,6 +2361,27 @@ body.touch .win-rename-input {
 
 .win.renaming .win-title {
   cursor: default;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.win-rename-ok {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #2a2014;
+  font: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+body.touch .win-rename-ok {
+  height: 34px;
 }
 
 .orders li[draggable='true'] {
@@ -3863,4 +3884,12 @@ details.relnote.old summary small {
 .car-dot.goodscar,
 .chip.goodscar {
   background: #6a5a8a;
+}
+
+.win.renaming .win-title-text {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
 }
