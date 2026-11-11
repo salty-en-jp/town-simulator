@@ -82,3 +82,33 @@ describe('港の買収と航路', () => {
     expect(w2.industries.get(ap.id)!.owner).toBe('player');
   });
 });
+
+describe('空港の駅の旅客', () => {
+  it('駅の範囲に空港と町の家があれば、旅客は家のほうが近くても空港へ降ろす', async () => {
+    const { acceptanceForRect } = await import('../src/sim/simulate');
+    const w = generateWorld(11);
+    w.day = dayOfYear(1971);
+    const town = [...w.towns.values()][0];
+    town.population = 6000;
+    town.stage = 2;
+    ensureAirport(w);
+    const ap = [...w.industries.values()].find((i) => i.type === 'airport')!;
+    // 空港にいちばん近い、その町の家
+    let best = -1,
+      bd = Infinity;
+    for (let t = 0; t < w.occ.length; t++) {
+      const o = w.occ[t];
+      if (o?.k !== 'house' || o.town !== town.id) continue;
+      const d = Math.abs((t % w.w) - ap.x) + Math.abs(Math.floor(t / w.w) - ap.y);
+      if (d < bd) [bd, best] = [d, t];
+    }
+    const hx = best % w.w,
+      hy = Math.floor(best / w.w);
+    // 家を2軒以上ふくむように、家と空港の両方を囲む
+    const r = { x0: Math.min(hx, ap.x) - 3, y0: Math.min(hy, ap.y) - 3, x1: Math.max(hx, ap.x + ap.w) + 3, y1: Math.max(hy, ap.y + ap.h) + 3 };
+    const acc = acceptanceForRect(w, r, hx, hy);
+    const pax = acc.by.passengers!;
+    expect(pax.some((a) => a.kind === 'town')).toBe(true);
+    expect(pax[0]).toMatchObject({ kind: 'industry', id: ap.id });
+  });
+});
