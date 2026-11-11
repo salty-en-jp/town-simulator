@@ -180,7 +180,7 @@ function changed(world: World, trackChanged: boolean) {
 
 // ───────────────────────── 電化（v0.8.1） ─────────────────────────
 
-/** 線路をなぞって電化する（remove なら架線を外す）。1965年から */
+/** 線路をなぞって電化する（remove なら架線を外す）。ELECTRIFY_YEAR から */
 export function electrify(world: World, a: number, b: number, opts: { remove?: boolean; dry?: boolean } = {}): CmdResult {
   if (!opts.remove && dateOf(world.day).y < ELECTRIFY_YEAR)
     return fail(`電化は${ELECTRIFY_YEAR}年からできます`);

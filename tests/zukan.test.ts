@@ -62,11 +62,11 @@ describe('自社開発と部品の説明文', () => {
 });
 
 describe('ブリッツ形電気機関車', () => {
-  it('1978年に登場し、電化した線路だけを走る', async () => {
+  it('1980年に登場し、電化した線路だけを走る', async () => {
     const { createEmptyWorld, canBuy, needsWire } = await import('../src/sim/world');
     const w = createEmptyWorld(20, 20, 1);
     expect(canBuy(w, 'electric')).toBe(false);
-    w.day = Math.round((Date.UTC(1978, 0, 1) - Date.UTC(1960, 0, 1)) / 86_400_000);
+    w.day = Math.round((Date.UTC(1980, 0, 1) - Date.UTC(1960, 0, 1)) / 86_400_000);
     expect(canBuy(w, 'electric')).toBe(true);
     expect(needsWire({ cars: [{ type: 'electric' }] } as never)).toBe(true);
   });

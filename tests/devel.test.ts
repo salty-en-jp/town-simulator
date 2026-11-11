@@ -16,7 +16,7 @@ import {
 import { deserializeWorld, serializeWorld, toSaveFile } from '../src/sim/save';
 import { step } from '../src/sim/simulate';
 import { checkSavedWorld } from '../src/sim/validate';
-import { createEmptyWorld, idx, needsWire } from '../src/sim/world';
+import { createEmptyWorld, ELECTRIFY_YEAR, idx, needsWire } from '../src/sim/world';
 
 const dayOfYear = (y: number) => Math.round((Date.UTC(y, 0, 1) - Date.UTC(1960, 0, 1)) / 86_400_000);
 
@@ -73,7 +73,7 @@ describe('自社開発', () => {
     const small = startDesign(a, { name: 'A', power: 'steam', use: 'express', budget: 0 }) as Design;
     develop(a, small);
     const b = world();
-    b.day = dayOfYear(1966);
+    b.day = dayOfYear(ELECTRIFY_YEAR);
     const big = startDesign(b, { name: 'B', power: 'electric', use: 'express', budget: 2 }) as Design;
     develop(b, big);
     expect(designSpec(big).speed).toBeGreaterThan(designSpec(small).speed);
@@ -84,8 +84,8 @@ describe('自社開発', () => {
 
   it('電気は電化の年から。電気の機関車は電化した線路だけを走る', () => {
     const w = world();
-    expect(startDesign(w, { name: 'E', power: 'electric', use: 'commuter', budget: 0 })).toContain('1965');
-    w.day = dayOfYear(1965);
+    expect(startDesign(w, { name: 'E', power: 'electric', use: 'commuter', budget: 0 })).toContain(`${ELECTRIFY_YEAR}`);
+    w.day = dayOfYear(ELECTRIFY_YEAR);
     const d = startDesign(w, { name: 'E', power: 'electric', use: 'commuter', budget: 0 }) as Design;
     develop(w, d);
     expect(needsWire({ cars: [{ type: devKey(d) }] } as never)).toBe(true);
