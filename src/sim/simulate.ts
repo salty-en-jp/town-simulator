@@ -139,6 +139,13 @@ export function acceptanceForRect(world: World, r: Rect, sx: number, sy: number)
     for (const cargo of TOWN_GOODS) if (townAccepts(world, id, cargo)) add(cargo, { kind: 'town', id, dist: e.dist });
   }
   for (const list of Object.values(by)) list!.sort((p, q) => p.dist - q.dist);
+  // 旅客は、範囲に空港があれば空港へ（空港は町のそばにできるので、家のほうが近くても空港を先に）。
+  // 指令で届け先を決めていれば、そちらが優先
+  const pax = by.passengers;
+  if (pax) {
+    const isAirport = (a: Acceptor) => a.kind === 'industry' && world.industries.get(a.id)?.type === 'airport';
+    pax.sort((p, q) => Number(isAirport(q)) - Number(isAirport(p)) || p.dist - q.dist);
+  }
   return { houses, by };
 }
 

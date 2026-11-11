@@ -14,6 +14,14 @@ export interface ReleaseNote {
 /** 新しい順 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.9.3',
+    date: '2026年11月',
+    items: [
+      '空港のそばの駅で、旅客が<b>空港ではなく近くの町に降ろされていた</b>のを直しました。駅の範囲に空港があれば、旅客は空港へ降ります（空路の「先月○人」が増えるようになります）',
+      '町に降ろしたいときは、指令の「届け先」で町を選べます',
+    ],
+  },
+  {
     version: '0.9.2',
     date: '2026年11月',
     items: [
