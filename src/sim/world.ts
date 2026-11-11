@@ -703,4 +703,5 @@ export function isElectric(world: World, t: number): boolean {
 }
 
 /** 電化ができるようになる年 */
-export const ELECTRIFY_YEAR = 1965;
+/** 電化（架線）ができる年：ハルモニアのブリッツ形電気機関車が出た年（v0.9.1 から。前は1965年） */
+export const ELECTRIFY_YEAR = 1980;

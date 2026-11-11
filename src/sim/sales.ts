@@ -9,7 +9,7 @@
 
 import { DEV_POWER_NAMES, DEV_USE_NAMES, DEV_USES, type DevPower, type DevUse } from './constants';
 import { compat, designSpec, devKey, hasMaker, type Design } from './devel';
-import { dateOf, earn, pushEvent, type World } from './world';
+import { dateOf, earn, ELECTRIFY_YEAR, pushEvent, type World } from './world';
 import { partMakeCost } from './tech';
 
 export interface SaleState {
@@ -83,7 +83,7 @@ export function powerEra(power: DevPower, year: number): number {
   const lerp = (a: number, b: number, t: number) => a + (b - a) * Math.max(0, Math.min(1, t));
   if (power === 'steam') return year < 1965 ? 1 : Math.max(0.15, 1 - (year - 1965) * 0.06);
   if (power === 'diesel') return year < 1970 ? lerp(0.8, 1.2, (year - 1960) / 10) : year < 1990 ? 1.2 : lerp(1.2, 0.8, (year - 1990) / 15);
-  return lerp(0.5, 1.4, (year - 1965) / 20);
+  return lerp(0.6, 1.4, (year - ELECTRIFY_YEAR) / 15);
 }
 
 export function eraLabel(m: number): string {
@@ -211,7 +211,7 @@ export function salesYearly(world: World) {
   world.devOrders ??= [];
   if (hasMaker(world) && world.devOrders.length < SALES.maxOrders && rng.chance(SALES.orderChance)) {
     const ou = rng.pick([...DEV_USES]);
-    const powers: DevPower[] = y >= 1965 ? ['steam', 'diesel', 'electric'] : ['steam', 'diesel'];
+    const powers: DevPower[] = y >= ELECTRIFY_YEAR ? ['steam', 'diesel', 'electric'] : ['steam', 'diesel'];
     const o: DevOrder = {
       id: world.nextId++,
       from: ou === 'tourist' ? SALES_NAMES.tourism : rng.pick(SALES_NAMES.customers),
