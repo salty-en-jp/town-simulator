@@ -108,7 +108,8 @@ export function playBgm(volume: number) {
         else void audio.play().catch(() => {});
       });
     }
-    audio.volume = Math.min(1, Math.max(0, volume)) * 0.35;
+    // 効果音が埋もれないよう、BGM は小さめに（v0.9.7：0.35 → 0.18）
+    audio.volume = Math.min(1, Math.max(0, volume)) * 0.18;
     audio.dataset.on = '1';
     // iPhone：音楽を鳴らすアプリとして扱ってもらう（マナーモードでも効果音が鳴るように）
     const session = (navigator as unknown as { audioSession?: { type: string } }).audioSession;

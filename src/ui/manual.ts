@@ -16,7 +16,10 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: '0.9.7',
     date: '2026年11月',
-    items: ['iPhone で振動しなかったのを直しました（Safari に振動の機能があっても、iPhone ではいつもスイッチの方法を使う）'],
+    items: [
+      'iPhone で振動しなかったのを直しました（Safari に振動の機能があっても、iPhone ではいつもスイッチの方法を使う）',
+      '<b>効果音を大きく</b>、BGM を小さめにしました（効果音が BGM に埋もれて聞こえにくかったため）',
+    ],
   },
   {
     version: '0.9.6',

@@ -70,7 +70,10 @@ export function unlockAudio() {
       if (!AC) return;
       ctx = new AC();
       master = ctx.createGain();
-      master.connect(ctx.destination);
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -12;
+      comp.ratio.value = 6;
+      master.connect(comp).connect(ctx.destination);
     }
     if (ctx.state !== 'running') void ctx.resume();
     // iPhone：さわった瞬間に一度「空鳴らし」しておかないと、そのあとも鳴らないことがある
@@ -116,7 +119,8 @@ export function sfx(name: Sfx) {
   const now = performance.now();
   if (now - (lastPlayed[name] ?? -1e9) < GAP[name]) return;
   lastPlayed[name] = now;
-  master.gain.value = prefs.volume * 0.5;
+  // BGM に埋もれないよう、はっきり聞こえる大きさに（v0.9.7：0.5 → 1.6。重なっても割れないよう、コンプレッサーを通す）
+  master.gain.value = prefs.volume * 1.6;
   switch (name) {
     case 'build': // コトッ
       tone(180, 0, 0.09, 'square', 0.35, 70);
