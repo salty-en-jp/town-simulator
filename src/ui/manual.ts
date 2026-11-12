@@ -14,6 +14,11 @@ export interface ReleaseNote {
 /** 新しい順 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.9.7',
+    date: '2026年11月',
+    items: ['iPhone で振動しなかったのを直しました（Safari に振動の機能があっても、iPhone ではいつもスイッチの方法を使う）'],
+  },
+  {
     version: '0.9.6',
     date: '2026年11月',
     items: [

@@ -164,16 +164,22 @@ function iosHaptic() {
 
 export type Haptic = 'light' | 'medium' | 'error';
 
+/** iPhone・iPad か（iPad の Safari は Mac のふりをするので、タッチの数でも見る） */
+function isIOS(): boolean {
+  const ua = navigator.userAgent;
+  return /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 export function haptic(kind: Haptic = 'light') {
   if (!prefs.vibe) return;
   try {
-    if (typeof navigator.vibrate === 'function') {
-      navigator.vibrate(kind === 'error' ? [30, 50, 30] : kind === 'medium' ? 25 : 12);
+    // iPhone：Safari に vibrate があっても振動しないことがあるので、いつもスイッチの方法を使う（1種類だけ。エラーは2回）
+    if (isIOS()) {
+      iosHaptic();
+      if (kind === 'error') setTimeout(() => iosHaptic(), 90);
       return;
     }
-    // iPhone（vibrate がない）：1種類だけ。エラーは2回
-    iosHaptic();
-    if (kind === 'error') setTimeout(() => iosHaptic(), 90);
+    if (typeof navigator.vibrate === 'function') navigator.vibrate(kind === 'error' ? [30, 50, 30] : kind === 'medium' ? 25 : 12);
   } catch {
     /* 振動できなくても遊べる */
   }
