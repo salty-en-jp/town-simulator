@@ -8,6 +8,7 @@ import {
   buildStation,
   buildTrack,
   electrify,
+  electrifyPath,
   cloneTrain,
   deleteOrder,
   demolish,
@@ -34,7 +35,7 @@ import {
 import { buildFactory, startSurvey } from './sim/industries';
 import { generateWorld, type Landform } from './sim/mapgen';
 import { acceptanceForRect, step, suppliesForRect } from './sim/simulate';
-import { dragLine, findPath, rectTiles, straightLine } from './sim/track';
+import { findPath, rectTiles, straightLine } from './sim/track';
 import { canLoadFrom, companyName, dateOf, ELECTRIFY_YEAR, needsWire, tx, ty, type Axis, type Pace, type Rect, type World } from './sim/world';
 import { ICONS } from './ui/icons';
 import {
@@ -527,7 +528,8 @@ export class Game implements InputTarget {
     this.clearPending();
     // スマホでは地図を広く見せるためにウィンドウを隠す（下の選択バーの「完了」で戻る）
     this.wm.setCollapsed(this.touchUI && (tool === 'order' || tool === 'clone' || tool === 'replace'));
-    this.renderer.setFaded(this.userFaded || tool === 'order' || tool === 'replace');
+    // 電化のときも建物を薄くして、線路を見やすく
+    this.renderer.setFaded(this.userFaded || tool === 'order' || tool === 'replace' || tool === 'electrify');
     this.renderer.setOverlay({ preview: null });
     this.el.tip.hidden = true;
     this.updateHud();
@@ -546,7 +548,7 @@ export class Game implements InputTarget {
 
   toggleFade() {
     this.userFaded = !this.userFaded;
-    this.renderer.setFaded(this.userFaded || this.tool === 'order');
+    this.renderer.setFaded(this.userFaded || this.tool === 'order' || this.tool === 'electrify');
     this.toast(this.userFaded ? '建物を半透明にしました（X で戻す）' : '建物の表示を戻しました', 'info');
   }
 
@@ -923,7 +925,8 @@ export class Game implements InputTarget {
       case 'depot':
         return { tiles: [p.b] };
       case 'electrify': {
-        const path = dragLine(w, p.a, p.b);
+        // 2点とも線路の上なら、線路に沿ってたどる
+        const path = electrifyPath(w, p.a, p.b);
         return { tiles: path, path };
       }
       case 'demolish':

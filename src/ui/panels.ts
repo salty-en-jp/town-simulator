@@ -2,7 +2,7 @@
 
 import { VERSION } from '../version';
 import { openZukan } from './zukan';
-import { fxPrefs, haptic, setFx, sfx } from './feedback';
+import { fxPrefs, haptic, isIOS, setFx, sfx } from './feedback';
 import { openDevel } from './develUi';
 import { engineList } from '../sim/devel';
 import { partnerName } from '../sim/partners';
@@ -27,6 +27,7 @@ import {
   moveOrder,
   rename,
   renameCompany,
+  electrifyRoute,
   scheduleEngineSwap,
   setOrderDest,
   setOrderLoad,
@@ -87,6 +88,7 @@ import {
   PACES,
   type Pace,
   dateOf,
+  ELECTRIFY_YEAR,
   vehicleYear,
   carCargo,
   carLoad,
@@ -161,6 +163,15 @@ export function trainStatus(g: Game, t: Train): { text: string; tone: string } {
   }
 }
 
+/** 列車の窓：この列車の路線（駅から駅まで）をまとめて電化するボタン */
+function routeElectrifyRow(g: Game, t: Train): string {
+  const w = g.world;
+  if (dateOf(w.day).y < ELECTRIFY_YEAR) return '';
+  const r = electrifyRoute(w, t.id, { dry: true });
+  if (!r.ok) return r.error === 'もう電化されています' ? '<p class="small muted">この列車の路線は、ぜんぶ電化されています。</p>' : '';
+  return `<div class="btnrow"><button data-action="electrify-route" ${r.cost > w.money ? 'disabled' : ''}>${ICONS.wire}<span>路線を電化 ${formatYen(r.cost)}</span></button></div>`;
+}
+
 export function openTrain(g: Game, id: number) {
   g.selectTrain(id);
   g.wm.open({
@@ -202,6 +213,7 @@ export function openTrain(g: Game, id: number) {
           }
           <button data-action="center">${ICONS.center}<span>表示</span></button>
         </div>
+        ${routeElectrifyRow(g, t)}
         ${
           t.engineSwap
             ? `<div class="hint swap-wait">機関車の交換待ち：${esc(vehicleName(t.engineSwap.type))}（車庫に入ったら交換して、また走り出します）<button class="small-btn" data-action="cancel-swap">取りやめ</button></div>`
@@ -227,7 +239,9 @@ export function openTrain(g: Game, id: number) {
           haptic('medium');
         }
       }
-      else if (a === 'orders') openOrders(g, id);
+      else if (a === 'electrify-route') {
+        if (g.result(electrifyRoute(g.world, id))) g.toast('路線を電化しました', 'good');
+      } else if (a === 'orders') openOrders(g, id);
       else if (a === 'depot') g.result(sendToDepot(g.world, id));
       else if (a === 'center') g.centerOnTrain(id);
       else if (a === 'swap') openEngineSwap(g, id);
@@ -1619,7 +1633,7 @@ export function openMenu(g: Game) {
         <span>音・振動</span>
         <button class="seg-btn ${fxPrefs().sound ? 'on' : ''}" data-action="fx-sound">効果音 ${fxPrefs().sound ? 'オン' : 'オフ'}</button>
         <button class="seg-btn ${fxPrefs().bgm ? 'on' : ''}" data-action="fx-bgm">BGM ${fxPrefs().bgm ? 'オン' : 'オフ'}</button>
-        <button class="seg-btn ${fxPrefs().vibe ? 'on' : ''}" data-action="fx-vibe">振動 ${fxPrefs().vibe ? 'オン' : 'オフ'}</button>
+        ${isIOS() ? '' : `<button class="seg-btn ${fxPrefs().vibe ? 'on' : ''}" data-action="fx-vibe">振動 ${fxPrefs().vibe ? 'オン' : 'オフ'}</button>`}
       </div>`,
     onAction: (a) => {
       // 音・振動の切り替え（メニューは閉じない）

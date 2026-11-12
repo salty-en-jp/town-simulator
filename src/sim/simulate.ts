@@ -659,7 +659,8 @@ export function growHouse(world: World, town: Town, houses: number[], stationRec
   for (const c of cands) {
     r -= c.w;
     if (r <= 0) {
-      world.occ[c.t] = { k: 'house', town: town.id, level: 1, variant: world.rng.int(0, 3) };
+      // 都市になってから建った家は、モダンな見た目（variant 4〜7）
+      world.occ[c.t] = { k: 'house', town: town.id, level: 1, variant: world.rng.int(0, 3) + (townStage(town) >= 2 ? 4 : 0) };
       world.terrain[c.t] = Terrain.Grass;
       world.version++;
       return c.t;
@@ -685,7 +686,8 @@ function upgradeHouse(world: World, town: Town, houses: number[], to: 2 | 3, fro
   const t = world.rng.pick(pickFrom);
   const o = world.occ[t];
   if (o?.k !== 'house') return false;
-  world.occ[t] = { ...o, level: to };
+  // 都市で建て替えた建物は、モダンな見た目（variant 4〜7）
+  world.occ[t] = { ...o, level: to, variant: townStage(town) >= 2 ? 4 + (o.variant % 4) : o.variant };
   world.version++;
   return true;
 }
