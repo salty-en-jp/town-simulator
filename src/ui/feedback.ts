@@ -169,7 +169,7 @@ function iosHaptic() {
 export type Haptic = 'light' | 'medium' | 'error';
 
 /** iPhone・iPad か（iPad の Safari は Mac のふりをするので、タッチの数でも見る） */
-function isIOS(): boolean {
+export function isIOS(): boolean {
   const ua = navigator.userAgent;
   return /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }

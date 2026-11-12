@@ -104,3 +104,34 @@ describe('会社の名前', () => {
     expect(companyName(deserializeWorld(text))).toBe('みなと急行');
   });
 });
+
+describe('電化を楽に（v0.9.8）', () => {
+  it('2点とも線路の上なら、曲がった線路に沿って電化する', async () => {
+    const { electrifyPath } = await import('../src/sim/commands');
+    const w = lineWorld();
+    // L 字の線路：(2,5)→(20,5) と (20,5)→(20,12)
+    buildTrack(w, idx(w, 20, 5), idx(w, 20, 12));
+    const path = electrifyPath(w, idx(w, 4, 5), idx(w, 20, 10));
+    expect(path).toContain(idx(w, 20, 5));
+    expect(path.every((t) => w.track[t] !== 0)).toBe(true);
+    expect(electrify(w, idx(w, 4, 5), idx(w, 20, 10)).ok).toBe(true);
+    expect(isElectric(w, idx(w, 20, 8))).toBe(true);
+    expect(isElectric(w, idx(w, 12, 5))).toBe(true);
+  });
+
+  it('列車の路線（駅から駅・車庫から路線）をまとめて電化する', async () => {
+    const { buildStation, buildDepot, buyTrain, addOrder, electrifyRoute } = await import('../src/sim/commands');
+    const w = lineWorld();
+    const a = buildStation(w, idx(w, 4, 5), idx(w, 5, 5)).id!;
+    const b = buildStation(w, idx(w, 22, 5), idx(w, 23, 5)).id!;
+    const depot = buildDepot(w, idx(w, 12, 6)).id!;
+    const t = buyTrain(w, depot, ['coach']).id!;
+    addOrder(w, t, a);
+    addOrder(w, t, b);
+    const dry = electrifyRoute(w, t, { dry: true });
+    expect(dry.ok).toBe(true);
+    expect(electrifyRoute(w, t).ok).toBe(true);
+    expect(isElectric(w, idx(w, 14, 5))).toBe(true);
+    expect(electrifyRoute(w, t).error).toBe('もう電化されています');
+  });
+});

@@ -14,7 +14,7 @@ import {
   type VehicleType,
   type WagonType,
 } from './constants';
-import { dragLine, polyLine, rectTiles, straightLine } from './track';
+import { dragLine, findPath, polyLine, rectTiles, straightLine } from './track';
 import {
   AXIS_BITS,
   DIRS,
@@ -181,10 +181,55 @@ function changed(world: World, trackChanged: boolean) {
 // ───────────────────────── 電化（v0.8.1） ─────────────────────────
 
 /** 線路をなぞって電化する（remove なら架線を外す）。ELECTRIFY_YEAR から */
+/**
+ * 電化するマスの並び：2点とも線路の上なら、線路に沿ってたどる（曲がっていても1回で済む）。
+ * そうでなければ、なぞったとおりの L 字
+ */
+export function electrifyPath(world: World, a: number, b: number): number[] {
+  if (a !== b && world.track[a] && world.track[b]) {
+    const p = findPath(world, a, new Set([b]));
+    if (p) return p;
+  }
+  return dragLine(world, a, b);
+}
+
+/** 線路をなぞって電化する（remove なら架線を外す）。ELECTRIFY_YEAR から */
 export function electrify(world: World, a: number, b: number, opts: { remove?: boolean; dry?: boolean } = {}): CmdResult {
-  if (!opts.remove && dateOf(world.day).y < ELECTRIFY_YEAR)
-    return fail(`電化は${ELECTRIFY_YEAR}年からできます`);
-  const path = dragLine(world, a, b);
+  return electrifyTiles(world, electrifyPath(world, a, b), opts);
+}
+
+/** 列車が走る路線（駅から駅まで）を、まとめて電化する */
+export function routeTiles(world: World, trainId: number): number[] {
+  const t = world.trains.get(trainId);
+  if (!t) return [];
+  const stops = (world.orderLists.get(t.orderList)?.orders ?? []).map((o) => world.stations.get(o.station)).filter((s) => !!s);
+  const tiles = new Set<number>();
+  for (let i = 0; i < stops.length && stops.length >= 2; i++) {
+    const a = stops[i]!,
+      b = stops[(i + 1) % stops.length]!;
+    if (a.id === b.id) continue;
+    const p = findPath(world, a.tiles[0], new Set(b.tiles));
+    if (p) for (const x of p) tiles.add(x);
+    for (const x of [...a.tiles, ...b.tiles]) tiles.add(x);
+  }
+  // 車庫から路線までも（電気の列車が車庫から出入りできるように）
+  const depot = world.depots.get(t.depotId);
+  if (depot && stops.length) {
+    const goal = new Set(stops.flatMap((s) => s!.tiles));
+    const p = findPath(world, depot.tile, goal);
+    if (p) for (const x of p) tiles.add(x);
+  }
+  return [...tiles];
+}
+
+export function electrifyRoute(world: World, trainId: number, opts: { dry?: boolean } = {}): CmdResult {
+  const tiles = routeTiles(world, trainId);
+  if (!tiles.length) return fail('この列車には、駅から駅への指令がありません');
+  return electrifyTiles(world, tiles, opts);
+}
+
+function electrifyTiles(world: World, path: number[], opts: { remove?: boolean; dry?: boolean } = {}): CmdResult {
+  if (!opts.remove && dateOf(world.day).y < ELECTRIFY_YEAR) return fail(`電化は${ELECTRIFY_YEAR}年からできます`);
   const tiles = path.filter((t) => world.track[t] !== 0 && (opts.remove ? isElectric(world, t) : !isElectric(world, t)));
   if (!tiles.length) return fail(opts.remove ? '外す架線がありません' : path.some((t) => world.track[t]) ? 'もう電化されています' : '線路の上をなぞってください');
   let cost = 0;

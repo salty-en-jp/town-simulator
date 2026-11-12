@@ -902,24 +902,100 @@ function windowBands(g: Graphics, x0: number, y0: number, x1: number, y1: number
   }
 }
 
+/** ガラスの帯（モダンな建物）：側面いっぱいに薄い青 */
+function glassBands(g: Graphics, x0: number, y0: number, x1: number, y1: number, h: number, floors: number, glass: number) {
+  const fh = h / floors;
+  for (let f = 0; f < floors; f++) {
+    const b = f * fh + fh * 0.15,
+      t = f * fh + fh * 0.85;
+    g.poly([...groundPoly([[x0 + 0.03, y1]], b), ...groundPoly([[x1 - 0.03, y1]], b), ...groundPoly([[x1 - 0.03, y1]], t), ...groundPoly([[x0 + 0.03, y1]], t)]).fill({
+      color: glass,
+      alpha: 0.75,
+    });
+    g.poly([...groundPoly([[x1, y0 + 0.03]], b), ...groundPoly([[x1, y1 - 0.03]], b), ...groundPoly([[x1, y1 - 0.03]], t), ...groundPoly([[x1, y0 + 0.03]], t)]).fill({
+      color: shade(glass, 1.12),
+      alpha: 0.8,
+    });
+  }
+}
+
+/**
+ * 家・アパート・ビル。variant 0〜3 はむかしからの町並み、4 以上は都市になってから建ったモダンな建物（v0.9.8）。
+ * 同じ種類でも、場所ごとに大きさ・高さ・小物を少しずつ変えて、個性を出す
+ */
 function drawHouse(g: Graphics, x: number, y: number, level: 1 | 2 | 3, variant: number) {
   const j = (hash01(x, y, 5) - 0.5) * 0.08;
+  const r1 = hash01(x, y, 6),
+    r2 = hash01(x, y, 7);
+  const modern = variant >= 4;
+  const v = variant % 4;
+  if (!modern) {
+    if (level === 1) {
+      // 平屋：大きさ・屋根の高さ・はなれ・えんとつを少しずつ変える
+      const s = 0.22 + r1 * 0.08;
+      const wall = C.houseWalls[v];
+      const wh = 10 + r2 * 3,
+        rh = 7 + r1 * 6;
+      box(g, x - s + j, y - s, x + s + j, y + s, wh, wall);
+      // えんとつ：屋根の奥側に、屋根より先に描いて、てっぺんだけ屋根から出す
+      if (r1 > 0.7) box(g, x - s * 0.5 + j, y - s * 0.5, x - s * 0.5 + 0.07 + j, y - s * 0.5 + 0.07, rh * 0.75, 0x6a5a4a, wh);
+      hipRoof(g, x - s - 0.04 + j, y - s - 0.04, x + s + 0.04 + j, y + s + 0.04, wh, rh, C.houseRoofs[v]);
+      if (r2 > 0.6) box(g, x + s + j - 0.02, y - 0.1, x + s + j + 0.16, y + 0.12, 6, shade(wall, 0.92)); // はなれ・物置
+    } else if (level === 2) {
+      // アパート：高さと屋上を変える
+      const s = 0.32 + r1 * 0.04;
+      const h = 22 + Math.floor(r2 * 3) * 4;
+      const col = C.apt[v];
+      box(g, x - s, y - s, x + s, y + s, h, col);
+      windowBands(g, x - s, y - s, x + s, y + s, h, Math.round(h / 8));
+      box(g, x - s - 0.02, y - s - 0.02, x + s + 0.02, y + s + 0.02, 2, shade(col, 0.9), h);
+      if (r1 > 0.5) box(g, x - 0.1, y - 0.1, x + 0.06, y + 0.06, 5, shade(col, 0.8), h + 2); // 屋上の機械室
+    } else {
+      // ビル：高さを変え、上に段や看板
+      const s = 0.36 + r2 * 0.04;
+      const h = 48 + Math.floor(r1 * 4) * 6;
+      const col = C.tower[v];
+      box(g, x - s, y - s, x + s, y + s, h, col);
+      windowBands(g, x - s, y - s, x + s, y + s, h, Math.round(h / 7));
+      if (r2 > 0.55) {
+        box(g, x - s * 0.7, y - s * 0.7, x + s * 0.7, y + s * 0.7, 8, shade(col, 0.95), h);
+        box(g, x - 0.08, y - 0.08, x + 0.06, y + 0.06, 5, shade(col, 0.8), h + 8);
+      } else box(g, x - 0.12, y - 0.12, x + 0.08, y + 0.08, 6, shade(col, 0.8), h);
+    }
+    return;
+  }
+  // ───── モダン（都市になってから建った建物） ─────
+  const walls = [0xf2f3f5, 0xe1e5ea, 0xc9cfd6, 0x4a525c];
+  const glasses = [0x8fb8d8, 0x6f9fc8, 0x9cc7c4, 0x7e94b8];
+  const wall = walls[v],
+    glass = glasses[(v + Math.floor(r1 * 4)) % 4];
   if (level === 1) {
-    const s = 0.26;
-    box(g, x - s + j, y - s, x + s + j, y + s, 11, C.houseWalls[variant % 4]);
-    hipRoof(g, x - s - 0.04 + j, y - s - 0.04, x + s + 0.04 + j, y + s + 0.04, 11, 10, C.houseRoofs[variant % 4]);
+    // 平らな屋根の白い家と、ガラス窓。L 字に少し出っぱる
+    const s = 0.24 + r1 * 0.05;
+    box(g, x - s + j, y - s, x + s + j, y + s, 11, wall);
+    glassBands(g, x - s + j, y - s, x + s + j, y + s, 11, 1, glass);
+    box(g, x - s - 0.03 + j, y - s - 0.03, x + s + 0.03 + j, y + s + 0.03, 1.5, shade(wall, 0.75), 11);
+    if (r2 > 0.4) box(g, x - s + j, y - s, x + j, y, 7, shade(wall, 0.92), 11); // 2階の小さな部屋
   } else if (level === 2) {
-    const s = 0.34;
-    const col = C.apt[variant % 4];
-    box(g, x - s, y - s, x + s, y + s, 26, col);
-    windowBands(g, x - s, y - s, x + s, y + s, 26, 3);
-    box(g, x - s - 0.02, y - s - 0.02, x + s + 0.02, y + s + 0.02, 2, shade(col, 0.9), 26);
+    // ガラスのマンション：白い枠
+    const s = 0.33;
+    const h = 26 + Math.floor(r2 * 3) * 5;
+    box(g, x - s, y - s, x + s, y + s, h, wall);
+    glassBands(g, x - s, y - s, x + s, y + s, h, Math.round(h / 7), glass);
+    box(g, x - s - 0.03, y - s - 0.03, x + s + 0.03, y + s + 0.03, 2, shade(wall, 0.85), h);
   } else {
+    // ガラスの高層ビル：高く、上は段々。アンテナ
     const s = 0.38;
-    const col = C.tower[variant % 4];
-    box(g, x - s, y - s, x + s, y + s, 58, col);
-    windowBands(g, x - s, y - s, x + s, y + s, 58, 8);
-    box(g, x - 0.12, y - 0.12, x + 0.08, y + 0.08, 6, shade(col, 0.8), 58);
+    const h = 64 + Math.floor(r1 * 4) * 10;
+    box(g, x - s, y - s, x + s, y + s, h, shade(glass, 0.85));
+    glassBands(g, x - s, y - s, x + s, y + s, h, Math.round(h / 6), glass);
+    box(g, x - s * 0.65, y - s * 0.65, x + s * 0.65, y + s * 0.65, 10, wall, h);
+    if (r2 > 0.4) {
+      const ax = isoX(x, y),
+        ay = isoY(x, y) - h - 10;
+      g.moveTo(ax, ay).lineTo(ax, ay - 14).stroke({ width: 1.5, color: 0x6a7480 });
+      g.circle(ax, ay - 14, 1.6).fill(0xe84a4a);
+    }
   }
 }
 
