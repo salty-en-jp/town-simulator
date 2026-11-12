@@ -6,11 +6,15 @@
 //   iPhone では、画面をさわった瞬間（タップの処理の中）でしか振動しない
 // ・どちらもはじめはオン。メニューの「音・振動」で切り替える（この端末に覚える）
 
+import { bgmPlaying, playBgm, stopBgm } from './bgm';
+
 const KEY = 'tsunagu.fx';
 
 interface FxPrefs {
   sound: boolean;
   vibe: boolean;
+  /** BGM（v0.9.6） */
+  bgm: boolean;
   volume: number;
 }
 
@@ -22,10 +26,11 @@ function load(): FxPrefs {
     return {
       sound: v.sound !== false,
       vibe: v.vibe !== false,
+      bgm: v.bgm !== false,
       volume: typeof v.volume === 'number' ? Math.min(1, Math.max(0, v.volume)) : 0.6,
     };
   } catch {
-    return { sound: true, vibe: true, volume: 0.6 };
+    return { sound: true, vibe: true, bgm: true, volume: 0.6 };
   }
 }
 
@@ -44,6 +49,9 @@ export function fxPrefs(): Readonly<FxPrefs> {
 export function setFx(p: Partial<FxPrefs>) {
   prefs = { ...prefs, ...p };
   save();
+  // BGM の切り替えは、押したその場で（iPhone はタップの中でないと鳴らない）
+  if (p.bgm === true) playBgm(prefs.volume);
+  if (p.bgm === false) stopBgm();
 }
 
 // ───────────── 音 ─────────────
@@ -54,6 +62,7 @@ let warmed = false;
 
 /** はじめてさわったときに音を使えるようにする（ブラウザは、さわるまで音を出させてくれない） */
 export function unlockAudio() {
+  if (prefs.bgm && !bgmPlaying()) playBgm(prefs.volume);
   if (!prefs.sound) return;
   try {
     if (!ctx) {
@@ -173,4 +182,9 @@ export function haptic(kind: Haptic = 'light') {
 /** 音の準備ができているか（確認用） */
 export function audioState(): string {
   return ctx ? ctx.state : 'none';
+}
+
+/** BGM が流れているか（確認用） */
+export function bgmState(): boolean {
+  return bgmPlaying();
 }

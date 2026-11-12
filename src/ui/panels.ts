@@ -1618,12 +1618,14 @@ export function openMenu(g: Game) {
       <div class="fx-row">
         <span>音・振動</span>
         <button class="seg-btn ${fxPrefs().sound ? 'on' : ''}" data-action="fx-sound">効果音 ${fxPrefs().sound ? 'オン' : 'オフ'}</button>
+        <button class="seg-btn ${fxPrefs().bgm ? 'on' : ''}" data-action="fx-bgm">BGM ${fxPrefs().bgm ? 'オン' : 'オフ'}</button>
         <button class="seg-btn ${fxPrefs().vibe ? 'on' : ''}" data-action="fx-vibe">振動 ${fxPrefs().vibe ? 'オン' : 'オフ'}</button>
       </div>`,
     onAction: (a) => {
       // 音・振動の切り替え（メニューは閉じない）
-      if (a === 'fx-sound' || a === 'fx-vibe') {
+      if (a === 'fx-sound' || a === 'fx-vibe' || a === 'fx-bgm') {
         if (a === 'fx-sound') setFx({ sound: !fxPrefs().sound });
+        else if (a === 'fx-bgm') setFx({ bgm: !fxPrefs().bgm });
         else setFx({ vibe: !fxPrefs().vibe });
         if (fxPrefs().sound) sfx('tap');
         if (a === 'fx-vibe' && fxPrefs().vibe) haptic('light');
