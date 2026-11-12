@@ -2,6 +2,7 @@
 
 import { VERSION } from '../version';
 import { openZukan } from './zukan';
+import { fxPrefs, haptic, setFx, sfx } from './feedback';
 import { openDevel } from './develUi';
 import { engineList } from '../sim/devel';
 import { partnerName } from '../sim/partners';
@@ -219,7 +220,13 @@ export function openTrain(g: Game, id: number) {
     onAction: (a) => {
       const t = g.world.trains.get(id);
       if (!t) return;
-      if (a === 'startstop') g.result(startStop(g.world, id));
+      if (a === 'startstop') {
+        const was = g.world.trains.get(id)?.state;
+        if (g.result(startStop(g.world, id)) && was === 'in_depot') {
+          sfx('depart');
+          haptic('medium');
+        }
+      }
       else if (a === 'orders') openOrders(g, id);
       else if (a === 'depot') g.result(sendToDepot(g.world, id));
       else if (a === 'center') g.centerOnTrain(id);
@@ -734,7 +741,10 @@ export function openDepot(g: Game, id: number) {
           g.depotSel.set(id, Number(el.dataset.id) === sel ? -1 : Number(el.dataset.id));
           break;
         case 'start':
-          g.result(startStop(w, Number(el.dataset.id)));
+          if (g.result(startStop(w, Number(el.dataset.id)))) {
+            sfx('depart');
+            haptic('medium');
+          }
           break;
         case 'detach':
           g.result(detachVehicle(w, Number(el.dataset.train), car));
@@ -1604,8 +1614,22 @@ export function openMenu(g: Game) {
         <button data-action="zukan">${ICONS.book}<span>車両図鑑</span></button>
         <button data-action="news">${ICONS.news}<span>お知らせ</span></button>
         <button data-action="help">${ICONS.help}<span>ヘルプ</span></button>
+      </div>
+      <div class="fx-row">
+        <span>音・振動</span>
+        <button class="seg-btn ${fxPrefs().sound ? 'on' : ''}" data-action="fx-sound">効果音 ${fxPrefs().sound ? 'オン' : 'オフ'}</button>
+        <button class="seg-btn ${fxPrefs().vibe ? 'on' : ''}" data-action="fx-vibe">振動 ${fxPrefs().vibe ? 'オン' : 'オフ'}</button>
       </div>`,
     onAction: (a) => {
+      // 音・振動の切り替え（メニューは閉じない）
+      if (a === 'fx-sound' || a === 'fx-vibe') {
+        if (a === 'fx-sound') setFx({ sound: !fxPrefs().sound });
+        else setFx({ vibe: !fxPrefs().vibe });
+        if (fxPrefs().sound) sfx('tap');
+        if (a === 'fx-vibe' && fxPrefs().vibe) haptic('light');
+        g.wm.refresh('menu', true);
+        return;
+      }
       g.wm.close('menu');
       if (a === 'finance') openFinance(g);
       if (a === 'trains') openTrainList(g);

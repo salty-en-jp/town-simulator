@@ -218,8 +218,14 @@ export class WindowManager {
     input.value = r.get();
     input.maxLength = 20;
     input.setAttribute('aria-label', '新しい名前');
+    // 決定ボタン（日本語入力でも迷わないように）
+    const ok = document.createElement('button');
+    ok.className = 'win-rename-ok';
+    ok.type = 'button';
+    ok.textContent = '決定';
+    ok.setAttribute('aria-label', '名前を決定');
     w.titleEl.textContent = '';
-    w.titleEl.appendChild(input);
+    w.titleEl.append(input, ok);
     w.el.classList.add('renaming');
     input.focus();
     input.select();
@@ -238,13 +244,32 @@ export class WindowManager {
       w.el.classList.remove('renaming');
       w.titleEl.textContent = w.spec.title;
     };
+    // 日本語入力の変換中の Enter は「変換の確定」なので、名前の決定にはしない。
+    // Safari は変換を確定する Enter を、変換が終わった直後に送ってくるので、少しのあいだ待つ
+    let composing = false;
+    let composeEnd = 0;
+    input.addEventListener('compositionstart', () => (composing = true));
+    input.addEventListener('compositionend', () => {
+      composing = false;
+      composeEnd = performance.now();
+    });
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      if (e.key === 'Enter') finish(true);
-      if (e.key === 'Escape') finish(false);
+      const ime = composing || e.isComposing || e.keyCode === 229 || performance.now() - composeEnd < 80;
+      if (e.key === 'Enter' && !ime) finish(true);
+      if (e.key === 'Escape' && !ime) finish(false);
     });
-    input.addEventListener('blur', () => finish(true));
+    input.addEventListener('blur', (e) => {
+      // 決定ボタンを押したときは、ボタンの方で決める
+      if ((e as FocusEvent).relatedTarget === ok) return;
+      finish(true);
+    });
     input.addEventListener('pointerdown', (e) => e.stopPropagation());
+    ok.addEventListener('pointerdown', (e) => e.stopPropagation());
+    ok.addEventListener('click', (e) => {
+      e.stopPropagation();
+      finish(true);
+    });
   }
 
   refreshAll(): void {

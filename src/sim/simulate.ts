@@ -600,6 +600,34 @@ function buildableForHouse(world: World, t: number): boolean {
   return world.occ[t] === null && world.track[t] === 0 && world.terrain[t] !== Terrain.Water && world.terrain[t] !== Terrain.Rock;
 }
 
+/** 線路・駅（2マスまで）をはさんだ向こうに、その町の家があるか（線路で囲んでも、町が外へ広がれるように） */
+function acrossRail(world: World, x: number, y: number, occupied: Set<number>): boolean {
+  const rail = (t: number) => world.track[t] !== 0 || world.occ[t]?.k === 'station';
+  for (const [dx, dy] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ]) {
+    for (let gap = 1; gap <= 2; gap++) {
+      let ok = true;
+      for (let k = 1; k <= gap; k++) {
+        const xx = x + dx * k,
+          yy = y + dy * k;
+        if (!inBounds(world, xx, yy) || !rail(idx(world, xx, yy))) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) break;
+      const hx = x + dx * (gap + 1),
+        hy = y + dy * (gap + 1);
+      if (inBounds(world, hx, hy) && occupied.has(idx(world, hx, hy))) return true;
+    }
+  }
+  return false;
+}
+
 /** 町に家を1軒建てる。駅の集客範囲の中を優先する */
 export function growHouse(world: World, town: Town, houses: number[], stationRects: Rect[]): number {
   const n = houses.length;
@@ -616,7 +644,8 @@ export function growHouse(world: World, town: Town, houses: number[], stationRec
         Math.abs(x - town.cx) + Math.abs(y - town.cy) <= 1 ||
         [-1, 0, 1].some((dy) =>
           [-1, 0, 1].some((dx) => inBounds(world, x + dx, y + dy) && occupied.has(idx(world, x + dx, y + dy))),
-        );
+        ) ||
+        acrossRail(world, x, y, occupied);
       if (!near) continue;
       const inStation = stationRects.some((r) => rectContains(r, x, y));
       const dist = Math.abs(x - town.cx) + Math.abs(y - town.cy);
@@ -687,7 +716,16 @@ function townsDaily(world: World, ctx: DayContext) {
     if ((world.day + town.id) % every === 0) {
       if (stage === 2) {
         // 都市：建設資材でビルに建て替える。建て替える家がなければ、新しくビルを建てる
-        if (has('materials', TOWN.materialsPerUpgrade3)) {
+        // 半分くらいは、町のはずれに新しい家・アパートを建てて、都市も外へ広がる
+        if (has('materials', TOWN.materialsPerUpgrade3) && world.rng.chance(0.5)) {
+          const t = growHouse(world, town, houses, stationRects);
+          if (t >= 0) {
+            const o = world.occ[t];
+            if (o?.k === 'house' && world.rng.chance(0.5)) world.occ[t] = { ...o, level: 2 };
+            houses.push(t);
+            use('materials', Math.round(TOWN.materialsPerUpgrade3 / 2));
+          }
+        } else if (has('materials', TOWN.materialsPerUpgrade3)) {
           if (upgradeHouse(world, town, houses, 3, true)) use('materials', TOWN.materialsPerUpgrade3);
           else if (world.rng.chance(0.5)) {
             const t = growHouse(world, town, houses, stationRects);
