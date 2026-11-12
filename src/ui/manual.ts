@@ -19,6 +19,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     items: [
       '<b>効果音が鳴らない</b>ことがあったのを直しました（iPhone の Safari は、画面から指を離したときに音の準備をするように）',
       'iPhone は、マナーモード（消音スイッチ）のときは効果音が鳴りません',
+      'iPhone で<b>振動しない</b>ことがあったのを直しました（iOS 18 以上の Safari）',
     ],
   },
   {

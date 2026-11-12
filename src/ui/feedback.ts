@@ -135,24 +135,22 @@ export function sfx(name: Sfx) {
 
 // ───────────── 振動 ─────────────
 
-let iosSwitch: HTMLLabelElement | null = null;
-
-/** iOS 18 の Safari：スイッチを切り替えると軽く振動する。見えないところに置いておく */
-function iosHaptic(): boolean {
-  if (!iosSwitch) {
-    const label = document.createElement('label');
-    label.setAttribute('aria-hidden', 'true');
-    label.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.setAttribute('switch', '');
-    input.tabIndex = -1;
-    label.appendChild(input);
-    document.body.appendChild(label);
-    iosSwitch = label;
-  }
-  iosSwitch.click();
-  return true;
+/**
+ * iOS 18 の Safari：スイッチ型のチェックボックスを切り替えると軽く振動する。
+ * 毎回つくって、表示しないまま切り替えて、すぐ消す（よく使われている ios-haptics と同じやり方）。
+ * 画面をさわった処理の中（クリックの中）で呼んだときだけ振動する
+ */
+function iosHaptic() {
+  const label = document.createElement('label');
+  label.setAttribute('aria-hidden', 'true');
+  label.style.display = 'none';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.setAttribute('switch', '');
+  label.appendChild(input);
+  document.head.appendChild(label);
+  label.click();
+  document.head.removeChild(label);
 }
 
 export type Haptic = 'light' | 'medium' | 'error';
