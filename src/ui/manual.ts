@@ -14,6 +14,14 @@ export interface ReleaseNote {
 /** 新しい順 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.9.6',
+    date: '2026年11月',
+    items: [
+      '<b>効果音が鳴らない</b>ことがあったのを直しました（iPhone の Safari は、画面から指を離したときに音の準備をするように）',
+      'iPhone は、マナーモード（消音スイッチ）のときは効果音が鳴りません',
+    ],
+  },
+  {
     version: '0.9.5',
     date: '2026年11月',
     items: [

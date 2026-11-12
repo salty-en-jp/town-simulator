@@ -9,6 +9,7 @@ import { formatYen } from './sim/commands';
 import * as panels from './ui/panels';
 import { esc } from './ui/panels';
 import * as devel from './sim/devel';
+import * as fx from './ui/feedback';
 import * as events from './sim/events';
 import * as sim from './sim/simulate';
 import type { World } from './sim/world';
@@ -216,7 +217,7 @@ async function main() {
   // （開発サーバー、または VITE_TEST_HOOKS=1 でビルドしたときだけ）
   if (import.meta.env.DEV || import.meta.env.VITE_TEST_HOOKS === '1') {
     (window as unknown as { __game: Game }).__game = game;
-    (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim, events, devel };
+    (window as unknown as { __debug: unknown }).__debug = { game, cmds, panels, sim, events, devel, fx };
   }
 }
 

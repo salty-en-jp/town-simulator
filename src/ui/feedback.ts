@@ -50,6 +50,7 @@ export function setFx(p: Partial<FxPrefs>) {
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let warmed = false;
 
 /** はじめてさわったときに音を使えるようにする（ブラウザは、さわるまで音を出させてくれない） */
 export function unlockAudio() {
@@ -62,7 +63,16 @@ export function unlockAudio() {
       master = ctx.createGain();
       master.connect(ctx.destination);
     }
-    if (ctx.state === 'suspended') void ctx.resume();
+    if (ctx.state !== 'running') void ctx.resume();
+    // iPhone：さわった瞬間に一度「空鳴らし」しておかないと、そのあとも鳴らないことがある
+    if (!warmed) {
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      warmed = true;
+    }
   } catch {
     ctx = null;
   }
@@ -160,4 +170,9 @@ export function haptic(kind: Haptic = 'light') {
   } catch {
     /* 振動できなくても遊べる */
   }
+}
+
+/** 音の準備ができているか（確認用） */
+export function audioState(): string {
+  return ctx ? ctx.state : 'none';
 }
