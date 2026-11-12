@@ -14,6 +14,16 @@ export interface ReleaseNote {
 /** 新しい順 */
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.9.6',
+    date: '2026年11月',
+    items: [
+      '<b>効果音が鳴らない</b>ことがあったのを直しました（iPhone の Safari は、画面から指を離したときに音の準備をするように）',
+      '<b>BGM</b>：ゆったりした短い曲がくり返し流れます（メニューの「音・振動」でオン・オフ。はじめはオン）',
+      'BGM がオンのときは、iPhone のマナーモード中でも効果音が鳴りやすくなります',
+      'iPhone で<b>振動しない</b>ことがあったのを直しました（iOS 18 以上の Safari）',
+    ],
+  },
+  {
     version: '0.9.5',
     date: '2026年11月',
     items: [

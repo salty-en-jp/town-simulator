@@ -1,7 +1,7 @@
 # ツナグマチ
 
 交通をつなぎ、お金を稼ぎ、街を育てる経営 × 都市発展シミュレーション。
-PC と スマホ（iPhone）のブラウザで遊べます。いまは **試作版 v0.9.5** です。
+PC と スマホ（iPhone）のブラウザで遊べます。いまは **試作版 v0.9.6** です。
 
 - 遊ぶ: https://salty-en-jp.github.io/town-simulator/ （`main` ブランチに入ると自動で公開されます）
 - 企画書: [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md)

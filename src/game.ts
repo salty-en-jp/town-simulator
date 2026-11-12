@@ -1179,9 +1179,10 @@ export class Game implements InputTarget {
 
   /** 音・振動：はじめてさわったときに音を使えるようにする */
   private bindFeedback() {
+    // iPhone の Safari は、指を「離した」とき（touchend・click）でないと音を許してくれない。
+    // ウィンドウなどが伝わりを止めても届くように、いちばん先（capture）で受ける
     const unlock = () => unlockAudio();
-    window.addEventListener('pointerdown', unlock, { passive: true });
-    window.addEventListener('keydown', unlock);
+    for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) window.addEventListener(ev, unlock, { capture: true, passive: true });
   }
 
   private bindKeys() {
