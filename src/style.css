@@ -3893,3 +3893,14 @@ details.relnote.old summary small {
   align-items: center;
   min-width: 0;
 }
+
+.fx-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}

@@ -63,6 +63,7 @@ import { challengeProgress, checkChallengeEnd, createChallengeWorld, type Challe
 import { challengeCardHtml, openChallengeWindow } from './ui/challengeUi';
 import { noteVehicles } from './ui/zukan';
 import { openDevel } from './ui/develUi';
+import { haptic, sfx, unlockAudio } from './ui/feedback';
 import { currentDesign } from './sim/devel';
 import {
   daysSinceBackup,
@@ -166,6 +167,7 @@ export class Game implements InputTarget {
     attachInput(renderer.canvas, this);
     this.buildHud();
     this.bindKeys();
+    this.bindFeedback();
     const mq = window.matchMedia('(pointer: coarse)');
     mq.addEventListener('change', () => this.applyUiMode());
     window.addEventListener('resize', () => this.applyUiMode());
@@ -779,6 +781,10 @@ export class Game implements InputTarget {
   }
 
   toast(text: string, tone: 'good' | 'bad' | 'info' = 'info') {
+    if (tone === 'bad') {
+      sfx('error');
+      haptic('error');
+    }
     const t = this.el.toast;
     t.textContent = text;
     t.className = `show ${tone}`;
@@ -871,6 +877,10 @@ export class Game implements InputTarget {
       }
     }
     const ok = this.result(r, p.b);
+    if (ok) {
+      sfx('build');
+      haptic('light');
+    }
     if (ok && p.kind === 'depot' && r.id && !this.touchUI) {
       this.toast('車庫を建てました。クリックすると列車を買えます', 'good');
     }
@@ -1166,6 +1176,13 @@ export class Game implements InputTarget {
   }
 
   // ───────────────────────── キーボード（OpenTTD と同じ割り当て） ─────────────────────────
+
+  /** 音・振動：はじめてさわったときに音を使えるようにする */
+  private bindFeedback() {
+    const unlock = () => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { passive: true });
+    window.addEventListener('keydown', unlock);
+  }
 
   private bindKeys() {
     window.addEventListener('keydown', (e) => {
@@ -1576,10 +1593,13 @@ export class Game implements InputTarget {
     for (const ev of evs) {
       if (ev.type === 'income') {
         this.renderer.floatText(ev.tile, `+${formatYen(ev.amount)}`, 'income');
+        sfx('coin');
       } else if (ev.type === 'fx') {
         for (const t of ev.tiles) this.renderer.floatText(t, '🔥', 'fire');
       } else {
         this.news(ev.text, ev.tone ?? 'info', ev.tile ?? -1);
+        // 依頼の達成・実績・機関車の完成・大賞・買い取りは、ファンファーレ
+        if (ev.tone === 'good' && /達成|完成しました|大賞|買い取りました|ランクが上がり/.test(ev.text)) sfx('fanfare');
       }
     }
   }

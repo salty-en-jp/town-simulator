@@ -93,11 +93,14 @@ describe('町と食料品・建設資材', () => {
   it('建設資材が届くと高層ビルに建て替わる', () => {
     const { w, t } = town();
     t.stage = 2; // 都市（建設資材を受け入れる段階）
-    t.stock.materials = TOWN.materialsPerUpgrade3 * 3;
-    days(w, 10);
+    t.stock.materials = TOWN.materialsPerUpgrade3 * 10;
+    const houses0 = w.occ.filter((o) => o?.k === 'house').length;
+    days(w, 60);
     const towers = w.occ.filter((o) => o?.k === 'house' && o.level === 3).length;
     expect(towers).toBeGreaterThan(0);
-    expect(t.stock.materials!).toBeLessThan(TOWN.materialsPerUpgrade3 * 3);
+    expect(t.stock.materials!).toBeLessThan(TOWN.materialsPerUpgrade3 * 10);
+    // 都市も、はずれに新しい家を建てて外へ広がる（v0.9.5）
+    expect(w.occ.filter((o) => o?.k === 'house').length).toBeGreaterThan(houses0);
   });
 });
 
@@ -107,5 +110,38 @@ describe('古いセーブ', () => {
     const file = JSON.parse(serializeWorld(w));
     file.version = 2;
     expect(() => deserializeWorld(JSON.stringify(file))).toThrow(/古いセーブ/);
+  });
+});
+
+describe('線路で囲んだ町', () => {
+  it('線路をはさんだ向こうにも家が建つ（線路が壁にならない）', async () => {
+    const { growHouse } = await import('../src/sim/simulate');
+    const { buildTrack } = await import('../src/sim/commands');
+    const w = createEmptyWorld(30, 30, 3);
+    w.money = 1e10;
+    const t = addTown(w, '囲み', 15, 15);
+    // 町のまわりの家を、ぐるっと線路で囲む（家は 14..16 に置く）
+    const houses: number[] = [];
+    for (let y = 14; y <= 16; y++)
+      for (let x = 14; x <= 16; x++) {
+        const i = idx(w, x, y);
+        w.occ[i] = { k: 'house', town: t.id, level: 1, variant: 0 };
+        houses.push(i);
+      }
+    buildTrack(w, idx(w, 13, 13), idx(w, 17, 13));
+    buildTrack(w, idx(w, 17, 13), idx(w, 17, 17));
+    buildTrack(w, idx(w, 17, 17), idx(w, 13, 17));
+    buildTrack(w, idx(w, 13, 17), idx(w, 13, 13));
+    // 何軒か建てると、線路の外側（12 以下・18 以上）にも建つ
+    let outside = 0;
+    for (let k = 0; k < 20; k++) {
+      const h = growHouse(w, t, houses, []);
+      if (h < 0) break;
+      houses.push(h);
+      const x = h % w.w,
+        y = Math.floor(h / w.w);
+      if (x <= 12 || x >= 18 || y <= 12 || y >= 18) outside++;
+    }
+    expect(outside).toBeGreaterThan(0);
   });
 });
